@@ -1,0 +1,11 @@
+[package]
+name = "cairn-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+rusqlite.workspace = true
+blake3.workspace = true
+cairn-scip.workspace = true

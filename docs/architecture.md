@@ -1595,3 +1595,106 @@ Jediná strukturální novinka je tvar `path_convention` a ten je v návrhu už 
 
 Bundling je reálné riziko a je specifické pro JS/TS. Není to ale díra v architektuře —
 je to místo, kde bude `unknown:` sekce delší, což je přesně to, k čemu je.
+
+---
+
+## 18. Řízení kontextu — nástroj neví, kolik toho chce agent
+
+Dosud návrh mlčky předpokládal, že cairn sám ví, co vrátit. To je špatně: **kolik kontextu
+a jakého tvaru je potřeba, ví jen volající**, a mění se to dotaz od dotazu. Audit chce
+šířku, oprava konkrétní chyby hloubku, a agent s 20 tisíci volnými tokeny chce něco jiného
+než agent s dvěma sty.
+
+Rozhraní tedy potřebuje **ovládání**, ne jen dotazy. Ne dvacet přepínačů, ale čtyři
+ortogonální osy.
+
+### 18.1 Čtyři osy
+
+| osa | co říká | příklad |
+|---|---|---|
+| **detail** | kolik z každého uzlu | `--detail skeleton\|signature\|doc\|body` |
+| **šířka × hloubka** | jak daleko se jde | `--depth 2 --fanout 8` |
+| **aspekt** | které hrany se prochází | `--aspect callers,impls,tests,routes,services` |
+| **rozpočet** | tvrdý strop | `--budget 2000` (tokenů) |
+
+První tři jsou zřejmé. Čtvrtá je ta zajímavá.
+
+### 18.2 Rozpočet jako prvotřídní vstup
+
+Dnešní agent musí velikost odpovědi hádat přes `--limit` a pak litovat. Obrátit to:
+**volající řekne strop, nástroj je odpovědný za to, že ho vyplní tím nejcennějším** —
+a povinně vypíše, co kvůli tomu vypustil.
+
+```
+$ cairn blast a4 --budget 1500
+
+static callers (4 of 11 shown, ranked)            [L1, exact]
+  [c1] LoginHandler.post           api/login.py:55
+  …
+suppressed: 7 callers below the budget cut
+            (expand: cairn blast a4 --budget 4000, or --aspect callers --detail skeleton)
+```
+
+Proč to sedí k tezi produktu: celý pitch je „levnější kontext". Nechat agenta hádat limit
+znamená, že buď utratí zbytečně, nebo si vyžádá druhé kolo — a druhé kolo je přesně ta
+explorační smyčka, kterou máme rušit. **Rozpočet je jediné místo, kde nástroj může
+optimalizovat lépe než volající**, protože jako jediný ví, co všechno má k dispozici
+a jak je to seřazené.
+
+Odhad tokenů: `cairn-fmt` počítá vlastní výstup, takže strop je vůči skutečné odpovědi,
+ne vůči odhadu. Přibližný počet (znaky / 3,7) stačí — nemá cenu tahat tokenizér.
+
+### 18.3 Zápis: nejen shrnutí
+
+`cairn note` (§3.1) zapisuje L2 shrnutí. Volající ale ví i věci, které se vyplatí uložit
+a které nejsou shrnutí:
+
+| co | proč to agent ví a cairn ne |
+|---|---|
+| **potvrzení nebo vyvrácení slabé hrany** (§18.4) | agent kód přečetl a viděl, jestli to volání skutečně existuje |
+| **role symbolu** („tohle je jediný vstupní bod do plateb") | plyne z úkolu, ne z AST |
+| **negativní znalost** („tady jsem hledal, není to tu") | ušetří příští session celé kolo |
+| **doménový alias** („čemu tady říkají *order*, jinde je *listing*") | most mezi žargonem a jmény |
+
+Všechno jde do L2, tedy s `confidence`, odstranitelné, a **nikdy nevstupuje do L0/L1
+výpočtu** (D15). Negativní znalost je z toho nejlevnější a nejpodceněnější: „tady to není"
+je informace, kterou dnes každá session objevuje znovu.
+
+### 18.4 Skryté vazby — co statika nevidí a přesto jde najít
+
+Ptáš se, jestli existují vazby, které jsme neodhalili. Existují, a některé jsou levné.
+Společné mají to, že jsou **nejisté** — proto nesmí do L1 mezi exaktní hrany, ale patří
+do vlastní vrstvy **L1-W (weak)** s confidence a s povinným označením v odpovědi.
+
+| detektor | mechanismus | cena |
+|---|---|---|
+| **Řetězcové literály shodné se jménem symbolu** | index literálů × jména symbolů | triviální, vysoký recall |
+| Jméno v konfiguraci / env / feature flagu | totéž nad hodnotami z §8.5 | triviální |
+| Django `"app.Model"`, jména Celery úloh, DI klíče | vzor `call_pattern` s literálem | pravidlo |
+| Jméno tabulky v SQL ↔ ORM model | lexikální shoda | levné |
+| URL literál v jedné službě ↔ routa v jiné | průnik §8.6 a literálů | levné, cross-service |
+| Jméno pytest fixture ↔ parametr testu | lexikální, per framework | pravidlo |
+| Co se mění společně | git (§9) | už v návrhu |
+
+První řádek stojí za rozvedení, protože je to nejlepší poměr cena/výnos v celé tabulce:
+**každý řetězcový literál v repu, který se přesně shoduje se jménem nějakého symbolu, je
+kandidát na dynamickou referenci.** Pokrývá `getattr`, `importlib`, registry pluginů,
+routing přes stringy i serializační mapy — tedy velkou část těch 123 dynamických míst
+z coverage analýzy. Je to čistě deterministické (D15), je to jeden join, a výsledek se
+vrací jako:
+
+```
+weak links (2)                                    [L1-W, unverified]
+  plugins/loader.py:22   literal "TokenValidator" matches [a4]   (getattr call nearby)
+  config/services.yaml:8 literal "auth.TokenValidator" matches [a4]
+```
+
+Agent to buď potvrdí přečtením kódu, nebo zamítne — a přes §18.3 to může zapsat zpátky,
+takže se příště neptá.
+
+### 18.5 Co tím nechceme
+
+Ne agenta uvnitř nástroje. Osy z §18.1 jsou parametry deterministického výběru, ne
+plánovač. A ne neomezenou sadu detektorů: každý slabý detektor, který má nízkou precision
+a nikdo ho nepotvrzuje, jen nafukuje `weak links` a učí agenta tu sekci ignorovat —
+což by zabilo i ty užitečné.

@@ -1,0 +1,26 @@
+name: cairn
+
+services:
+  # Interactive/dev shell and build runner:
+  #   docker compose run --rm dev cargo build
+  #   docker compose run --rm dev cargo test
+  dev:
+    build:
+      context: .
+      target: dev
+    volumes:
+      - .:/w
+      - cargo:/cargo
+      - target:/target
+      # Test corpus: the SCIP indexes produced by the phase 0 spike.
+      - ./spike/out:/scip:ro
+      # Target repo, read-only: needed to detect generated code by header marker.
+      - ../repos/backend:/repo:ro
+    working_dir: /w
+    environment:
+      CAIRN_LOG: ${CAIRN_LOG:-info}
+    command: ["cargo", "build"]
+
+volumes:
+  cargo:
+  target:
