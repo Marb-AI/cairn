@@ -1,0 +1,7 @@
+/target
+**/*.rs.bk
+/.cairn
+/fixtures
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
