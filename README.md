@@ -1,18 +1,29 @@
 # cairn
 
-Lokální MCP server pro navigaci v codebase. Perzistentní, obsahem klíčovaný graf struktury
-kódu, který odpovídá LLM agentovi na strukturální dotazy deterministicky a kompaktně —
+Lokální CLI pro navigaci v codebase. Perzistentní, obsahem klíčovaný graf struktury kódu,
+který odpovídá LLM agentovi na strukturální dotazy deterministicky a kompaktně —
 místo 12 kol grepování.
 
+```
+$ cairn blast a4 --depth 2
+$ cairn topology
+$ cairn refs a4 --kind callers
+```
+
 - **Není agent.** Je to orientační vrstva pod agentem.
+- **Bez LLM.** Celý index se postaví offline, bez API klíče. Model smí znalost jen
+  obohatit, nikdy ji nezakládá.
 - **Nepíše parsery.** Staví na SCIP indexerech a language serverech.
 - **Zná topologii, ne jen kód.** Docker Compose a Dockerfile dávají grafu kořeny
   (entrypointy) a oddíly (služby) — teprve tím dávají dosažitelnost a blast radius smysl.
 - **Nikdy nelže.** Každá odpověď přiznává, co neví (`unknown:`) a co je zastaralé (`stale:`).
 
+Agentovi se představuje skillem, ne MCP serverem — stejně jako `gh` nebo `rg`.
+
 Cílový stack první verze: **Python + Go** (gRPC, Django ORM), nasazené přes Docker Compose.
 
 → [docs/architecture.md](docs/architecture.md)
+→ [docs/coverage-analysis.md](docs/coverage-analysis.md) — ověření na reálném repu
 
 ## Build
 

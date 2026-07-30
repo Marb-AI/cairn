@@ -1,18 +1,27 @@
 # Cairn — architektura
 
-**Status:** návrh v0.1 · 30. 7. 2026
-**Vstup:** brainstorming „Code Knowledge MCP"
-**Rozhodnuto:** Python + Go současně · přenositelné (sdílitelné) artefakty od začátku · lokální binárka
+**Status:** návrh v0.3 · 30. 7. 2026
+**Vstup:** brainstorming „Code Knowledge MCP" · kalibrace na an internal repository (§16)
+**Rozhodnuto:** CLI + skill místo MCP · Python + Go současně · přenositelné artefakty od začátku · vše v Dockeru
+
+Doprovodné dokumenty: [coverage-analysis.md](coverage-analysis.md) — ověření, že popsané
+postupy na reálném repu skutečně stačí, a kde jsou díry.
 
 ---
 
 ## 0. Teze v jedné větě
 
-Cairn je **lokální daemon s MCP frontendem**, který drží perzistentní, obsahem klíčovaný graf
+Cairn je **lokální daemon s CLI frontendem**, který drží perzistentní, obsahem klíčovaný graf
 struktury codebase a odpovídá agentovi na navigační dotazy deterministicky, kompaktně
 a s explicitně přiznanou nejistotou — aby agent nemusel grepovat 12 kol.
 
 Není to agent, není to IDE plugin, není to náhrada LLM. Je to **orientační vrstva pod LLM**.
+
+**Tvrdý invariant (D15):** celý index se postaví **bez jediného LLM volání**. Parsování,
+symboly, reference, call graph, topologie, entrypointy, routy, git signály — všechno je
+deterministické. LLM smí znalost jen *obohatit* (shrnutí, role, invarianty), nikdy ji
+nezakládá. Praktický test: **`cairn index` musí doběhnout offline, bez API klíče, a všechny
+L0/L1 dotazy musí odpovídat stejně jako s ním.** Viz §3.1.
 
 ---
 
@@ -20,8 +29,8 @@ Není to agent, není to IDE plugin, není to náhrada LLM. Je to **orientační
 
 | # | Rozhodnutí | Volba | Proč |
 |---|---|---|---|
-| D1 | Transport | **MCP přes stdio** | „Executable binárka na localhostu" a MCP stdio jsou totéž — host spustí proces, mluví po stdin/stdout. Žádný port, žádný HTTP, žádná autentizace. Jednodušší varianta neexistuje. |
-| D2 | Procesní model | **Tenký MCP frontend + perzistentní daemon** | MCP server se spouští při každé session agenta. LSP servery startují sekundy až minuty. Stav musí přežít session — to je zároveň hlavní diferenciátor oproti Sereně. |
+| D1 | Rozhraní | **CLI binárka + skill. Žádné MCP.** | Agent umí `gh`, `rg`, `jq` — CLI je nativní tvar nástroje, ne náhražka. Odpadá protokol, autorizace i rozpočet na schémata. MCP je později tenká slupka nad týmž query enginem, ne přepis. Viz §6.0. |
+| D2 | Procesní model | **Tenký CLI frontend + perzistentní daemon** | Každé zavolání CLI je nový proces, LSP servery startují sekundy až minuty. Stav musí přežít invokaci i session — to je zároveň hlavní diferenciátor oproti Sereně. |
 | D3 | Zdroj L0 faktů | **SCIP indexery (bulk) + LSP (hot path)** | Nepsat parsery. SCIP navíc dává hotové schéma stabilních symbol ID. Viz §4. |
 | D4 | Schéma faktů | **SCIP jako interní model** | Symbol ID nezávislé na pozici v souboru → per-blob cache je korektní a artefakty jsou přenositelné. |
 | D5 | Klíčování cache | **`blob_id` + `deps_api_hash`** | Změna těla funkce neinvaliduje závislé soubory. Viz §5.2 — nejdůležitější detail celého návrhu. |
@@ -34,17 +43,18 @@ Není to agent, není to IDE plugin, není to náhrada LLM. Je to **orientační
 | D12 | Komentáře | **Extrahovat, indexovat pro fulltext, ale nikdy nevydávat za fakt** | Komentáře jsou nejlepší most mezi jménem featury a symbolem. Zároveň bývají zastaralé. Viz §4.5. |
 | D13 | Běhové prostředí | **Všechno v Dockeru — daemon, language servery, indexery, build.** Na hostiteli nesmí být `cargo`, Node ani Go toolchain | Zadání projektu. Má architektonické důsledky pro cesty a watcher, ne jen pro build. Viz §2.1. |
 | D14 | Codegen | **Repo může být neanalyzovatelné, dokud neproběhne generování kódu — prepare krok je prvotřídní součást pipeline** | Ověřeno na testovacím repu: Python protobuf stuby v gitu nejsou. Bez toho by spike naměřil katastrofu z úplně jiného důvodu. Viz §4.6. |
+| D15 | Role LLM | **Index se staví kompletně bez LLM. LLM smí znalost jen obohatit, nikdy založit.** | Determinismus je celý pitch — jakmile by struktura záležela na modelu, ztrácí se to, kvůli čemu nástroj existuje. Testovatelné: `cairn index` běží offline bez klíče. Viz §3.1. |
 
 ---
 
 ## 2. Procesní topologie
 
 ```
-  Claude Code / Cursor / Zed / Codex
-            │  MCP, stdio, JSON-RPC
+  agent (Claude Code / …) nebo člověk nebo CI
+            │  spustí příkaz, čte stdout
             ▼
      ┌──────────────┐   spustí daemon, pokud neběží
-     │  cairn mcp   │   bezstavový, ~5 MB RSS, start <10 ms
+     │ cairn refs a4│   bezstavový, ~5 MB RSS, start <30 ms
      └──────┬───────┘
             │  unix socket (Windows: named pipe), length-prefixed msgpack
             ▼
@@ -65,9 +75,13 @@ Není to agent, není to IDE plugin, není to náhrada LLM. Je to **orientační
                  sdílená cache týmu
 ```
 
-**Proč tenký frontend:** agent host může spustit 3 session paralelně. Tři kopie LSP poolu
-by sežraly 6 GB RAM a reindexovaly totéž. Frontend je hloupý pipe; veškerý stav a všechny
-subprocesy vlastní daemon.
+**Proč tenký frontend:** agent zavolá `cairn` desetkrát za minutu a pokaždé je to nový proces.
+Kdyby si každý startoval LSP pool, nedoběhl by ani první dotaz. Frontend je hloupý pipe;
+veškerý stav a všechny subprocesy vlastní daemon.
+
+**Rozpočet na start CLI je 30 ms.** To je tvrdý požadavek plynoucí z D1 — u MCP se platil
+start jednou za session, u CLI při každém dotazu. Znamená to: žádné parsování konfigurace
+mimo potřebu, žádné skenování filesystému, connect na socket a hned dotaz.
 
 **Životnost daemonu:** auto-start z frontendu (jako `gopls`/`tmux`), idle timeout ~30 min bez
 připojeného klienta, ale **index na disku zůstává** — restart daemonu je studený start procesu,
@@ -82,7 +96,7 @@ mění to tři věci v architektuře.
 Claude Code
    │  stdio
    ▼
-docker compose run -i --rm cairn-mcp     ← frontend, jednorázový, bez stavu
+docker compose run --rm cairn refs a4    ← frontend, jednorázový, bez stavu
    │  unix socket ve sdíleném volume
    ▼
 služba `cairn-daemon`                    ← dlouhoběžící compose služba
@@ -91,8 +105,8 @@ služba `cairn-daemon`                    ← dlouhoběžící compose služba
    └── v image: pyright-langserver, gopls, scip-python, scip-go
 ```
 
-MCP host spouští libovolný příkaz jako stdio server, takže `docker compose run -i --rm`
-je z jeho pohledu totéž co binárka. Žádná změna protokolu.
+Agent spouští příkazy, takže `docker compose run --rm` je z jeho pohledu totéž co binárka.
+V praxi se to schová za shell wrapper `cairn` na `PATH`, aby to agent psal přirozeně.
 
 **Důsledek 1 — cesty.** Uvnitř kontejneru je repo `/workspace/srcpy/…`, na hostiteli
 `/home/user/backend/srcpy/…`. Kdyby odpovědi nesly kontejnerové cesty, agent by soubory
@@ -128,8 +142,46 @@ Beze změny oproti brainstormingu, jen s explicitním kontraktem přesnosti:
 | **L3** Execution | co se mění společně, test impact, runtime call graph | git log, coverage | statistický, vrací skóre | per-commit / per-test-run |
 
 **Klíčové:** L0 a L1 nikdy nemíchat s L2/L3 v jedné nekvalifikované odpovědi. Když
-`blast_radius` vrátí 4 statické volající a 3 co-change kandidáty, musí být v odpovědi
+`cairn blast` vrátí 4 statické volající a 3 co-change kandidáty, musí být v odpovědi
 vizuálně oddělené — jinak agent vezme statistiku za fakt.
+
+### 3.1 Dělicí čára: L2 je jediná vrstva s LLM (D15)
+
+```
+  ┌─────────────────────────────────────────────────────────┐
+  │  L0 · L0-C · L0-D · L1 · L3                             │
+  │  deterministické · offline · bez API klíče · 100 % recall│
+  │  ── postaví se samo, kompletně, opakovatelně ──          │
+  └─────────────────────────────────────────────────────────┘
+                            ▲
+                            │  smí přidávat, nikdy nezakládá
+  ┌─────────────────────────┴───────────────────────────────┐
+  │  L2 — shrnutí, role, invarianty, koncepty                │
+  │  volitelné · lazy · s confidence · vždy odstranitelné    │
+  └─────────────────────────────────────────────────────────┘
+```
+
+Tři pravidla, která z toho plynou a jsou testovatelná:
+
+1. **`cairn index` běží offline.** Bez sítě, bez klíče, bez modelu. V CI to je jeden test.
+2. **Smazání celé L2 nesmí změnit ani jednu L0/L1/L3 odpověď.** Regresní test:
+   spustit sadu dotazů, vyprázdnit L2, spustit znovu, porovnat. Rozdíl = chyba.
+3. **L2 nikdy nevstupuje do výpočtu.** Nesmí ovlivnit ranking, dosažitelnost, blast radius
+   ani seed. Smí se jen zobrazit — vždy označené, jako u komentářů (§4.5).
+
+**Kdo L2 vyrábí, když cairn nemá LLM ani MCP sampling (D1).** Nejlevnější zdroj je
+**volající agent sám**: model, který zrovna četl `TokenValidator`, ho umí popsat zadarmo,
+protože tu práci už udělal. Proto:
+
+```
+cairn note <handle> --summary "…" [--confidence high|low]
+```
+
+Není to porušení „read-only" (§6.1) — cairn nezapisuje do repa, jen do vlastní cache.
+Zápis do zdrojáků zůstává zakázaný.
+
+Dávkové obohacení vlastním klíčem (`cairn enrich --model …`) je až druhá varianta a je
+striktně opt-in. Výchozí instalace nikam nevolá.
 
 ---
 
@@ -193,7 +245,7 @@ nakonfigurované pro pyright — ne vlastní plugin. Když se ORM používá jen
 
 Komentáře jsou **nejlepší existující most mezi jménem featury a symbolem**. „OAuth" se
 často nevyskytuje v žádném identifikátoru, ale je hned v prvním řádku docstringu. Bez nich
-stojí `get_context` na fuzzy matchi jmen a cest, což je ta slabší polovina §6.4.
+stojí `cairn context` na fuzzy matchi jmen a cest, což je ta slabší polovina §6.4.
 
 #### Odkud
 
@@ -372,7 +424,7 @@ symbols(id INTEGER PK,
 files(id INTEGER PK, path_id INTEGER REFERENCES strings, blob_id BLOB, lang, generated BOOL)
 
 occurrences(file_id, symbol_id, line, col_start, col_end, role)
-   INDEX (symbol_id, role)          -- find_refs
+   INDEX (symbol_id, role)          -- cairn refs
    INDEX (file_id, line)            -- „co je na tomhle řádku"
 
 edges(src_symbol, dst_symbol, kind, confidence, source)
@@ -385,7 +437,7 @@ comments(file_id, symbol_id NULL, line, kind, text)   -- §4.5
 handles(symbol_id, handle TEXT UNIQUE)
 unknowns(file_id, line, reason, hint)
 
--- FTS5, sloupce s klesající vahou; pohání find_symbol a seed pro get_context (§6.4)
+-- FTS5, sloupce s klesající vahou; pohání `cairn symbol` a seed pro `cairn context` (§6.4)
 search_fts(name, path, docstring, comment, commit_msg, doc_md)
 ```
 
@@ -555,45 +607,102 @@ stejná mechanika jako `go mod tidy -diff` nebo `cargo fmt --check`.
 
 ---
 
-## 6. MCP interface
+## 6. CLI rozhraní
 
-### 6.1 Sada nástrojů — 6
+### 6.0 Proč CLI a ne MCP (D1)
 
-Definice nástrojů jsou v kontextu při každém requestu. Rozpočet je tvrdý.
+Původní verze návrhu stavěla na MCP. Je to zbytečné kolo navíc.
+
+Agent umí spouštět příkazy a `gh`, `rg`, `jq` nebo `docker` používá plynule bez jakéhokoli
+protokolu. CLI **není náhražka MCP, je to nativní tvar nástroje**; MCP je obálka, která
+u lokálního read-only nástroje neřeší žádný problém, který by existoval.
+
+Co odpadá:
+
+- implementace protokolu a životního cyklu serveru
+- **rozpočet na definice nástrojů.** Ten byl u MCP tvrdý, protože schémata jdou v každém
+  requestu. U CLI je popis v skillu, který se načte jen když je relevantní — omezení
+  „max 6 nástrojů" prostě zmizí
+- autorizace, transport, remote varianta
+
+Co se získává:
+
+- **testovatelnost** — formát odpovědi je podle §6.3 samotný produkt a v terminálu je
+  okamžitě vidět; u MCP potřebuješ k jeho vyhodnocení běžícího agenta
+- použitelnost v CI, Makefilu a skriptech, kam MCP nedosáhne
+- triviální iterace
+
+Co se ztrácí — poctivě dvě věci:
+
+1. **Objevitelnost.** MCP host vidí schémata nástrojů vždy; CLI musí někdo agentovi
+   představit. Skill nebo dva řádky v `CLAUDE.md`. Instalace skillu je ale srovnatelně
+   snadná jako instalace MCP serveru, takže je to spíš přesun než ztráta.
+2. **MCP sampling.** Odpadá možnost nechat LLM krok proběhnout na modelu hosta (§6.4).
+   Ukazuje se ale, že je to zlepšení — viz tam.
+
+**Není to sázka.** Produkt je query engine + formátovací vrstva; CLI i případné pozdější
+MCP jsou tenké frontendy nad `cairn-daemon`. Přidat MCP později stojí jeden crate,
+ne přepis.
+
+### 6.1 Sada příkazů
 
 ```
-find_symbol(query, lang?, limit?)      → vstupní bod přes jméno / pattern
-get_context(query)                     → vstupní bod přes koncept  (§6.4)
-find_refs(handle, kind?)               → kind: callers | impls | overrides | writes | all
-find_tests(handle)                     → testy pokrývající symbol (L0 + L3)
-blast_radius(handle, depth?)           → co rozbiju změnou  (L1 + L3, oddělené)
-expand(handle, what, depth?)           → what: body | doc | neighbors | file_skeleton
+cairn symbol <query> [--lang] [--limit]   vstupní bod přes jméno / pattern
+cairn context <query>                     vstupní bod přes koncept  (§6.4)
+cairn refs <handle> [--kind]              callers | impls | overrides | writes | all
+cairn tests <handle>                      testy pokrývající symbol (L0 + L3)
+cairn blast <handle> [--depth]            co rozbiju změnou  (L1 + L3, oddělené)
+cairn expand <handle> <what> [--depth]    body | doc | neighbors | file_skeleton
+cairn topology                            mapa služeb a jejich vazeb  (§8.8)
+cairn status                              co je zaindexované, co zastaralé, co degradované
+cairn note <handle> --summary …           zápis L2 poznámky do cache  (§3.1, D15)
 ```
 
-`status` **není nástroj** — je to MCP *resource* (`cairn://status`). Neplatí se v každém requestu.
+Rozpočet už není tvrdý, ale **zdrženlivost zůstává** — agent musí umět vybrat správný
+příkaz a osm zapamatovatelných je lepší než třicet. Nový podpříkaz jen tehdy, když
+existující kombinace odpověď nedá.
 
-Zvažované a zamítnuté: samostatný `find_implementations` (splynul do `find_refs(kind=impls)`),
-`find_definition` (to je výstup `find_symbol`), cokoliv na zápis (cairn je read-only, záměrně).
+Zvažované a zamítnuté: samostatný `implementations` (je to `refs --kind=impls`),
+`definition` (to je výstup `symbol`), cokoliv na zápis — cairn je read-only, záměrně (§4.6).
 
-### 6.2 Popisy nástrojů jsou produktová práce
+### 6.1.1 CLI pro agenta, ne pro člověka
 
-Claude umí grep a sáhne po něm reflexivně. Popis musí říct **kdy je cairn lepší**, ne co dělá:
+Ergonomie se liší a je potřeba se rozhodnout pro agenta:
 
-> `find_refs` — Najde všechna použití symbolu napříč Pythonem i Go, včetně volání přes
-> gRPC hranici. **Použij místo grepu**, když hledáš uživatele funkce/třídy/metody: grep
-> najde i komentáře, stringy a stejnojmenné symboly z jiných modulů, a nenajde volání
-> přes alias importu. Vrací kompaktní seznam s handly pro další rozbalení.
+- **žádná interaktivita.** Nikdy prompt, nikdy pager, nikdy čekání na `stdin`.
+- **stabilní výstup.** Žádná detekce TTY, žádné barvy, žádné spinner artefakty
+  ve `stdout`. Diagnostika jde na `stderr`.
+- **exit kódy něco znamenají:** `0` nález, `1` bez nálezu, `2` chyba dotazu,
+  `3` index degradovaný (§4.6) — agent tak pozná rozdíl mezi „nic tam není"
+  a „nevidím tam".
+- **text je výchozí, `--json` je únikový východ** pro skripty. Ne naopak: text je produkt (§6.3).
+- **žádný stav mezi voláními** kromě handlů, které jsou perzistentní (§6.5).
 
-Signál kvality (z brainstormingu, souhlas): **jestli agent nástroj používá bez skillu, je
-dobře.** Skill jako doplněk pro workflow, ale výchozí chování musí fungovat bez něj —
-většina lidí nasadí jen MCP server.
+### 6.2 Skill je produktová práce
+
+U MCP to byly popisy nástrojů, u CLI je to skill — a je to větší prostor, ne menší.
+Claude umí grep a sáhne po něm reflexivně; skill musí říct **kdy je cairn lepší**, ne co dělá:
+
+> **Hledání použití symbolu.** Použij `cairn refs <handle>` místo grepu. Grep najde
+> komentáře, stringy a stejnojmenné symboly z jiných modulů — a nenajde volání přes alias
+> importu ani přes gRPC hranici mezi Pythonem a Go. `cairn refs` vrací kompaktní seznam
+> s handly, které jdou rozbalit přes `cairn expand`.
+>
+> **Orientace v neznámé části systému.** Začni `cairn topology`, ne čtením souborů.
+
+Výhoda skillu oproti popisům nástrojů: unese celý workflow („začni tímhle, pak expanduj,
+na hledání referencí nepoužívej grep") a neplatí se, dokud není relevantní.
+
+Signál kvality zůstává: **jestli agent sáhne po `cairn` i bez skillu** — protože ho vidí
+v `CLAUDE.md` nebo v historii — je nástroj zjevně lepší než grep. Když ho tam musíš tlačit,
+buď není, nebo to neumíš dost rychle ukázat.
 
 ### 6.3 Formát odpovědi = produkt
 
 Ne JSON. Kompaktní, řádkový, ASCII.
 
 ```
-find_symbol("validate")
+$ cairn symbol validate
 3 matches (2 suppressed: generated)
 [a4] TokenValidator.validate(token: str) -> Claims    py  auth/oauth.py:142
 [a7] SessionValidator.Validate(tok string) (*Claims, error)
@@ -602,7 +711,7 @@ find_symbol("validate")
 ```
 
 ```
-blast_radius[a4] depth=2
+$ cairn blast a4 --depth 2
 
 static callers (4)                                        [L1, exact]
   [c1] LoginHandler.post           py  api/login.py:55
@@ -634,7 +743,7 @@ Poznámky k formátu:
 - Vrstva každého bloku je označená (`[L1, exact]` vs `[L3, statistical]`).
 - Handle `[a4]` — 2–4 znaky, viz §6.5.
 
-### 6.4 `get_context` — vstupní bod přes koncept
+### 6.4 `cairn context` — vstupní bod přes koncept
 
 „Dej mi kontext k OAuthu" není symbolový dotaz. Seed se získává lacino, pak se expanduje
 deterministicky. Pořadí podle ceny:
@@ -648,16 +757,29 @@ deterministicky. Pořadí podle ceny:
 3. **Testy** — jména testů jsou nejlepší dokumentace konceptu v projektu.
 4. **Git** — FTS5 nad commit messages a PR titulky; soubory měněné společně v commitech zmiňujících termín.
 5. **Dokumenty** — README, ADR, `docs/`.
-6. **LLM fallback** — až když skóre 0–5 nedosáhne prahu.
+6. **Nic z toho nezabralo** — vrátit slabý seed a **přiznat to**.
 
-K bodu 6: použít **MCP sampling** (`sampling/createMessage`) — LLM call proběhne na modelu
-hosta, cairn nepotřebuje API klíč ani nemá vlastní náklady. *Caveat: sampling nepodporují
-všichni hosti. Fallback = vrátit seed set s poznámkou „low confidence, concept not cached"
-a nechat expanzi na agentovi.* Výsledek se cachuje jako L2 artefakt.
+Bod 6 je díky D1 jednodušší, než byl. Původní návrh sem chtěl LLM krok přes MCP sampling.
+U CLI sampling neexistuje — a ukazuje se, že je to zlepšení: **volající agent LLM sám je.**
+Cairn nemá dělat horší verzi toho, co si zavolá o řádek výš. Takže:
+
+```
+$ cairn context "oauth"
+low confidence — no strong seed for this term
+best guesses (5)
+  [k2] domains/orders/grpc/handlers/auth.py :: AuthServiceHandler   [name]
+  [k7] proto/orders_api/auth.proto :: AuthService                   [name]
+  …
+hint: no compose service, route prefix or test name matched "oauth".
+      Try `cairn topology`, or grep for the domain term this project uses.
+```
+
+Žádný API klíč, žádné vlastní náklady, žádná závislost na podpoře v hostiteli.
+Když seed sedí, cachuje se jako L2 artefakt.
 
 Pak: expanze 1 hop přes call graph, ranking (§6.6), a vrátit **kostru 10–15 uzlů bez těl**.
 
-> Past, na kterou je potřeba dát pozor: když `get_context("oauth")` vrátí 40 souborů
+> Past, na kterou je potřeba dát pozor: když `cairn context oauth` vrátí 40 souborů
 > i s obsahem, spálil jsi stejné tokeny jako explorace, jen naráz. Úspora nevzniká
 > z toho, že máš graf — vzniká z toho, že vracíš málo a přesně.
 
@@ -675,7 +797,7 @@ poznamenat do svých poznámek.
 
 ### 6.6 Ranking — kde se rozhoduje o kvalitě
 
-`find_symbol` může vrátit 200 shod. Vracíme 15. Který výběr, tam žije celá teze
+`cairn symbol` může vrátit 200 shod. Vracíme 15. Který výběr, tam žije celá teze
 „vracet málo a přesně". Signály:
 
 1. přesná shoda jména > prefix > substring > fuzzy
@@ -720,8 +842,26 @@ vlastní parser výjimečně obhajitelný, gramatika je triviální) a vytvoří
 **To je ten skok, který grep ani žádný single-language nástroj neudělá:** „kdo volá tenhle
 Python handler" má správnou odpověď v Go kódu.
 
+**Ověřeno: vazba handler ↔ proto služba je v obou jazycích jeden vzor.**
+
+```python
+# Python (grpclib) — je to prostá dědičnost, kterou L0 dá zadarmo jako `implements`
+class ChatServiceHandler(DjangoExceptionHandlerMixin, orders_api.ChatServiceBase): …
+```
+```go
+// Go (protoc-gen-go-grpc) — jedno volání v cmd/*/server.go, dosažitelné z entrypointu
+regions_api.RegisterAreaQueryServiceServer(server, area.NewHandler(app))
+```
+
+Pro Python tedy **žádný speciální binder na tuhle hranu nepotřebujeme** — stačí mapovat
+generovanou bázi `ChatServiceBase` zpět na `proto:ChatService`, což je konvence protoc.
+Zbytek je normální dědičnost, kterou SCIP vidí. Pro Go je to jedno volání se známou
+signaturou `Register<Service>Server(s, impl)`.
+
 **Stuby nemusí v repu být — a nemusí chybět symetricky.** Testovací repo má 220 commitnutých
-`.pb.go`, ale Python stuby generuje až build (§4.6). Binder z toho plyne ve dvou režimech:
+`.pb.go`, ale Python stuby generuje až build (§4.6). To má u téhle hrany brutální důsledek:
+bez `make pbgen` je `orders_api.ChatServiceBase` nerozřešitelný, takže **zmizí celá
+gRPC plocha Python strany** — ne pár referencí. Binder z toho plyne ve dvou režimech:
 
 - **hrana `proto` → symbol jde postavit i bez stubu**, protože pojmenování je dané konvencí
   protoc (`AuthService` → `AuthServiceServicer` / `AuthServiceStub` v `auth_pb2_grpc.py`).
@@ -742,7 +882,7 @@ Bez potlačení by většina odpovědí byla seznam `.pb.go` souborů.
 Detekce: hlavičkové markery (`Code generated by protoc-gen-go. DO NOT EDIT.`,
 `# Generated by the gRPC Python protocol compiler`), cestové vzory, `.gitattributes
 linguist-generated`. Efekt: sbalit do jednoho řádku —
-`+ 47 refs in generated code (suppressed; call find_refs(handle, include_generated=true))`.
+`+ 47 refs in generated code (suppressed; rerun with --include-generated)`.
 
 ### 7.4 Další binders (později, stejný mechanismus)
 
@@ -916,17 +1056,32 @@ pro každou službu zvlášť (§4.4).
 
 Compose dává kořeny na úrovni procesů. Webový projekt potřebuje kořeny na úrovni requestů.
 
-- **Django** — `urls.py` je seznam `path()` / `re_path()` / `include()`; staticky čitelný AST včetně vnoření
-- **FastAPI / Flask** — dekorátory `@app.get("/x")`, `@router.post(…)`
-- **gRPC** — pokryto proto binderem (§7.2)
-- **Go** — `http.HandleFunc`, chi/gin/echo `r.Get("/x", h)`; vzorově rozpoznatelné, ale
-  registrace bývá dynamická → častěji `unknown`
+**Ověřeno na testovacím repu** (detaily v [coverage-analysis.md](coverage-analysis.md)) —
+obava, že „endpointy jsou jiná liga, protože bychom museli znát všechny frameworky",
+se nepotvrdila. Reálně jsou to čtyři vzory:
 
-Výstup je hrana `route:POST /oauth/token` → handler symbol. Tím jde odpovědět na
+| kde | vzor | pokrytí |
+|---|---|---|
+| **FastAPI** | `x = APIRouter(prefix=…)`, `@x.get("/y", operation_id=…)`, `app.include_router(x, dependencies=[…])` | 122 endpointů, statické, včetně **informace o autentizaci** |
+| **gRPC** | proto + registrační vzor, viz §7.2 | 71 služeb, exhaustivní |
+| **Django** | 3× `urls.py` (`urlpatterns` / `path()` / `include()`) + `admin.site` | admin |
+| **Go HTTP** | **jediný soubor**: stdlib `http.NewServeMux` + `mux.HandleFunc("GET /{key}", …)` | 1 endpoint |
+
+Žádné chi, gin ani echo. Skládání cesty je textové: `prefix` routeru + cesta z dekorátoru.
+
+**Levný univerzální únik, kdyby vzory nestačily.** Většina web frameworků umí vypsat
+svou routovací tabulku: FastAPI `app.openapi()`, Django `get_resolver().url_patterns`,
+Flask `app.url_map`. Cena je, že se musí naimportovat aplikace — je to tedy runtime
+probe, ne statická analýza, a patří do L3 (§9), ne do L0. Má to přesně tutéž dualitu jako
+zbytek návrhu: **statika je úplná ale přibližná, runtime je přesný ale jen po dosažitelnou
+část.** Když se ty dva zdroje rozejdou, je to nález, ne chyba.
+
+Doporučení: statické vzory teď, runtime dump jako opt-in booster ve stejné fázi jako
+coverage (§9). Rozhodně ne obráceně — runtime probe by z read-only nástroje udělal něco,
+co spouští cizí kód.
+
+Výstup je hrana `route:POST /onboarding/signup` → handler symbol. Tím jde odpovědět na
 „který endpoint vede k tomuhle kódu", což je u auditu a code review nejčastější otázka vůbec.
-
-Rozsah: Django + FastAPI/Flask + gRPC pokrývá testovací repo. Obecné Go routery jsou
-králičí nora — omezit se na 2–3 nejčastější a zbytek přiznat.
 
 ### 8.7 Co z toho plyne pro ostatní vrstvy
 
@@ -934,7 +1089,7 @@ králičí nora — omezit se na 2–3 nejčastější a zbytek přiznat.
 Levné a mění to tvar odpovědí:
 
 ```
-blast_radius[a4] depth=2
+$ cairn blast a4 --depth 2
 …
 services affected (2)                                     [L0-D + L1]
   auth      py   direct
@@ -947,7 +1102,7 @@ externally reachable via
 Vracet jako signál s confidence, nikdy jako fakt — reflexe, dynamický import a nerozřešený
 entrypoint to umí obejít.
 
-**Lepší seed pro `get_context`** — zařazeno jako zdroj 0 v §6.4.
+**Lepší seed pro `cairn context`** — zařazeno jako zdroj 0 v §6.4.
 
 **Předpoklad pro L3 runtime trace.** Stack trace z běžícího kontejneru říká
 `/app/domains/orders/grpc/server.py`, repo říká `srcpy/domains/orders/grpc/server.py`.
@@ -968,41 +1123,50 @@ a další sdílejí týž strom `srcpy`. Ze souborového systému proto **nejde 
 služby modul patří**; řekne to jedině dosažitelnost z entrypointu. To není okrajový případ,
 to je nejsilnější argument pro existenci celé téhle sekce.
 
-### 8.8 `cairn://topology` — resource, ne nástroj
+### 8.8 `cairn topology` — mapa systému na ~400 tokenů
 
-Rozpočet nástrojů je 6 a chci ho udržet. Topologie je malá, stabilní a čte se jednou
-za session → **MCP resource**, který se neplatí v každém requestu. Service attribution
-se propisuje jako anotace do odpovědí stávajících nástrojů.
+Ideální první příkaz, který agent v neznámém repu spustí. Skill to říká výslovně:
+*„Než začneš číst soubory, spusť `cairn topology`."* Service attribution se pak
+propisuje jako anotace do odpovědí ostatních příkazů.
+
+Původní návrh z toho dělal MCP resource, aby se ušetřil rozpočet nástrojů. S D1
+ten důvod zmizel — je to prostě podpříkaz, a navíc si ho může spustit i člověk.
+
+Reálný tvar pro testovací repo (§16), zkráceno:
 
 ```
-cairn://topology                                    ~300 tokenů
+$ cairn topology
 
-services (6)
-  gateway   go    cmd/gateway/main.go:22          :8080 → public
-  auth      py    services/auth/auth/wsgi.py      :50051 grpc
-  worker    py    celery -A proj worker           —
-  postgres  ext   postgres:16                     :5432
-  redis     ext   redis:7                         :6379
-  nats      ext   nats:2.10                       :4222
+services (16, from compose.yaml + compose.local.yaml)
+  orders-api          py   domains/orders/api/app.py            :8000  → public
+  orders-grpc         py   domains/orders/grpc/server.py        :50051 grpc
+  orders-proxy        go   cmd/resttransform/server.go             :8081
+  orders-admin   py   manage.py runserver (django admin)      :8002
+  orders-tools          py   domains/orders/mcp/…                 :8003
+  scoring-grpc           go   cmd/grpcserver/server.go                :50052 grpc
+  regions-grpc       go   cmd/server/server.go                    :50053 grpc
+  catalog-pipeline  py   domains/catalog/…                  —
+  media-grpc             go   cmd/server.go                           :50054 grpc
+  postgres               ext  postgres:16                             :5432
+  … 6 more
 
 edges
-  gateway → auth       grpc AuthService        [proto + env AUTH_GRPC_ADDR]
-  gateway → postgres   env DATABASE_URL
-  auth    → postgres   env DATABASE_URL
-  worker  → redis      env CELERY_BROKER_URL   [depends_on]
+  orders-proxy → orders-grpc   grpc orders_fe.*   [proto + net alias]
+  orders-api   → orders-grpc   grpc orders_api.*  [proto]
+  orders-grpc  → postgres         env DATABASE_URL
+  …
 
 public surface
-  :8080  gateway  14 HTTP routes  ·  :50051  auth  3 grpc services
+  :8000  orders-api  122 HTTP routes (20 routers, 12 unauthenticated)
+  :50051 orders-grpc 24 grpc services / 71 proto services total
 
-unknown (1)
-  service `migrate` runs `manage.py migrate` — one-shot, no long-running root
+unknown (0)
 stale: none
 ```
 
-Riziko: agent si resource nemusí nikdy vyžádat. **Sedmý nástroj
-`find_entrypoints(service?, route?)` přidat až tehdy, když to měření (§10) ukáže** —
-je to věc k ověření, ne k předjímání. Skill mezitím může agentovi říct, ať topologii
-přečte jako první.
+Řádek `12 unauthenticated` není kosmetika — plyne z toho, že
+`app.include_router(x, dependencies=[Depends(get_authenticator())])` nese informaci
+o autentizaci staticky (§8.6). Pro auditní doménu je to samo o sobě prodejný výstup.
 
 ### 8.9 Co teď ne
 
@@ -1060,9 +1224,9 @@ přes všechny symboly, jednou, offline).
 ```
 cairn/
   crates/
-    cairn-cli       binárka: `cairn mcp | daemon | index | query | eval`
+    cairn-cli       binárka: `cairn symbol|refs|blast|topology|status|daemon|index|eval`
     cairn-proto     sdílené typy, msgpack, socket protokol frontend↔daemon
-    cairn-mcp       MCP protokol, definice nástrojů, popisy nástrojů
+    cairn-skill     skill pro agenta (§6.2) — text, ne kód, ale verzuje se s CLI
     cairn-fmt       renderer kompaktních odpovědí  ← produktová plocha, testuje se snapshoty
     cairn-daemon    supervizor, socket server, scheduler, deadliny
     cairn-store     CAS, SQLite projekce, snapshot, cache klíčování
@@ -1112,11 +1276,11 @@ Fronta na pozadí, prioritně: dirty soubory > jejich přímé závislé > zbyte
 | Fáze | Obsah | Výstup |
 |---|---|---|
 | **0** — týden 1 | Spike na testovacím repu (§16), **celý v kontejneru** (D13): `make pbgen` → `scip-python` + `scip-go` → podíl nevyřešených symbolů, čas, **syrová velikost indexu** (vstup pro §5.5). Měřit **dvakrát: s vygenerovanými stuby a bez nich** — rozdíl je cena §4.6. | Go/no-go pro D3, kalibrace D10 |
-| **1** — týdny 2–6 | Daemon + store + CAS + snapshot + dirty overlay. Extrakce komentářů (§4.5) — je zadarmo a schéma FTS ji musí mít od začátku. `find_symbol`, `find_refs`, `expand`. MCP frontend. | Použitelný produkt |
-| **2a** — týden 7 | Compose + Dockerfile binder, launcher resolver, `cairn://topology`, service attribution, commitnutelný `.cairn/topology.txt` + `topology --check`. | Mapa systému; nejlevnější kus v celém plánu |
-| **2b** — týdny 8–9 | Proto binder + route binder + generated-code detekce → cross-language a cross-service hrany. `blast_radius`. | **Diferenciátor, který nikdo nemá** |
-| **3** — týdny 10–12 | L3 z gitu (co-change, test impact). `find_tests`. `cairn-eval` a první měření proti baseline. | **Tady se rozhodne, jestli teze platí** |
-| **4** | `get_context`, ranking, progressive disclosure tuning. Skill. | Produktová vrstva |
+| **1** — týdny 2–6 | Daemon + store + CAS + snapshot + dirty overlay. Extrakce komentářů (§4.5) — je zadarmo a schéma FTS ji musí mít od začátku. `cairn symbol|refs|expand`. CLI frontend + skill. | Použitelný produkt |
+| **2a** — týden 7 | Compose + Dockerfile binder, launcher resolver, `cairn topology`, service attribution, commitnutelný `.cairn/topology.txt` + `topology --check`. | Mapa systému; nejlevnější kus v celém plánu |
+| **2b** — týdny 8–9 | Proto binder + route binder + generated-code detekce → cross-language a cross-service hrany. `cairn blast`. | **Diferenciátor, který nikdo nemá** |
+| **3** — týdny 10–12 | L3 z gitu (co-change, test impact). `cairn tests`. `cairn-eval` a první měření proti baseline. | **Tady se rozhodne, jestli teze platí** |
+| **4** | `cairn context`, ranking, progressive disclosure tuning. Skill. | Produktová vrstva |
 | **5a** | Sdílení přes `refs/cairn/cache` — nepotřebuje žádnou infrastrukturu (§5.6). | Sdílená cache za pár dní |
 | **5b** | CAS server (sync vrstva nad hotovým CAS). | Monetizace |
 | **6** | L2 sémantika. Coverage contexts. | Až nad hotovou strukturou |
@@ -1134,14 +1298,14 @@ duplikující něco, co je zadarmo.
 | Riziko | Dopad | Mitigace |
 |---|---|---|
 | `scip-python` neustojí Django | Fáze 1 slipne | Fáze 0 spike, do 1 týdne. Fallback: LSP bulk crawl |
-| Agent nástroj nepoužije, sáhne po grepu | Produkt neexistuje | Popisy nástrojů jako produktová práce (§6.2). Měřit tool-call rate bez skillu |
+| Agent nástroj nepoužije, sáhne po grepu | Produkt neexistuje | Skill jako produktová práce (§6.2). Měřit podíl `cairn` volání vůči grepu, i bez skillu |
 | `deps_api_hash` nekonverguje na reálném kódu | Cache je k ničemu | Změřit hit rate ve fázi 1; fallback na hrubší klíč |
 | Serena / konkurence dorazí dřív | Delta zmizí | Delta je perzistence + cross-language binders + L3, ne „máme graf". Zaměřit se na ně |
 | Recall < 100 % na L0 | **Produkt je nebezpečný** | Zlatý standard + regrese v CI. Radši vrátit `unknown` než hádat |
 | Nerozřešený entrypoint → živý kód označen za mrtvý | Tichá a velmi škodlivá chyba | Nerozřešený launcher je vždy `unknown`; dead-code signál se **nikdy** nevrací, pokud v projektu zbyl byť jeden nerozřešený kořen |
 | Index nedosáhne velikostního cíle | Sdílená cache ztrácí smysl | Změřit ve fázi 0 na surovém SCIP indexu. Techniky §5.5 jsou přírůstkové, dá se přidávat |
 | Binders bobtnají (K8s, Terraform, každý Go router) | Scope creep zadními vrátky | §8.9 je závazný seznam. Nový binder jen s doloženým výskytem v testovacím repu |
-| Komentáře zaplaví fulltext šumem | `get_context` zhorší, ne zlepší | Vážené FTS sloupce, detekce zakomentovaného kódu, měřit precision seedu odděleně (§10) |
+| Komentáře zaplaví fulltext šumem | `cairn context` zhorší, ne zlepší | Vážené FTS sloupce, detekce zakomentovaného kódu, měřit precision seedu odděleně (§10) |
 | Agent vezme zastaralý komentář jako fakt | Tichá chyba typu, kterému se celý návrh vyhýbá | Komentář v odpovědi je vždy `[comment, unverified]`; nikdy nevstupuje do L0/L1 tvrzení |
 | `refs/cairn/cache` nafoukne objektovou DB | Pomalý clone/fetch | Ref je prunovatelný a force-pushovatelný; fetch volitelný. Když bolí, přejít na CI artefakt |
 | Indexace nad nevygenerovaným codegenem | Tichý propad recallu, který vypadá jako selhání indexeru | §4.6: detekovat, degradovat, přiznat v každé odpovědi. Nikdy neindexovat naslepo |
