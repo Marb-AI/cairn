@@ -101,12 +101,49 @@ But it does reorder priorities: **the shared cache moves from "monetisation" to
 "the thing that makes the first run bearable"**, and `refs/cairn/cache` (phase 5a)
 becomes more attractive than it looked.
 
-### 4.2 Python has no per-file incremental path
+### 4.2 Partial reindex works — and scales opposite to expectation
 
-scip-python indexes a whole project; there is no "reindex this one file". The design
-already routes dirty files through the LSP hot path (4.2), so this is covered — but it
-means the LSP path is mandatory from day one, not an optimisation. A 2.5-minute
-full reindex on every save is not a fallback.
+Neither bulk indexer has a "reindex this one file" mode, but both can be pointed at a
+subset: `scip-python --target-only <path>` and `scip-go index <package-patterns>`.
+Measured cost of a partial run (full index for reference: 2 m 28 s / 28.8 s):
+
+| target | documents | time | peak RSS |
+|---|---|---|---|
+| py `libs/util` (leaf package) | 3 | **1.3 s** | 168 MB |
+| py `…/grpc/handlers/settings.py` (one file) | 10 | **6.6 s** | 326 MB |
+| py `…/grpc/handlers` (26 files) | 183 | 26 s | 894 MB |
+| py `domains/orders` | 916 | 1 m 40 s | 2.67 GB |
+| go `./domains/regions/cmd/...` | 4 | **12.9 s** | 497 MB |
+| go `./domains/media/...` | 14 | 19.5 s | 575 MB |
+| go `./domains/orders/...` | 120 | 23.5 s | 504 MB |
+
+**Python scales down, Go does not.** Cost for Python tracks the transitive closure it has
+to pull in, so a leaf file is ~1 s and a dependency-heavy one ~7 s. scip-go pays a fixed
+~13 s to load and typecheck the module graph before it indexes anything, so narrowing
+from 99 packages to 4 buys only 55 %.
+
+Consequences for the design:
+
+- Python gets a **middle tier** between the LSP hot path and a full reindex: a targeted
+  partial run in seconds. Worth using for "this file and its package" after a save burst.
+- Go has no such tier. Either the LSP hot path (gopls) answers, or you pay ~13 s minimum.
+  This makes the gopls path **load-bearing for Go specifically** — more than for Python.
+- Either way the LSP hot path stays mandatory from phase 1 (section 4.2); nothing here
+  reaches the 10–100 ms an editor-speed answer needs.
+
+### 4.2b Peak memory can be capped, cheaply
+
+Both indexers honour a memory ceiling, at a modest time cost:
+
+| | limit | peak RSS | time | result |
+|---|---|---|---|---|
+| scip-python | `NODE_OPTIONS=--max-old-space-size=1536` | 2.65 GB → **1.65 GB** | 2 m 28 s → 2 m 53 s (+17 %) | identical index, exit 0 |
+| scip-go | `GOMEMLIMIT=300MiB GOGC=50` | 558 MB → **387 MB** | 28.8 s → 37.9 s (+32 %) | identical index, exit 0 |
+
+So a machine-wide ceiling is a supported configuration, not a hack: the daemon can expose
+one knob and translate it per language. A container `mem_limit` should still sit underneath
+as a hard backstop — both flags above are soft (V8 heap, Go soft limit) and do not cover
+allocations outside them.
 
 ### 4.3 scip-python misattributes third-party packages
 
@@ -155,6 +192,7 @@ and other ecosystems have no CI guard — but this repo is not an example of it.
    and reverse accessors were not probed individually. Needs a targeted query set.
 3. **The 123 dynamic call sites** (`getattr`, `importlib`) from the coverage analysis
    were not classified. That number sizes the `unknown:` sections.
-4. **LSP hot path latency.** Untested, and 4.2 makes it load-bearing.
+4. **LSP hot path latency.** Untested, and 4.2 makes it load-bearing — especially for Go,
+   which has no cheap partial-reindex tier.
 5. **Golden standard for recall.** 0.11 % is an internal-consistency measure, not recall.
    Real recall needs an independent reference set.
