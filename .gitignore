@@ -5,3 +5,7 @@
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+
+# spike outputs (SCIP indexes are tens of MB)
+/spike/out/*.scip
+/spike/out/*.log

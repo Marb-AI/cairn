@@ -1,11 +1,12 @@
 # Cairn — architektura
 
-**Status:** návrh v0.3 · 30. 7. 2026
+**Status:** návrh v0.4 · 30. 7. 2026 · **D3 ověřeno měřením, fáze 0 uzavřena**
 **Vstup:** brainstorming „Code Knowledge MCP" · kalibrace na an internal repository (§16)
 **Rozhodnuto:** CLI + skill místo MCP · Python + Go současně · přenositelné artefakty od začátku · vše v Dockeru
 
-Doprovodné dokumenty: [coverage-analysis.md](coverage-analysis.md) — ověření, že popsané
-postupy na reálném repu skutečně stačí, a kde jsou díry.
+Doprovodné dokumenty:
+[coverage-analysis.md](coverage-analysis.md) — ověření čtením kódu, že popsané postupy stačí ·
+[spike-0-results.md](spike-0-results.md) — naměřená čísla z fáze 0 (**verdikt GO**)
 
 ---
 
@@ -419,9 +420,10 @@ Stav „chybí" je přechodný a týká se hlavně čerstvého clonu.
 
 Zůstává tedy jen detekce a poctivé přiznání. Levné, univerzální, bez vedlejších účinků.
 
-*Důkaz jevu (§16): testovací repo má Go protobuf stuby commitnuté, Python ne — tytéž
-`.proto`, opačné rozhodnutí pro každý jazyk. To je právě ten důvod, proč to musí být
-pravidlo v datech a ne předpoklad v kódu.*
+*Poznámka k důkazu: dřívější verze sem uváděla testovací repo jako příklad chybějících
+Python stubů. Bylo to měření špatně — stuby jsou commitnuté, jen je betterproto2 sype do
+`__init__.py` místo `*_pb2.py`. Mechanismus platí obecně, tohle repo ale jeho příkladem
+není. Viz [spike-0-results.md](spike-0-results.md) §5.*
 
 ---
 
@@ -1463,7 +1465,10 @@ duplikující něco, co je zadarmo.
 
 | Riziko | Dopad | Mitigace |
 |---|---|---|
-| `scip-python` neustojí Django | Fáze 1 slipne | Fáze 0 spike, do 1 týdne. Fallback: LSP bulk crawl |
+| ~~`scip-python` neustojí Django~~ | — | **Vyřešeno měřením: 0,11 % nerozřešených.** Fáze 0 uzavřena |
+| Studený start ~3 min místo 60 s | Horší první dojem | Naměřeno. Sdílená cache (§5.6) se tím posouvá z „monetizace" na „to, co dělá první běh snesitelným" |
+| scip-python nemá per-file inkrementalitu | LSP hot path je povinný, ne volitelný | Potvrzeno měřením — §4.2 je od fáze 1, ne později |
+| Package field v SCIP symbolu není hranice projektu | Třetí strany se tiše mísí do odpovědí | scip-python mylně připisuje ~37k referencí projektu. Vlastnictví odvozovat z indexované množiny souborů |
 | Agent nástroj nepoužije, sáhne po grepu | Produkt neexistuje | Skill jako produktová práce (§6.2). Měřit podíl `cairn` volání vůči grepu, i bez skillu |
 | `deps_api_hash` nekonverguje na reálném kódu | Cache je k ničemu | Změřit hit rate ve fázi 1; fallback na hrubší klíč |
 | Serena / konkurence dorazí dřív | Delta zmizí | Delta je perzistence + cross-language binders + L3, ne „máme graf". Zaměřit se na ně |
@@ -1508,11 +1513,12 @@ viz D16 a §1.1. Zkouška opačným směrem, na JS/TS, je v §17.
 | | |
 |---|---|
 | Velikost pracovního stromu | 34 MB |
+| **Naměřeno ve fázi 0** | [spike-0-results.md](spike-0-results.md) |
 | Python | 218 193 řádků / 1 184 souborů · Django 5.2.6, pytest-django |
 | Go | 158 874 řádků / 516 souborů |
 | Proto | 9 768 řádků / 139 souborů |
 | **Generovaný Go** | **103 176 řádků = 65 % Go kódu** (220 × `.pb.go`) |
-| Generovaný Python | **0 souborů v repu** — vyrábí `make pbgen` (§4.6) |
+| Generovaný Python | 13 souborů / **48 952 řádků**, 51 `*ServiceBase` (betterproto2 sype do `__init__.py`, ne `*_pb2.py` — snadno se přehlédne) |
 | Compose služby | 16 (15 vlastních + postgres) ze **2 build image** |
 | Compose soubory | `compose.yaml`, `compose.local.yaml`, `compose.test.yaml` |
 | Dockerfily | 7 (`srcpy`, `srcgo`, jejich interpreter/compiler báze, `pbgen`, sentinel, postgres) |

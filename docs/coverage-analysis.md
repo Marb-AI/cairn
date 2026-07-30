@@ -2,6 +2,9 @@
 
 **Repo:** an internal repository · ověřeno 30. 7. 2026 · doprovod k [architecture.md](architecture.md)
 
+> Naměřená čísla jsou v [spike-0-results.md](spike-0-results.md). Tenhle dokument je
+> analýza čtením kódu; kde se s měřením rozešel, platí měření — viz §9.
+
 Otázka: máme popsané všechny postupy potřebné k tomu, abychom nad tímhle konkrétním
 kódem uměli odpovědět na strukturální dotazy? Tenhle dokument prochází kategorii po
 kategorii a u každé říká **ověřeno / mezera / mimo rozsah**.
@@ -12,7 +15,8 @@ kategorii a u každé říká **ověřeno / mezera / mimo rozsah**.
 > „grpclib", odpovídá tomu v architektuře řádek v tabulce pravidel, ne `if` v Rustu.
 > Zkouška opačným směrem — co stojí přidat JS/TS — je v architecture §17.
 
-Metoda: čtení kódu, ne spuštění indexeru. To přijde ve fázi 0.
+Metoda: čtení kódu, ne spuštění indexeru. Indexery doběhly ve fázi 0 —
+viz [spike-0-results.md](spike-0-results.md).
 
 ---
 
@@ -29,7 +33,7 @@ Metoda: čtení kódu, ne spuštění indexeru. To přijde ve fázi 0.
 | Django ORM | ⚠️ podmíněno stub balíčky | §6 |
 | Dynamika (`getattr`, `importlib`) | ⚠️ 123 výskytů → `unknown` | §7 |
 | Generovaný kód | ✅ ověřeno, ale 65 % Go | §8 |
-| Chybějící Python stuby | ⚠️ jen na nebuildnutém checkoutu | §9 |
+| ~~Chybějící Python stuby~~ | ❌ **mylný nález, odvoláno** | §9 |
 
 Závěr: **postupy jsou popsané a stačí.** Nic není blokující. Tři položky jsou částečné
 a všechny tři mají definované chování (`unknown` / `degraded`), ne tichý fail.
@@ -265,29 +269,29 @@ oddělený CAS namespace pro generované soubory.
 
 ---
 
-## 9. Chybějící generovaný kód
+## 9. Chybějící generovaný kód — ODVOLÁNO
 
-**Nalezeno:** `srcpy/schema/` obsahuje **13 souborů, všechno `__init__.py`**. Žádný `_pb2.py`.
-Generuje je `make pbgen` až při buildu. Go strana má naopak stuby commitnuté — tytéž
-`.proto`, opačné rozhodnutí pro každý jazyk.
+**Původní tvrzení bylo špatně.** Dřívější verze téhle sekce tvrdila, že Python protobuf
+stuby v repu nejsou a že to stojí celou gRPC plochu Python strany. Není to pravda.
 
-**Proč to není okrajové.** Protože vazba handler ↔ proto služba stojí na dědičnosti
-z `orders_api.ChatServiceBase` (§4.1), sebere chybějící stub **celou gRPC plochu
-Python strany** — všech 24 handlerů ztratí bázovou třídu. Není to „pár referencí".
+**Stuby jsou commitnuté.** betterproto2 negeneruje `*_pb2.py`, ale jeden velký
+`__init__.py` na proto balíček: 13 souborů, **48 952 řádků, 51 tříd `*ServiceBase`**.
+Původní kontrola počítala soubory a hledala vzor jména, který tenhle generátor nikdy
+nevyrobí.
 
-**Postup:** architecture §4.6 + D14 — detekovat, **nespouštět**, degradovat a přiznat
-v každé odpovědi.
+Doloženo měřením (spike, §5 tam): index obsahuje všech 51 definic `*ServiceBase`
+i všech 34 `*ServiceHandler`, a přegenerování stubů nezmění nic — 2 183 referencí
+na `*ServiceBase` před i po.
 
-**Verdikt: ⚠️ ošetřené, v praxi přechodné.** CI generovaný kód hlídá, takže v jakémkoli
-checkoutu, kde někdo jednou buildil nebo pustil testy, artefakty existují. Stav „chybí"
-se týká hlavně čerstvého clonu — což je přesně situace tohoto průzkumu.
+**Co z toho zůstává v platnosti:** obecný mechanismus v architecture §4.6 (D14) —
+generovaný artefakt může chybět a jiné ekosystémy nemají CI pojistku. Toto repo ale
+není jeho příkladem a nesmí se jako příklad citovat.
 
-Obecný jev to ale je a jinde tu pojistku nemusí mít: GraphQL codegen, Prisma klient,
-OpenAPI klienti, `next build` typy. Proto je to pravidlo v datech, ne předpoklad.
-
-**Pro fázi 0 to zůstává důležité procedurálně:** měřit se musí **s vygenerovanými stuby
-i bez nich**. Bez toho by čísla vypadala jako selhání pyrightu na Djangu (§6),
-přitom by šlo o něco úplně jiného.
+**Poučení do návrhu, které tím naopak zesílilo:** detekce generovaného kódu (§8) se
+nesmí opírat o vzory jmen souborů. `srcpy/schema/orders_api/__init__.py` je
+48 tisíc řádků generovaného kódu ve jménu, které vypadá jako běžný balíček.
+Rozhoduje **hlavičkový marker a `.gitattributes`**, ne přípona — přesně jak to
+architecture §7.3 řadí.
 
 ## 10. Co tenhle dokument nepokrývá
 
@@ -302,8 +306,9 @@ přitom by šlo o něco úplně jiného.
 
 ## 11. Co z analýzy plyne pro plán
 
-1. **Codegen krok je součást fáze 0**, ne detail. Měřit obojí — s ním i bez něj —
-   jinak nemá spike výpovědní hodnotu.
+1. ~~Codegen krok je součást fáze 0.~~ Odvoláno, viz §9 — stuby jsou v repu.
+   Zůstává obecné pravidlo: **detekce generovaného kódu podle markeru, ne podle
+   jména souboru** (§9, poslední odstavec).
 2. **Route binder je levnější, než se čekalo** — 4 vzory místo „všechny frameworky".
    Zvážit posun z fáze 2b do 2a, protože `122 rout, z toho 12 neautentizovaných`
    je efektní výstup hned na začátku.

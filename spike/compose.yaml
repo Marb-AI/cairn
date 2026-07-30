@@ -1,0 +1,24 @@
+name: cairn-spike
+
+services:
+  spike:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # The target repo is mounted READ-ONLY; the spike must not touch it.
+    # A working copy is made inside the container (run.sh step 0).
+    volumes:
+      - ${SPIKE_REPO:-../../repos/backend}:/repo:ro
+      - ./out:/out
+      - ./run.sh:/spike/run.sh:ro
+      - ./scipstat.py:/spike/scipstat.py:ro
+      - work:/work
+    environment:
+      REPO_SRC: /repo
+      WORK: /work
+      OUT: /out
+    # `docker compose run --rm spike [steps]`, e.g. `... spike go stats`
+    command: ["all"]
+
+volumes:
+  work:

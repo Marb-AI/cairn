@@ -1,0 +1,79 @@
+
+========================================================================
+/out/go.scip   (34.9 MB raw)
+========================================================================
+documents                    537
+occurrences              244,990
+  definitions             55,894
+symbols defined           26,387
+symbols external               4
+
+-- PROJECT CODE --   (go: exact match on module path in the package field)
+  module                              references  unresolved       %
+  example/orders-api/srcgo      68,461           0   0.00%
+  TOTAL                                   68,461           0   0.00%  <<< DECISIVE NUMBER
+
+-- OUTSIDE THE PROJECT (stdlib / third-party, dangling is expected) --
+  references              64,651
+  without definition      64,210
+    google                                           40,263
+    context                                           6,930
+    entgo                                             5,194
+    github                                            2,414
+    testing                                           1,960
+    fmt                                               1,264
+    sync                                                920
+    unsafe                                              828
+
+generated code               220 documents, 142,887 occurrences (58.3 %)
+files with <5 occ.             2   (candidates for silent failure)
+
+========================================================================
+/out/py.scip   (40.3 MB raw)
+========================================================================
+documents                  1,169
+occurrences              347,218
+  definitions             60,950
+symbols defined           43,557
+symbols external             806
+
+-- PROJECT CODE --   (python: top-level module matched against indexed directories)
+  module                              references  unresolved       %
+  domains                                 66,508         135   0.20%
+  libs                                     4,548          11   0.24%
+  schema                                  59,594           4   0.01%
+  TOTAL                                  130,650         150   0.11%  <<< DECISIVE NUMBER
+
+  unresolved project symbols (what cairn would fail to find):
+         4x  `schema.orders_api`/default_scoring_profile#
+         3x  `domains.orders.rds.identity.models`/AuthProvider#Protocol#
+         2x  `domains.orders.settings`/
+         2x  `domains.orders.agents.order_advisor.eval.generation.pipeline`/
+         2x  `domains.orders.admin.admin`/
+         2x  `domains.orders.cli.run_agent_eval`/
+         2x  `domains.orders.repository.pricing`/
+         2x  `domains.catalog.settings`/
+         2x  `domains.catalog.grpc.server`/
+         2x  `domains.regions.settings`/
+
+-- OUTSIDE THE PROJECT (stdlib / third-party, dangling is expected) --
+  references              87,518
+  without definition      61,549
+    betterproto2                                     18,424
+    django                                           17,468
+    grpclib                                           6,121
+    builtins                                          3,123
+    _pytest                                           1,780
+    pytest                                            1,694
+    dataclasses                                       1,306
+    datetime                                          1,209
+
+generated code                 0 documents, 0 occurrences (0.0 %)
+files with <5 occ.           163   (candidates for silent failure)
+
+========================================================================
+SUMMARY
+========================================================================
+index                        MB    docs  occurrences  project refs  unresolved
+go.scip                    34.9     537      244,990        68,461       0.00%
+py.scip                    40.3   1,169      347,218       130,650       0.11%
