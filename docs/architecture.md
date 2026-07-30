@@ -42,8 +42,86 @@ L0/L1 dotazy musí odpovídat stejně jako s ním.** Viz §3.1.
 | D11 | Index vs. git | **Index se do repa necommituje. Do gitu jde jen malý textový souhrn topologie.** | Odvozená data v gitu jsou klasická past (`node_modules`, build outputy). Konflikty nejsou problém k vyřešení, ale příznak. Viz §5.6. |
 | D12 | Komentáře | **Extrahovat, indexovat pro fulltext, ale nikdy nevydávat za fakt** | Komentáře jsou nejlepší most mezi jménem featury a symbolem. Zároveň bývají zastaralé. Viz §4.5. |
 | D13 | Běhové prostředí | **Všechno v Dockeru — daemon, language servery, indexery, build.** Na hostiteli nesmí být `cargo`, Node ani Go toolchain | Zadání projektu. Má architektonické důsledky pro cesty a watcher, ne jen pro build. Viz §2.1. |
-| D14 | Codegen | **Repo může být neanalyzovatelné, dokud neproběhne generování kódu — prepare krok je prvotřídní součást pipeline** | Ověřeno na testovacím repu: Python protobuf stuby v gitu nejsou. Bez toho by spike naměřil katastrofu z úplně jiného důvodu. Viz §4.6. |
+| D14 | Codegen | **Část kódu vyrábí build. Detekovat a přiznat degradaci — nikdy nespouštět.** | Platí napříč ekosystémy (protobuf, GraphQL, Prisma, OpenAPI). Spouštět by porušilo read-only a je to zbytečné: v repu s CI artefakty po prvním buildu existují. Viz §4.6. |
 | D15 | Role LLM | **Index se staví kompletně bez LLM. LLM smí znalost jen obohatit, nikdy založit.** | Determinismus je celý pitch — jakmile by struktura záležela na modelu, ztrácí se to, kvůli čemu nástroj existuje. Testovatelné: `cairn index` běží offline bez klíče. Viz §3.1. |
+| D16 | Rozšiřitelnost | **Jádro nezná žádný jazyk ani framework. Znalost ekosystémů žije v deklarativních pravidlech, ne v kódu jádra.** | Testovací repo je důkaz funkčnosti, ne specifikace. Další cíl je JS/TS a nesmí to znamenat přepis. Viz §1.1. |
+
+### 1.1 Co je jádro a co je znalost ekosystému (D16)
+
+Nejsnazší způsob, jak tenhle projekt pokazit, je napsat nástroj, který umí jedno repo.
+Testovací repo (§16) slouží k **ověření, že obecné řešení funguje** — ne jako zadání.
+Konkrétní nálezy z něj jsou v dokumentu značené jako *důkaz*, ne jako specifikace.
+
+Rozdělení do tří vrstev, které určuje, kam co patří a co stojí přidání dalšího ekosystému:
+
+```
+  ┌──────────────────────────────────────────────────────────────┐
+  │ A · JÁDRO — nezná jazyk ani framework                        │
+  │   snapshot · CAS · deps_api_hash · SCIP schéma · graf ·      │
+  │   ranking · handles · formátování · git L3 · daemon · CLI    │
+  │   Přidání jazyka sem NESAHÁ.                                 │
+  ├──────────────────────────────────────────────────────────────┤
+  │ B · PRAVIDLA — data, ne kód                                  │
+  │   rules/python.toml · go.toml · typescript.toml              │
+  │   entrypointy · routy · registrace služeb · konvence jmen    │
+  │   generovaného kódu · detekce generovaných souborů           │
+  │   Přidání frameworku = pravidlo, ne commit do Rustu.         │
+  ├──────────────────────────────────────────────────────────────┤
+  │ C · ADAPTÉRY — malý kód, vzácně                              │
+  │   language provider (indexer + LSP + gramatika komentářů)    │
+  │   binder, který pravidlo neunese (parser .proto, tsconfig)   │
+  └──────────────────────────────────────────────────────────────┘
+```
+
+### Vrstva A je většina hodnoty
+
+Symboly, reference, call graph, komentáře, blast radius, co-change z gitu — nic z toho
+neví, jakým jazykem je kód napsaný. Stojí to na SCIP schématu, které je jazykově neutrální
+z definice. **Tahle vrstva funguje na JS/TS ve chvíli, kdy existuje `scip-typescript`** —
+a ten existuje.
+
+### Vrstva B: uzavřená sada tvarů, ne obecný DSL
+
+Pokušení je napsat query jazyk nad AST. To je past — skončí to vlastním parserem
+v jiném převleku. Reálné případy z Pythonu, Go, TS i JS se ale skládají z malé uzavřené
+množiny **tvarů**:
+
+| tvar | příklad |
+|---|---|
+| `call_pattern` | `Register{Service}Server(s, $impl)` · `app.get($path, $handler)` |
+| `decorator` | `@$router.get($path)` · `@shared_task` |
+| `inherits` | `class $X($pkg.{Service}Base)` |
+| `collection_literal` | `urlpatterns = [ path($p, $view), … ]` |
+| `command_string` | `python -m $mod` · `next start` · `/bin/$binary` |
+| `path_convention` | `app/api/**/route.ts` → `$method /api/**` |
+
+Šest tvarů, ne obecný jazyk. **Nový tvar se přidává, až když ho vyžádají aspoň dva
+nezávislé reálné případy** — to je pojistka proti bobtnání.
+
+Pravidlo je pak data:
+
+```toml
+[[rule]]
+id    = "grpc-go.register"
+lang  = "go"
+shape = "call_pattern"
+match = { name = "Register(?<service>\\w+)Server", args = ["$server", "$impl"] }
+emit  = { edge = "implements", from = "$impl", to = "proto:{service}" }
+```
+
+Pravidla se dodávají v balíčcích (`rules/*.toml`), ale **repo si je smí přebít nebo doplnit**
+v `.cairn/rules.toml`. Interní framework, který nikdo jiný nemá, je tak řešitelný bez forku.
+
+### Vrstva C: kdy je kód v pořádku
+
+Když tvar nestačí. Parser `.proto`, čtení `tsconfig.json` `paths`, resolver
+multi-stage Dockerfile. Držet malé a vzácné; každý nový adaptér je závazek na údržbu.
+
+### Testovací podmínka pro D16
+
+**Přidání JS/TS smí znamenat: jeden language provider (vrstva C) + jeden balíček
+pravidel (vrstva B). Nula změn ve vrstvě A.** Jestli to tak nevyjde, je návrh špatně.
+Konkrétní průchod tímhle cvičením je v §17.
 
 ---
 
@@ -294,57 +372,56 @@ endpointu" (§8.7) dotaz, na který dnes neodpoví nic.
 Invalidace beze změny: komentáře jsou per-soubor, obsahem klíčované jako všechno ostatní,
 a nezávisí na `deps_api_hash` (nemají závislosti).
 
-### 4.6 Prepare krok — repo nemusí být analyzovatelné hned po clonu
+### 4.6 Chybějící codegen — indexovat jde, mlčet se nesmí
 
-Objeveno na testovacím repu a je to díra v návrhu, ne detail.
+**Obecný jev:** část kódu nemusí v pracovním stromě existovat, protože ji vyrábí build.
+Předpoklad „co je v repu, to je celý kód" neplatí u protobuf/gRPC, GraphQL codegen,
+OpenAPI klientů, Thriftu, ORM stub generátorů, .NET source generators,
+Prisma klienta i `next build` typů. Napříč jazyky, ne v jednom.
 
-`srcgo/schema` obsahuje **220 commitnutých `.pb.go`**. `srcpy/schema` obsahuje
-**13 prázdných `__init__.py` a nic víc** — Python stuby vyrábí `make pbgen` až při buildu.
-Tentýž repo, tytéž `.proto`, opačné rozhodnutí pro každý jazyk.
+Následek není „pár nerozřešených referencí". Když na generovaném symbolu visí dědičnost
+nebo typ, chybějící artefakt sebere **celou plochu**, která přes něj vede.
 
-Důsledek na čerstvém clonu: pyright nerozřeší **žádný** import ze `schema`, což kaskáduje —
-každý typ zprávy je neznámý, každé RPC volání ztrácí cíl, každá reference přes hranici
-schématu zmizí. Naměřená čísla by přitom vypadala jako selhání pyrightu na Djangu (§4.4),
-ačkoli by šlo o něco úplně jiného.
+#### Chování: detekovat, indexovat, přiznat
 
-Obecná kategorie, ne jednorázovka: protobuf/gRPC, OpenAPI klienti, GraphQL codegen, Thrift,
-ORM stub generátory, .NET source generators. Předpoklad „co je v repu, to je celý kód"
-prostě neplatí.
-
-#### Konfigurace
+Pravidlo (vrstva B, §1.1) popisuje pro daný ekosystém dvojici *vstupy → očekávané výstupy*:
 
 ```toml
-# .cairn/config.toml — commitnutelné, vedle .cairn/topology.txt (§5.6)
-[prepare]
-command  = "make pbgen"
-produces = ["srcpy/schema/**/*_pb2.py", "srcpy/schema/**/*_pb2_grpc.py"]
-inputs   = ["proto/**/*.proto"]
+[[codegen]]
+id       = "protobuf.python"
+inputs   = ["**/*.proto"]
+produces = ["**/*_pb2.py", "**/*_pb2_grpc.py"]
+hint     = "run your protobuf generation step"
 ```
-
-#### Tři režimy a jeden, který se nesmí stát
 
 | stav | chování |
 |---|---|
-| `produces` existují a nejsou starší než `inputs` | nic, indexuje se normálně |
-| chybí, `command` nakonfigurován, **spuštění povoleno** | spustit (v kontejneru, D13), pak indexovat |
-| chybí, nebo spuštění nepovoleno | **indexovat, ale celý index je `degraded:`** |
+| výstupy existují a nejsou starší než vstupy | indexuje se normálně |
+| chybí, nebo jsou zastaralé | **indexuje se dál, ale index je `degraded:`** |
 
-Poslední řádek je ten podstatný. Bez něj by nástroj tvrdil „3 reference", kde jich je 200 —
-přesně ten tichý fail, kterému se D8 vyhýbá. Degradovaný index proto nese příznak
-v `cairn://status` **a v každé odpovědi**:
+Druhý řádek je celá pointa. Bez něj by nástroj tvrdil „3 reference", kde jich je 200 —
+přesně ten tichý fail, kterému se vyhýbá D8. Příznak jde do `cairn status`
+**a do každé odpovědi**:
 
 ```
-degraded: python protobuf stubs missing (srcpy/schema).
-          References crossing the schema boundary are incomplete.
-          Fix: make pbgen
+degraded: generated sources missing or stale (protobuf.python).
+          References crossing that boundary are incomplete.
+          hint: run your protobuf generation step
 ```
 
-#### Cairn zůstává read-only
+#### Cairn nic nespouští
 
-§6.1 říká, že cairn nikdy nezapisuje. `make pbgen` ale zapisuje do pracovního stromu.
-Rozpor se řeší tím, že **výchozí chování je detekovat a přiznat, ne spustit** — spuštění
-je explicitní opt-in v konfiguraci a i pak je to uživatelův vlastní příkaz, ne nic, co by
-si cairn vymýšlel. Nikdy se nespouští automaticky při prvním kontaktu s repem.
+Dřívější verze návrhu tady měla „prepare krok", který si codegen sám pustí. Zrušeno,
+ze dvou důvodů. Za prvé by to porušilo read-only kontrakt (§6.1) — codegen zapisuje
+do pracovního stromu. Za druhé je to zbytečné: **v repu s CI, které generovaný kód hlídá,
+existují artefakty v každém checkoutu, kde někdo jednou buildil nebo pustil testy.**
+Stav „chybí" je přechodný a týká se hlavně čerstvého clonu.
+
+Zůstává tedy jen detekce a poctivé přiznání. Levné, univerzální, bez vedlejších účinků.
+
+*Důkaz jevu (§16): testovací repo má Go protobuf stuby commitnuté, Python ne — tytéž
+`.proto`, opačné rozhodnutí pro každý jazyk. To je právě ten důvod, proč to musí být
+pravidlo v datech a ne předpoklad v kódu.*
 
 ---
 
@@ -814,15 +891,24 @@ Ranking je testovatelná komponenta — patří do měřicího harnessu (§10), 
 
 ## 7. Cross-language a binders
 
-Protože testovací repo je Python + Go přes gRPC, cross-language není fáze 5 — je to den 1
-a zároveň to je ta část, kterou dnes nedělá nikdo.
+Reálné systémy jsou skoro vždy víc než jeden jazyk a hranice mezi nimi je právě to místo,
+kde každý single-language nástroj oslepne. Proto cross-language není pozdní fáze, ale
+základní schopnost.
+
+**Obecný tvar problému:** existuje *sdílený kontrakt* — IDL, schéma, konvence — a několik
+jazykových stran, které ho implementují nebo konzumují. Kontrakt sám je v repu jako
+artefakt (`.proto`, `.graphql`, OpenAPI dokument, sdílený typový balíček). Úkolem binderu
+je propojit uzel kontraktu se symboly na obou stranách.
+
+Ten tvar je stejný pro gRPC, GraphQL, OpenAPI i sdílené TS typy mezi frontendem a BFF.
+Liší se jen pravidlo, kterým se pozná, který symbol ke kterému kusu kontraktu patří.
 
 ### 7.1 Binder = malý plugin, který vyrábí hrany mezi symbol ID
 
 Signatura konceptuálně: `fn bind(snapshot) -> Vec<Edge>`. Nic víc. Binders zapisují
 do stejné `edges` tabulky s `source = binder_name`.
 
-### 7.2 Proto binder (první a nejcennější)
+### 7.2 Proto binder — první instance obecného tvaru
 
 ```
 proto/auth.proto
@@ -842,51 +928,63 @@ vlastní parser výjimečně obhajitelný, gramatika je triviální) a vytvoří
 **To je ten skok, který grep ani žádný single-language nástroj neudělá:** „kdo volá tenhle
 Python handler" má správnou odpověď v Go kódu.
 
-**Ověřeno: vazba handler ↔ proto služba je v obou jazycích jeden vzor.**
+#### Vazbu implementace ↔ kontrakt nese pravidlo, ne kód binderu
 
-```python
-# Python (grpclib) — je to prostá dědičnost, kterou L0 dá zadarmo jako `implements`
-class ChatServiceHandler(DjangoExceptionHandlerMixin, orders_api.ChatServiceBase): …
-```
-```go
-// Go (protoc-gen-go-grpc) — jedno volání v cmd/*/server.go, dosažitelné z entrypointu
-regions_api.RegisterAreaQueryServiceServer(server, area.NewHandler(app))
-```
+Binder z kontraktu vytáhne uzly (`proto:AuthService.Verify`). **Jak se pozná
+implementace, je pravidlo vrstvy B (§1.1)** — protože se to liší nejen mezi jazyky,
+ale i mezi knihovnami téhož jazyka:
 
-Pro Python tedy **žádný speciální binder na tuhle hranu nepotřebujeme** — stačí mapovat
-generovanou bázi `ChatServiceBase` zpět na `proto:ChatService`, což je konvence protoc.
-Zbytek je normální dědičnost, kterou SCIP vidí. Pro Go je to jedno volání se známou
-signaturou `Register<Service>Server(s, impl)`.
+| stack | tvar | pravidlo |
+|---|---|---|
+| Python / grpclib | `inherits` | `class $X(…, $pkg.{Service}Base)` |
+| Python / grpcio | `call_pattern` | `add_{Service}Servicer_to_server($impl, $srv)` |
+| Go / protoc-gen-go-grpc | `call_pattern` | `Register{Service}Server($srv, $impl)` |
+| TS / connect-es, nice-grpc | `collection_literal` | mapa metod → handlery |
 
-**Stuby nemusí v repu být — a nemusí chybět symetricky.** Testovací repo má 220 commitnutých
-`.pb.go`, ale Python stuby generuje až build (§4.6). To má u téhle hrany brutální důsledek:
-bez `make pbgen` je `orders_api.ChatServiceBase` nerozřešitelný, takže **zmizí celá
-gRPC plocha Python strany** — ne pár referencí. Binder z toho plyne ve dvou režimech:
+Stojí za pozornost, že u dědičnosti **binder nepotřebuje dělat nic navíc** — `implements`
+hranu dá L0 zadarmo a zbývá jen namapovat jméno generované báze zpět na kontrakt.
+Konvence pojmenování je taky pravidlo, ne kód.
 
-- **hrana `proto` → symbol jde postavit i bez stubu**, protože pojmenování je dané konvencí
-  protoc (`AuthService` → `AuthServiceServicer` / `AuthServiceStub` v `auth_pb2_grpc.py`).
-  Cíl se označí jako `expected`, ne `resolved`.
-- **kód, který stuby importuje, se bez nich nerozřeší nikdy** — a to je ta drahá část.
-  Odtud degradovaný režim v §4.6.
+*Důkaz (§16): v testovacím repu jsou první tři řádky tabulky reálné —
+`class ChatServiceHandler(…, orders_api.ChatServiceBase)` na Python straně,
+`regions_api.RegisterAreaQueryServiceServer(server, area.NewHandler(app))` na Go straně.
+Dva různé tvary v jednom repu jsou přesně ten důvod, proč to nesmí být zadrátované.*
 
-Nedělat z toho ambici generovat stuby vlastními silami. Konvenci znát stačí na hranu;
-na tělo je potřeba `make pbgen`.
+#### Kontrakt existuje i bez vygenerovaného kódu
+
+Hrana `kontrakt → očekávaný symbol` jde postavit i tehdy, když generovaný artefakt chybí,
+protože pojmenování je dané konvencí. Cíl se pak označí `expected`, ne `resolved`.
+Kód, který generované typy *importuje*, se bez nich nerozřeší nikdy — a to je ta drahá
+část, odtud degradovaný režim v §4.6.
+
+Nedělat z toho ambici generovat cokoli vlastními silami. Konvence stačí na hranu,
+na tělo je potřeba build.
 
 ### 7.3 Generated-code detekce (malá fičura, obrovský efekt)
 
-gRPC repo je plné `*_pb2.py`, `*_pb2_grpc.py`, `*.pb.go`. Bez detekce každý dotaz utone.
+Generovaný kód bývá objemově většina repa a v odpovědích ho skoro nikdo nechce.
+Bez potlačení každý dotaz utone.
 
-Rozsah není odhad: v testovacím repu je **103 176 ze 158 874 řádků Go generovaných** — 65 %.
-Bez potlačení by většina odpovědí byla seznam `.pb.go` souborů.
+Detekce je jazykově neutrální a stojí na třech signálech, v tomhle pořadí:
 
-Detekce: hlavičkové markery (`Code generated by protoc-gen-go. DO NOT EDIT.`,
-`# Generated by the gRPC Python protocol compiler`), cestové vzory, `.gitattributes
-linguist-generated`. Efekt: sbalit do jednoho řádku —
+1. **hlavičkový marker** — `Code generated by … DO NOT EDIT.` (Go), `@generated` (běžné
+   v JS/TS ekosystému i jinde), `# Generated by …`
+2. **`.gitattributes linguist-generated`** — repo si to samo označuje
+3. **cestové vzory z pravidel** (vrstva B) — `**/*_pb2.py`, `**/*.pb.go`, `**/generated/**`,
+   `.next/**`, `dist/**`
+
+Efekt: sbalit do jednoho řádku —
 `+ 47 refs in generated code (suppressed; rerun with --include-generated)`.
+Plus vlastní CAS namespace, aby šel generovaný kód ve sdílené cache přeskočit (§5.5).
+
+*Důkaz rozsahu (§16): 103 176 ze 158 874 řádků Go v testovacím repu je generovaných — 65 %.
+Ve frontend repu bude podíl jiný, ale problém tentýž.*
 
 ### 7.4 Další binders (později, stejný mechanismus)
 
-Django ORM model ↔ tabulka ↔ migrace · OpenAPI · env var ↔ config čtení · SQL v raw queries.
+GraphQL schéma ↔ resolvery ↔ klientské dotazy · OpenAPI ↔ server ↔ generovaný klient ·
+ORM model ↔ tabulka ↔ migrace · env var ↔ čtení konfigurace · sdílené typy mezi repy ·
+SQL v raw dotazech.
 
 ---
 
@@ -958,9 +1056,35 @@ a tabulka známých vzorů. Ale těch šipek je víc, než se na první pohled z
 přes dvě `COPY --from` / `-o` mapování a přes wrapper `xx-go` (buildx cross-compile),
 ne přes holé `go build`.
 
-### 8.3 Co se parsuje
+### 8.3 Deployment deskriptor — obecně a pak compose
 
-**compose** (`docker-compose.yml`, `compose.yaml`, override soubory, `profiles`):
+Compose je **jedna instance obecnějšího pojmu: deskriptoru, který pojmenovává procesy
+a jejich startovní příkazy.** Jádro z každého takového deskriptoru chce vždy totéž:
+
+| co jádro potřebuje | proč |
+|---|---|
+| seznam nasaditelných jednotek | oddíly grafu |
+| startovní příkaz každé z nich | vstup pro launcher resolver (§8.4) |
+| most jednotka → zdrojový adresář | kde ten kód vůbec leží |
+| mapa běhová cesta ↔ cesta v repu | překlad stack trace, runtime trace (§9) |
+| co je dostupné zvenku | veřejná plocha systému |
+| konfigurace a vazby mezi jednotkami | cross-service hrany (§8.5) |
+
+Známé deskriptory a jejich pokrytí těch šesti položek:
+
+| deskriptor | pokrývá | poznámka |
+|---|---|---|
+| **Docker Compose + Dockerfile** | vše | první implementace |
+| `package.json` `scripts` | jednotky, příkazy | v JS/TS repu často jediný zdroj; monorepo přes workspaces |
+| Procfile / systemd unit | jednotky, příkazy | triviální parser |
+| Kubernetes / Helm | vše, ale přes šablonování | §8.9 — až bude compose ověřený |
+| `Makefile` cíle | příkazy | poslední záchrana, nespolehlivé |
+
+Jádro pracuje s tím sjednoceným tvarem; každý deskriptor je adaptér vrstvy C (§1.1).
+**Repo bez Dockeru tedy není mimo rozsah** — jen dostane méně vyplněných políček
+a řekne to v `unknown:`.
+
+#### compose (`docker-compose.yml`, `compose.yaml`, override soubory, `profiles`)
 
 | pole | co z toho je |
 |---|---|
@@ -1005,25 +1129,44 @@ a hodnota strmě klesá.
 
 ### 8.4 Launcher resolver — příkaz → symbol
 
-Ne obecný interpret shellu, ale **tabulka rozpoznávaných vzorů**. Deset vzorů pokryje
-drtivou většinu reálných projektů.
+Vstupem je **řetězec startovního příkazu**, ať přišel odkud chce (§8.3). Výstupem je
+symbol, nebo poctivé `unknown`. Není to interpret shellu, ale **tvar `command_string`
+z §1.1** — pravidla v datech, resolver v jádře.
 
-Python:
-- `gunicorn pkg.wsgi:application` → symbol `application` v `pkg/wsgi.py`
-- `uvicorn app.main:app` → `app` v `app/main.py`
-- `python -m pkg.server` → `pkg/server/__main__.py`, resp. `pkg/server.py`
-- `celery -A proj worker` → **každý `@shared_task` je vlastní kořen**
-- `manage.py <cmd>` → `management/commands/<cmd>.py::Command.handle`
-- `pytest` → testovací kořeny
+```toml
+[[launcher]]
+id = "python.module"; lang = "python"
+match = "python3? -m (?<mod>[\\w.]+)"
+emit  = { module = "{mod}", symbol = "__main__" }
+```
 
-Go:
-- `/app/server` → zpětně přes `RUN go build -o /app/server ./cmd/server` → `cmd/server/main.go::main`
-- `go run ./cmd/x` → přímo
+Ukázky pravidel napříč ekosystémy — účel je vidět, že se liší jen data:
 
-`entrypoint.sh` je v praxi hodně častý: přečíst skript a hledat závěrečný `exec …`.
-Když se to nepovede rozřešit, jde to do **`unknown:`** — ne tichý fail. To je přímý
-důsledek D8 a tady na tom záleží víc než kdekoli jinde, protože chybějící kořen
-tiše prohlásí živý kód za mrtvý.
+| ekosystém | příkaz | kořen |
+|---|---|---|
+| Python | `python -m pkg.server` | `pkg/server/__main__.py` |
+| Python | `gunicorn pkg.wsgi:application` | symbol `application` |
+| Python | `celery -A proj worker` | **každý `@shared_task` je vlastní kořen** |
+| Go | `/bin/srv` | zpětně přes `build -o` → `cmd/srv/main.go::main` |
+| Node | `node dist/server.js` | přes source map / build config zpět do `src/` |
+| Node | `next start` | **konvence: `app/**/route.ts`, `pages/api/**`** (§8.6) |
+| Node | `npm run start` | rozbalit přes `package.json` `scripts` a řešit znovu |
+| JVM | `java -jar app.jar` | manifest `Main-Class` |
+
+Dvě věci, které pravidlo neunese a patří do vrstvy C:
+
+- **rekurze přes nepřímost.** `npm run start` → `scripts.start` → další příkaz.
+  Resolver musí umět zavolat sám sebe s limitem hloubky.
+- **build artefakt ≠ zdroj.** U Go to řeší `-o` mapování z Dockerfile, u Node bundler
+  (`dist/`, `.next/`) a tam je most buď source map, nebo konfigurace bundleru.
+  Tohle je u JS/TS podstatně horší než u Go a je to hlavní riziko §17.
+
+Obalové skripty (`entrypoint.sh`, `docker-entrypoint.sh`) jsou v praxi časté: přečíst
+a hledat závěrečný `exec …`.
+
+Když se cokoli z toho nepovede rozřešit, jde to do **`unknown:`** — ne tichý fail. To je
+přímý důsledek D8 a tady na tom záleží víc než kdekoli jinde, protože **chybějící kořen
+tiše prohlásí živý kód za mrtvý** (§8.7).
 
 ### 8.5 Env binder
 
@@ -1056,18 +1199,35 @@ pro každou službu zvlášť (§4.4).
 
 Compose dává kořeny na úrovni procesů. Webový projekt potřebuje kořeny na úrovni requestů.
 
-**Ověřeno na testovacím repu** (detaily v [coverage-analysis.md](coverage-analysis.md)) —
-obava, že „endpointy jsou jiná liga, protože bychom museli znát všechny frameworky",
-se nepotvrdila. Reálně jsou to čtyři vzory:
+Obava „na tohle bychom museli znát všechny frameworky" je pochopitelná, ale při pohledu
+na reálné frameworky se rozpadá: **routu deklaruje jeden ze čtyř tvarů z §1.1** a jádro
+z nich skládá cestu vždy stejně.
 
-| kde | vzor | pokrytí |
+| tvar | frameworky | pravidlo |
 |---|---|---|
-| **FastAPI** | `x = APIRouter(prefix=…)`, `@x.get("/y", operation_id=…)`, `app.include_router(x, dependencies=[…])` | 122 endpointů, statické, včetně **informace o autentizaci** |
-| **gRPC** | proto + registrační vzor, viz §7.2 | 71 služeb, exhaustivní |
-| **Django** | 3× `urls.py` (`urlpatterns` / `path()` / `include()`) + `admin.site` | admin |
-| **Go HTTP** | **jediný soubor**: stdlib `http.NewServeMux` + `mux.HandleFunc("GET /{key}", …)` | 1 endpoint |
+| `decorator` | FastAPI, Flask, NestJS, Spring | `@$router.{method}($path)` |
+| `call_pattern` | Express, chi, gin, stdlib `ServeMux` | `$app.{method}($path, $handler)` |
+| `collection_literal` | Django `urlpatterns`, Vue/React Router | seznam `($path, $handler)` |
+| `path_convention` | **Next.js, Remix, SvelteKit, Nuxt** | `app/**/route.ts` → cesta ze struktury adresářů |
 
-Žádné chi, gin ani echo. Skládání cesty je textové: `prefix` routeru + cesta z dekorátoru.
+Skládání cesty je pak textové: prefix routeru/mountu + cesta z pravidla + vnoření.
+
+**`path_convention` je ten tvar, který přijde s JS/TS** a v Pythonu ani Go nemá obdobu —
+routa není nikde deklarovaná, je zakódovaná v *cestě k souboru*. Proto je v seznamu
+šesti tvarů (§1.1) od začátku, ne až jako pozdější dodatek.
+
+**Dvě informace navíc, které stojí za to vytáhnout, když je framework nabízí:**
+
+- **stabilní identita routy.** FastAPI `operation_id`, NestJS jméno metody, Next.js cesta
+  souboru. Je stabilnější než URL a je to lepší primární klíč než cesta.
+- **autentizace.** Když se middleware/guard/dependency připíná deklarativně
+  (`dependencies=[Depends(auth)]`, `@UseGuards(...)`, `middleware.ts`), jde staticky
+  odvodit, které routy jsou veřejné. Pro auditní doménu je to samostatně prodejný výstup.
+
+*Důkaz (§16): v testovacím repu jsou reálně tři z těch čtyř tvarů — FastAPI dekorátory
+(122 endpointů, včetně staticky viditelné autentizace), Django `urlpatterns` a jediný
+stdlib `ServeMux` v Go. Žádné chi, gin ani echo. Detaily v
+[coverage-analysis.md](coverage-analysis.md).*
 
 **Levný univerzální únik, kdyby vzory nestačily.** Většina web frameworků umí vypsat
 svou routovací tabulku: FastAPI `app.openapi()`, Django `get_resolver().url_patterns`,
@@ -1231,7 +1391,9 @@ cairn/
     cairn-daemon    supervizor, socket server, scheduler, deadliny
     cairn-store     CAS, SQLite projekce, snapshot, cache klíčování
     cairn-index     SCIP ingest, LSP klient pool, extrakce faktů
-    cairn-binders   proto · compose · dockerfile · routes · env  (§7, §8)
+    cairn-rules     engine šesti tvarů (§1.1) + načítání rules/*.toml a .cairn/rules.toml
+    cairn-lang      language providers (vrstva C): python · go · typescript
+    cairn-binders   adaptéry, které pravidlo neunese: proto, deployment deskriptory
     cairn-graph     L1 derivace: reference, call graph, blast radius, reachability, ranking
     cairn-git       gix, co-change, test impact, snapshoty z tree
     cairn-eval      měřicí harness
@@ -1240,9 +1402,12 @@ cairn/
     adr/
 ```
 
-`cairn-binders` je záměrně samostatný crate s jedním úzkým rozhraním
-(`fn bind(snapshot) -> Vec<Edge>`): binders jsou to, co se bude přidávat nejčastěji,
-a nesmí být zapletené do indexačního jádra.
+Rozdělení odpovídá vrstvám z §1.1. `cairn-rules` a `cairn-lang` jsou hranice, přes kterou
+se přidávají ekosystémy; `cairn-graph`, `cairn-store` a `cairn-fmt` o žádném jazyce nevědí
+a **při přidání jazyka se do nich nesahá** — to je testovatelná podmínka D16, ne zbožné přání.
+
+Balíčky pravidel (`rules/*.toml`) se do binárky vestavějí, ale jdou přebít souborem
+`.cairn/rules.toml` v repu.
 
 **Runtime:** tokio. **Klíčové crates:** `gix`, `rusqlite` (bundled, WAL), `notify`, `blake3`,
 `rmp-serde`, `zstd` (s trénovaným slovníkem, §5.5), `tower-lsp` nebo vlastní tenký LSP klient,
@@ -1281,6 +1446,7 @@ Fronta na pozadí, prioritně: dirty soubory > jejich přímé závislé > zbyte
 | **2b** — týdny 8–9 | Proto binder + route binder + generated-code detekce → cross-language a cross-service hrany. `cairn blast`. | **Diferenciátor, který nikdo nemá** |
 | **3** — týdny 10–12 | L3 z gitu (co-change, test impact). `cairn tests`. `cairn-eval` a první měření proti baseline. | **Tady se rozhodne, jestli teze platí** |
 | **4** | `cairn context`, ranking, progressive disclosure tuning. Skill. | Produktová vrstva |
+| **4b** | **Druhý ekosystém: JS/TS** (§17). Provider + balíček pravidel, nula změn v jádře. | Ověření D16 v praxi |
 | **5a** | Sdílení přes `refs/cairn/cache` — nepotřebuje žádnou infrastrukturu (§5.6). | Sdílená cache za pár dní |
 | **5b** | CAS server (sync vrstva nad hotovým CAS). | Monetizace |
 | **6** | L2 sémantika. Coverage contexts. | Až nad hotovou strukturou |
@@ -1311,6 +1477,9 @@ duplikující něco, co je zadarmo.
 | Indexace nad nevygenerovaným codegenem | Tichý propad recallu, který vypadá jako selhání indexeru | §4.6: detekovat, degradovat, přiznat v každé odpovědi. Nikdy neindexovat naslepo |
 | `inotify` přes bind mount na Docker Desktopu (D13) | Dirty overlay přestane fungovat, agent dostává zastaralá data | Fallback na polling; frontend umí poslat explicitní invalidaci. Na Linuxu nativně OK |
 | Kontejnerové cesty prosáknou do odpovědí | Agent nedokáže otevřít soubor, o kterém mu cairn říká | Absolutní cesty jsou zakázané už kvůli §5.1; snapshot testy `cairn-fmt` to hlídají |
+| Návrh se utáhne na testovací repo | Přenos na JS/TS = přepis | D16 a §17. Pravidla v datech; při přidání jazyka se nesmí sáhnout do vrstvy A |
+| Jazyk pravidel bobtná do DSL | Vlastní parser v jiném převleku | Uzavřená šestice tvarů (§1.1). Nový tvar až na dva nezávislé reálné případy |
+| JS/TS bundling rozbije řetěz příkaz → symbol | Entrypointy ve frontend repu nedohledatelné | §17.4: přeskočit bundler přes konvenci zdrojů; kde nejde, poctivé `unknown` |
 | Scope creep | Rok bez produktu | V dokumentu je jeden produkt. Držet fázi 0–3 |
 
 ---
@@ -1330,8 +1499,11 @@ duplikující něco, co je zadarmo.
 
 ## 16. Kalibrace na testovacím repu
 
-an internal repository, změřeno 30. 7. 2026. Slouží jako výchozí bod pro fázi 0 a jako doklad,
-že tvrzení v §7 a §8 nejsou hypotézy.
+an internal repository, změřeno 30. 7. 2026.
+
+**Tahle sekce je důkaz, ne specifikace.** Čísla dole slouží ke kalibraci fáze 0 a k doložení,
+že mechanismy z §7 a §8 nejsou hypotézy. Nic z toho nesmí být zadrátované v jádře —
+viz D16 a §1.1. Zkouška opačným směrem, na JS/TS, je v §17.
 
 | | |
 |---|---|
@@ -1357,3 +1529,63 @@ Co je potřeba doměřit ve fázi 0:
 4. kolik `.proto` služeb má obě strany (Go klient i Python servicer) — velikost §7.2 delty
 5. jestli `orders-admin` / `catalog-admin` jsou Django admin, a tedy
    jestli je potřeba route binder i pro admin URL
+
+---
+
+## 17. Zkouška abstrakce: co stojí přidat JS/TS
+
+Podmínka z D16 zní: **přidání ekosystému = jeden language provider (vrstva C) + jeden
+balíček pravidel (vrstva B), nula změn ve vrstvě A.** Tady je průchod pro JS/TS,
+protože to je reálně další cíl (frontend repo). Slouží zároveň jako kontrola, jestli
+návrh drží — kdyby vyšlo, že je potřeba sahat do jádra, je návrh špatně **teď**,
+ne za rok.
+
+### 17.1 Vrstva A — beze změny
+
+Snapshot, CAS, `deps_api_hash`, graf, ranking, handles, formátování, git L3, daemon, CLI.
+Nic z toho neví, jaký jazyk indexuje. ✅
+
+### 17.2 Vrstva C — jeden provider
+
+| slot | pro JS/TS |
+|---|---|
+| dávkový indexer | `scip-typescript` (Sourcegraph, pokrývá JS i TS) |
+| LSP pro dirty soubory | `typescript-language-server` / `tsserver` |
+| gramatika komentářů | `tree-sitter-typescript`, `tree-sitter-tsx` |
+| resolver konfigurace | **`tsconfig.json` `paths` / `baseUrl`** — nutné, jinak se `@/lib/x` nerozřeší |
+
+Poslední řádek je jediná skutečně nová práce ve vrstvě C. Je to obdoba toho, co u Pythonu
+dělá `DJANGO_SETTINGS_MODULE` a u Go `go.mod` — každý ekosystém má svoje místo, kde je
+uložené mapování modulů, a jádro ho nesmí předpokládat.
+
+### 17.3 Vrstva B — balíček pravidel
+
+```
+rules/typescript.toml
+  launcher:  node dist/*.js · next start · vite preview · nest start · npm run <script>
+  routes:    express call_pattern · nest decorator · next/remix path_convention
+  codegen:   prisma client · graphql-codegen · next build types · openapi klienti
+  generated: **/dist/** · **/.next/** · **/*.generated.ts · @generated marker
+  contract:  tRPC router · GraphQL schéma · sdílené TS typy
+```
+
+Nic z toho nevyžaduje nový tvar kromě `path_convention` — a ten je v šestici od začátku
+právě proto, že se vědělo, že přijde s JS/TS.
+
+### 17.4 Kde to bude nepříjemné (a je lepší to vědět teď)
+
+| problém | proč je horší než u Python/Go | co s tím |
+|---|---|---|
+| **Bundling** | Nasazuje se `dist/` nebo `.next/`, ne zdroj. Řetěz „příkaz → symbol" se láme na artefaktu, který v repu ani není. | Přeskočit bundler: pravidlo mapuje `next start` rovnou na konvenci zdrojů, ne na build výstup. Kde to nejde, `unknown:`. |
+| **Monorepo** | pnpm/yarn workspaces, turbo. „Služba" může být balíček, ne kontejner. | Deskriptor `package.json` workspaces (§8.3) jako zdroj jednotek vedle compose. |
+| **Roztříštěnost routerů** | Express, Fastify, Nest, Next, Remix, SvelteKit vedle sebe. | Právě proto pravidla v datech. Přidat vzor = řádek v TOML. |
+| **`node_modules`** | Obrovské, `scip-typescript` je umí zatáhnout do indexu. | Tvrdé vyloučení + vlastní CAS namespace jako u generovaného kódu (§7.3). |
+| **Sdílené typy mezi repy** | Frontend importuje typy generované z backendového kontraktu. | To je multi-repo (§15 bod 3), zatím mimo. Zůstane `unknown` na hranici. |
+
+### 17.5 Verdikt
+
+Podmínka D16 vychází: **nula změn ve vrstvě A, jeden provider, jeden balíček pravidel.**
+Jediná strukturální novinka je tvar `path_convention` a ten je v návrhu už teď.
+
+Bundling je reálné riziko a je specifické pro JS/TS. Není to ale díra v architektuře —
+je to místo, kde bude `unknown:` sekce delší, což je přesně to, k čemu je.

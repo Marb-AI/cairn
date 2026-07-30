@@ -13,6 +13,9 @@ $ cairn refs a4 --kind callers
 - **Není agent.** Je to orientační vrstva pod agentem.
 - **Bez LLM.** Celý index se postaví offline, bez API klíče. Model smí znalost jen
   obohatit, nikdy ji nezakládá.
+- **Nezná žádný jazyk.** Jádro pracuje s jazykově neutrálním schématem; znalost
+  ekosystémů žije v deklarativních pravidlech. Přidání jazyka = provider + balíček
+  pravidel, nula změn v jádře.
 - **Nepíše parsery.** Staví na SCIP indexerech a language serverech.
 - **Zná topologii, ne jen kód.** Docker Compose a Dockerfile dávají grafu kořeny
   (entrypointy) a oddíly (služby) — teprve tím dávají dosažitelnost a blast radius smysl.

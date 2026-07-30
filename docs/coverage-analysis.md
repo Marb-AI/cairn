@@ -6,6 +6,12 @@ Otázka: máme popsané všechny postupy potřebné k tomu, abychom nad tímhle 
 kódem uměli odpovědět na strukturální dotazy? Tenhle dokument prochází kategorii po
 kategorii a u každé říká **ověřeno / mezera / mimo rozsah**.
 
+> **Tenhle dokument je důkaz, ne zadání.** Repo slouží k ověření, že *obecné* řešení
+> funguje. Každý nález je proto v architektuře zapsaný jako instance nějakého tvaru
+> (§1.1), ne jako podpora konkrétního frameworku. Kdykoli se dole píše „FastAPI" nebo
+> „grpclib", odpovídá tomu v architektuře řádek v tabulce pravidel, ne `if` v Rustu.
+> Zkouška opačným směrem — co stojí přidat JS/TS — je v architecture §17.
+
 Metoda: čtení kódu, ne spuštění indexeru. To přijde ve fázi 0.
 
 ---
@@ -23,10 +29,10 @@ Metoda: čtení kódu, ne spuštění indexeru. To přijde ve fázi 0.
 | Django ORM | ⚠️ podmíněno stub balíčky | §6 |
 | Dynamika (`getattr`, `importlib`) | ⚠️ 123 výskytů → `unknown` | §7 |
 | Generovaný kód | ✅ ověřeno, ale 65 % Go | §8 |
-| Chybějící Python stuby | 🔴 **blokující bez `make pbgen`** | §9 |
+| Chybějící Python stuby | ⚠️ jen na nebuildnutém checkoutu | §9 |
 
-Závěr: **postupy jsou popsané a stačí.** Jedna věc je blokující (§9) a je to už zachycené
-jako D14. Dvě jsou částečné a mají definované chování (`unknown` / `degraded`), ne tichý fail.
+Závěr: **postupy jsou popsané a stačí.** Nic není blokující. Tři položky jsou částečné
+a všechny tři mají definované chování (`unknown` / `degraded`), ne tichý fail.
 
 **Žádná z položek v tabulce nepotřebuje LLM.** To je záměr, ne náhoda — invariant D15
 říká, že se index staví kompletně deterministicky a model smí znalost jen obohatit.
@@ -259,27 +265,29 @@ oddělený CAS namespace pro generované soubory.
 
 ---
 
-## 9. Chybějící Python stuby — jediná blokující věc
+## 9. Chybějící generovaný kód
 
 **Nalezeno:** `srcpy/schema/` obsahuje **13 souborů, všechno `__init__.py`**. Žádný `_pb2.py`.
-Generuje je `make pbgen` až při buildu. Go strana má naopak stuby commitnuté.
+Generuje je `make pbgen` až při buildu. Go strana má naopak stuby commitnuté — tytéž
+`.proto`, opačné rozhodnutí pro každý jazyk.
 
-**Důsledek je horší, než se zdá.** Není to „pár nerozřešených referencí". Protože je vazba
-handler ↔ proto služba postavená na dědičnosti z `orders_api.ChatServiceBase` (§4.1),
-znamená chybějící stub, že **zmizí celá gRPC plocha Python strany** — všech 24 handlerů
-ztratí bázovou třídu, všechny typy zpráv jsou neznámé, všechny cross-language hrany
-zaniknou.
+**Proč to není okrajové.** Protože vazba handler ↔ proto služba stojí na dědičnosti
+z `orders_api.ChatServiceBase` (§4.1), sebere chybějící stub **celou gRPC plochu
+Python strany** — všech 24 handlerů ztratí bázovou třídu. Není to „pár referencí".
 
-**Postup:** architecture §4.6 + D14 — detekovat, nespouštět automaticky, degradovat
-a přiznat v každé odpovědi.
+**Postup:** architecture §4.6 + D14 — detekovat, **nespouštět**, degradovat a přiznat
+v každé odpovědi.
 
-**Verdikt: 🔴 blokující, ale ošetřené.** Bez tohohle kroku by fáze 0 naměřila katastrofální
-čísla a vypadalo by to jako selhání pyrightu na Djangu (§6), přitom jde o něco úplně jiného.
+**Verdikt: ⚠️ ošetřené, v praxi přechodné.** CI generovaný kód hlídá, takže v jakémkoli
+checkoutu, kde někdo jednou buildil nebo pustil testy, artefakty existují. Stav „chybí"
+se týká hlavně čerstvého clonu — což je přesně situace tohoto průzkumu.
 
-**Proto se ve fázi 0 měří dvakrát: s `make pbgen` a bez něj.** Ten rozdíl je přesně
-cena §4.6 a je to jedno z nejdůležitějších čísel celého spike.
+Obecný jev to ale je a jinde tu pojistku nemusí mít: GraphQL codegen, Prisma klient,
+OpenAPI klienti, `next build` typy. Proto je to pravidlo v datech, ne předpoklad.
 
----
+**Pro fázi 0 to zůstává důležité procedurálně:** měřit se musí **s vygenerovanými stuby
+i bez nich**. Bez toho by čísla vypadala jako selhání pyrightu na Djangu (§6),
+přitom by šlo o něco úplně jiného.
 
 ## 10. Co tenhle dokument nepokrývá
 
@@ -294,7 +302,8 @@ cena §4.6 a je to jedno z nejdůležitějších čísel celého spike.
 
 ## 11. Co z analýzy plyne pro plán
 
-1. **`make pbgen` je součást fáze 0**, ne detail. Bez něj nemá spike výpovědní hodnotu.
+1. **Codegen krok je součást fáze 0**, ne detail. Měřit obojí — s ním i bez něj —
+   jinak nemá spike výpovědní hodnotu.
 2. **Route binder je levnější, než se čekalo** — 4 vzory místo „všechny frameworky".
    Zvážit posun z fáze 2b do 2a, protože `122 rout, z toho 12 neautentizovaných`
    je efektní výstup hned na začátku.
