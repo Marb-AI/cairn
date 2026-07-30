@@ -14,6 +14,14 @@ Cílový stack první verze: **Python + Go** (gRPC, Django ORM), nasazené přes
 
 → [docs/architecture.md](docs/architecture.md)
 
+## Build
+
+Všechno běží v Dockeru — daemon, language servery, indexery i build. Na hostiteli
+se nic neinstaluje, žádné `cargo`, Node ani Go toolchain. Viz §2.1.
+
 ## Stav
 
-Návrh v0.1. Žádný kód. Další krok: fáze 0 spike — ověřit `scip-python` na reálném repu.
+Návrh v0.2, žádný kód. Kalibrováno na reálném repu (§16).
+
+Další krok: **fáze 0 spike** v kontejneru — `make pbgen` → `scip-python` + `scip-go`,
+měřeno s vygenerovanými protobuf stuby i bez nich.

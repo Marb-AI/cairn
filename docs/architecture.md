@@ -32,6 +32,8 @@ Není to agent, není to IDE plugin, není to náhrada LLM. Je to **orientační
 | D10 | Velikost indexu | **Interning + varint + zstd v CAS; nekomprimované projekce v SQLite** | Velikost je hlavně otázka přenosu (studený start = stažení). Serializační schéma je den 1, protože se pak nemigruje. Viz §5.5. |
 | D11 | Index vs. git | **Index se do repa necommituje. Do gitu jde jen malý textový souhrn topologie.** | Odvozená data v gitu jsou klasická past (`node_modules`, build outputy). Konflikty nejsou problém k vyřešení, ale příznak. Viz §5.6. |
 | D12 | Komentáře | **Extrahovat, indexovat pro fulltext, ale nikdy nevydávat za fakt** | Komentáře jsou nejlepší most mezi jménem featury a symbolem. Zároveň bývají zastaralé. Viz §4.5. |
+| D13 | Běhové prostředí | **Všechno v Dockeru — daemon, language servery, indexery, build.** Na hostiteli nesmí být `cargo`, Node ani Go toolchain | Zadání projektu. Má architektonické důsledky pro cesty a watcher, ne jen pro build. Viz §2.1. |
+| D14 | Codegen | **Repo může být neanalyzovatelné, dokud neproběhne generování kódu — prepare krok je prvotřídní součást pipeline** | Ověřeno na testovacím repu: Python protobuf stuby v gitu nejsou. Bez toho by spike naměřil katastrofu z úplně jiného důvodu. Viz §4.6. |
 
 ---
 
@@ -70,6 +72,45 @@ subprocesy vlastní daemon.
 **Životnost daemonu:** auto-start z frontendu (jako `gopls`/`tmux`), idle timeout ~30 min bez
 připojeného klienta, ale **index na disku zůstává** — restart daemonu je studený start procesu,
 ne studený start znalosti.
+
+### 2.1 Všechno běží v Dockeru (D13)
+
+Na hostiteli nesmí být `cargo`, `rustup`, Node ani Go toolchain. To není jen build policy —
+mění to tři věci v architektuře.
+
+```
+Claude Code
+   │  stdio
+   ▼
+docker compose run -i --rm cairn-mcp     ← frontend, jednorázový, bez stavu
+   │  unix socket ve sdíleném volume
+   ▼
+služba `cairn-daemon`                    ← dlouhoběžící compose služba
+   ├── /workspace   ← bind mount repa, read-only
+   ├── /cache       ← named volume: CAS + SQLite, přežívá restart
+   └── v image: pyright-langserver, gopls, scip-python, scip-go
+```
+
+MCP host spouští libovolný příkaz jako stdio server, takže `docker compose run -i --rm`
+je z jeho pohledu totéž co binárka. Žádná změna protokolu.
+
+**Důsledek 1 — cesty.** Uvnitř kontejneru je repo `/workspace/srcpy/…`, na hostiteli
+`/home/user/backend/srcpy/…`. Kdyby odpovědi nesly kontejnerové cesty, agent by soubory
+neotevřel. Řeší to pravidlo, které v návrhu už je z jiného důvodu: §5.1 bod 1 zakazuje
+absolutní cesty kvůli přenositelnosti artefaktů. **Všechno je relativní ke kořeni workspace**,
+takže `srcpy/domains/orders/grpc/server.py:42` funguje v kontejneru i na hostiteli.
+Ta dvě rozhodnutí se potkávají náhodou, ale hezky.
+
+**Důsledek 2 — watcher.** `inotify` přes bind mount funguje nativně na Linuxu.
+Na Docker Desktopu (macOS/Windows) je nespolehlivý — fallback na polling s delším intervalem,
+nebo nechat frontend posílat explicitní „tenhle soubor se změnil". Riziko je v §14.
+
+**Důsledek 3 — velikost image.** Daemon image musí obsahovat Node (pyright), Go toolchain
+(gopls, scip-go) i Python (scip-python). Není to malé, ale je to jednorázové a přesně to
+už testovací repo dělá se svými `pbgen` a `go-compiler` image.
+
+Spike nástroje (§13, fáze 0) běží stejným způsobem — `scip-python` ani `scip-go`
+se na hostitele neinstalují.
 
 ---
 
@@ -200,6 +241,58 @@ endpointu" (§8.7) dotaz, na který dnes neodpoví nic.
 
 Invalidace beze změny: komentáře jsou per-soubor, obsahem klíčované jako všechno ostatní,
 a nezávisí na `deps_api_hash` (nemají závislosti).
+
+### 4.6 Prepare krok — repo nemusí být analyzovatelné hned po clonu
+
+Objeveno na testovacím repu a je to díra v návrhu, ne detail.
+
+`srcgo/schema` obsahuje **220 commitnutých `.pb.go`**. `srcpy/schema` obsahuje
+**13 prázdných `__init__.py` a nic víc** — Python stuby vyrábí `make pbgen` až při buildu.
+Tentýž repo, tytéž `.proto`, opačné rozhodnutí pro každý jazyk.
+
+Důsledek na čerstvém clonu: pyright nerozřeší **žádný** import ze `schema`, což kaskáduje —
+každý typ zprávy je neznámý, každé RPC volání ztrácí cíl, každá reference přes hranici
+schématu zmizí. Naměřená čísla by přitom vypadala jako selhání pyrightu na Djangu (§4.4),
+ačkoli by šlo o něco úplně jiného.
+
+Obecná kategorie, ne jednorázovka: protobuf/gRPC, OpenAPI klienti, GraphQL codegen, Thrift,
+ORM stub generátory, .NET source generators. Předpoklad „co je v repu, to je celý kód"
+prostě neplatí.
+
+#### Konfigurace
+
+```toml
+# .cairn/config.toml — commitnutelné, vedle .cairn/topology.txt (§5.6)
+[prepare]
+command  = "make pbgen"
+produces = ["srcpy/schema/**/*_pb2.py", "srcpy/schema/**/*_pb2_grpc.py"]
+inputs   = ["proto/**/*.proto"]
+```
+
+#### Tři režimy a jeden, který se nesmí stát
+
+| stav | chování |
+|---|---|
+| `produces` existují a nejsou starší než `inputs` | nic, indexuje se normálně |
+| chybí, `command` nakonfigurován, **spuštění povoleno** | spustit (v kontejneru, D13), pak indexovat |
+| chybí, nebo spuštění nepovoleno | **indexovat, ale celý index je `degraded:`** |
+
+Poslední řádek je ten podstatný. Bez něj by nástroj tvrdil „3 reference", kde jich je 200 —
+přesně ten tichý fail, kterému se D8 vyhýbá. Degradovaný index proto nese příznak
+v `cairn://status` **a v každé odpovědi**:
+
+```
+degraded: python protobuf stubs missing (srcpy/schema).
+          References crossing the schema boundary are incomplete.
+          Fix: make pbgen
+```
+
+#### Cairn zůstává read-only
+
+§6.1 říká, že cairn nikdy nezapisuje. `make pbgen` ale zapisuje do pracovního stromu.
+Rozpor se řeší tím, že **výchozí chování je detekovat a přiznat, ne spustit** — spuštění
+je explicitní opt-in v konfiguraci a i pak je to uživatelův vlastní příkaz, ne nic, co by
+si cairn vymýšlel. Nikdy se nespouští automaticky při prvním kontaktu s repem.
 
 ---
 
@@ -627,9 +720,24 @@ vlastní parser výjimečně obhajitelný, gramatika je triviální) a vytvoří
 **To je ten skok, který grep ani žádný single-language nástroj neudělá:** „kdo volá tenhle
 Python handler" má správnou odpověď v Go kódu.
 
+**Stuby nemusí v repu být — a nemusí chybět symetricky.** Testovací repo má 220 commitnutých
+`.pb.go`, ale Python stuby generuje až build (§4.6). Binder z toho plyne ve dvou režimech:
+
+- **hrana `proto` → symbol jde postavit i bez stubu**, protože pojmenování je dané konvencí
+  protoc (`AuthService` → `AuthServiceServicer` / `AuthServiceStub` v `auth_pb2_grpc.py`).
+  Cíl se označí jako `expected`, ne `resolved`.
+- **kód, který stuby importuje, se bez nich nerozřeší nikdy** — a to je ta drahá část.
+  Odtud degradovaný režim v §4.6.
+
+Nedělat z toho ambici generovat stuby vlastními silami. Konvenci znát stačí na hranu;
+na tělo je potřeba `make pbgen`.
+
 ### 7.3 Generated-code detekce (malá fičura, obrovský efekt)
 
 gRPC repo je plné `*_pb2.py`, `*_pb2_grpc.py`, `*.pb.go`. Bez detekce každý dotaz utone.
+
+Rozsah není odhad: v testovacím repu je **103 176 ze 158 874 řádků Go generovaných** — 65 %.
+Bez potlačení by většina odpovědí byla seznam `.pb.go` souborů.
 
 Detekce: hlavičkové markery (`Code generated by protoc-gen-go. DO NOT EDIT.`,
 `# Generated by the gRPC Python protocol compiler`), cestové vzory, `.gitattributes
@@ -665,27 +773,50 @@ v kódu je práce navíc pro horší výsledek.
 
 ### 8.2 Řetěz: služba → proces → symbol → routa
 
+Oba příklady jsou **ověřené na testovacím repu** (§16), ne ilustrace.
+
+**Python — mapa vzniká z volume mountu, ne z Dockerfile:**
+
 ```
-docker-compose.yml
-  services.auth:
-    build: { context: ./services/auth }
-    ports: ["50051:50051"]
-    environment: { DATABASE_URL: postgres://…, JWT_ISSUER: … }
-         │
-         ▼  services/auth/Dockerfile
-  WORKDIR /app
-  COPY services/auth /app                    ← mapa kontejner ↔ repo
-  ENTRYPOINT ["gunicorn", "auth.wsgi:application", "--workers", "4"]
+compose.yaml
+  x-build-py: &build-py
+    context: srcpy
+  services.orders-grpc:
+    <<: *base-service                          ← kotva: init, env_file
+    build: *build-py                           ← kotva: context srcpy
+    command: python3 -m domains.orders.grpc.server
+    environment: [DJANGO_SETTINGS_MODULE=domains.orders.grpc.settings]
+    volumes: ["./srcpy:/app/"]                 ← mapa kontejner ↔ repo
          │
          ▼  launcher resolver  (§8.4)
-  services/auth/auth/wsgi.py :: application  ← symbol, dostane handle
+  srcpy/domains/orders/grpc/server.py :: __main__
          │
-         ▼  route binder  (§8.6)
-  POST /oauth/token → TokenView.post → [a4] TokenValidator.validate
+         ▼  route binder  (§8.6) / proto binder (§7.2)
+  grpc OrderService.* → handlery
+```
+
+**Go — dva hopy přes multi-stage build:**
+
+```
+  services.scoring-grpc:
+    build: *build-go                           ← kotva: context srcgo
+    command: /bin/grpcserver
+         │
+         ▼  srcgo/Dockerfile, runtime stage
+  COPY --from=builder /out/grpcserver /bin/grpcserver
+         │
+         ▼  srcgo/Dockerfile, builder stage
+  RUN CGO_ENABLED=0 xx-go build -o /out/grpcserver \
+        ./domains/orders/cmd/grpcserver/server.go
+         │
+         ▼  launcher resolver  (§8.4)
+  srcgo/domains/orders/cmd/grpcserver/server.go :: main
 ```
 
 Každá šipka je deterministická a levná. Žádný LLM, žádná heuristika — jen parsování
-a tabulka známých vzorů.
+a tabulka známých vzorů. Ale těch šipek je víc, než se na první pohled zdá: u Go vede cesta
+přes dvě `COPY --from` / `-o` mapování a přes wrapper `xx-go` (buildx cross-compile),
+ne přes holé `go build`.
 
 ### 8.3 Co se parsuje
 
@@ -702,6 +833,22 @@ a tabulka známých vzorů.
 | `environment` / `env_file` | vstup pro env binder (§8.5) |
 | `command` | override — má přednost před `CMD` v Dockerfile |
 | `healthcheck` | často nejpřesnější ukazatel, kde služba doopravdy poslouchá |
+| `volumes` | **mapa kontejner ↔ repo pro lokální vývoj** — přebíjí `COPY` z Dockerfile (§8.7) |
+| `networks.*.aliases` | další DNS jména služby — bez nich env binder ztrácí hrany (§8.5) |
+
+**Korekce po ověření na testovacím repu:** dřívější verze tohoto návrhu odkládala
+`x-` extensions jako okrajové. To je špatně a v praxi to znamená neparsovat nic:
+
+- **`x-` bloky nesou kotvy.** V testovacím repu žijí v `x-base-service`, `x-build-go`,
+  `x-build-py` a `x-healthcheck-*` úplně všechny sdílené definice; služby si je berou
+  přes merge klíč `<<: *base-service`. Bez rozřešení kotev a aliasů nedostaneš ani
+  build context, ani `env_file`.
+- **Interpolace umí být vnořená.** `${IMAGE_PREFIX:-${COMPOSE_PROJECT_NAME:-platform}}` je
+  reálný řádek. Potřeba implementovat compose interpolaci včetně `:-` defaultů a `.env`.
+- **`name:` na úrovni souboru** určuje jméno projektu a tím i DNS jména.
+
+YAML parser tedy musí zachovat kotvy a merge klíče, ne je jen načíst do mapy.
+Kam nechodit dál: šablonování build args, `.dockerignore` sémantika, `profiles` kombinatorika.
 
 **Dockerfile:**
 
@@ -753,6 +900,18 @@ služby. Dohromady s proto binderem (§7.2) vzniká uzavřený obrázek — `gat
 `AuthService.Verify`, implementaci má `auth` (Python), a compose potvrzuje, že to jsou
 dva různé procesy komunikující přes `auth:50051`. Ani jeden z těch tří zdrojů to neví sám.
 
+**Korekce: párovat na jméno služby nestačí.** V testovacím repu má `orders-grpc`
+v `networks.default.aliases` navíc `orders-api_grpc-python`
+a `orders_grpc-python`. URL v env proměnné jiné služby míří na alias, ne na
+jméno služby — naivní párování by tu hranu neviděla vůbec. Binder proto staví
+**tabulku všech DNS jmen** (jméno služby + `container_name` + všechny aliasy napříč sítěmi)
+a páruje proti ní.
+
+`DJANGO_SETTINGS_MODULE` stojí za zvláštní zmínku: je to env proměnná, ale zároveň
+**ukazatel na modul** (`domains.orders.grpc.settings`). Dává per-službu konfiguraci
+Djanga a je to zároveň nejlevnější způsob, jak správně nakonfigurovat `django-stubs`
+pro každou službu zvlášť (§4.4).
+
 ### 8.6 Route binder — request-level entrypointy
 
 Compose dává kořeny na úrovni procesů. Webový projekt potřebuje kořeny na úrovni requestů.
@@ -791,8 +950,23 @@ entrypoint to umí obejít.
 **Lepší seed pro `get_context`** — zařazeno jako zdroj 0 v §6.4.
 
 **Předpoklad pro L3 runtime trace.** Stack trace z běžícího kontejneru říká
-`/app/auth/oauth.py`, repo říká `services/auth/auth/oauth.py`. Mapa z `WORKDIR` + `COPY`
-ten překlad dělá — bez ní je runtime trace nepoužitelný. Proto tahle sekce předchází §9.
+`/app/domains/orders/grpc/server.py`, repo říká `srcpy/domains/orders/grpc/server.py`.
+Bez mapy je runtime trace nepoužitelný. Proto tahle sekce předchází §9.
+
+**Korekce, odkud ta mapa je.** Dřívější verze ji brala z `WORKDIR` + `COPY` v Dockerfile.
+Na testovacím repu to nestačí: `orders-grpc` má `volumes: ["./srcpy:/app/"]`, což
+`COPY . .` z buildu **přebije** — v běžícím kontejneru je pod `/app` bind mount, ne
+zkopírovaný obsah. Pořadí priority je tedy:
+
+1. `volumes` bind mount ve compose *(autoritativní pro lokální vývoj — náš případ)*
+2. `WORKDIR` + `COPY`/`ADD` v Dockerfile *(platí pro produkční image bez mountů)*
+3. `build.context` jako poslední záchrana
+
+**Služba není image.** V testovacím repu běží 15 služeb ze **dvou** build image
+(`x-build-py`, `x-build-go`) — `orders-grpc`, `orders-api`, `catalog-pipeline`
+a další sdílejí týž strom `srcpy`. Ze souborového systému proto **nejde zjistit, do které
+služby modul patří**; řekne to jedině dosažitelnost z entrypointu. To není okrajový případ,
+to je nejsilnější argument pro existenci celé téhle sekce.
 
 ### 8.8 `cairn://topology` — resource, ne nástroj
 
@@ -937,7 +1111,7 @@ Fronta na pozadí, prioritně: dirty soubory > jejich přímé závislé > zbyte
 
 | Fáze | Obsah | Výstup |
 |---|---|---|
-| **0** — týden 1 | Spike na testovacím repu: `scip-python` + `scip-go` → podíl nevyřešených symbolů, čas, **syrová velikost indexu** (vstup pro cíl §5.5), podíl generovaného kódu. Ručně projít compose + Dockerfile a ověřit, že řetěz §8.2 drží. | Go/no-go pro D3, kalibrace D10 |
+| **0** — týden 1 | Spike na testovacím repu (§16), **celý v kontejneru** (D13): `make pbgen` → `scip-python` + `scip-go` → podíl nevyřešených symbolů, čas, **syrová velikost indexu** (vstup pro §5.5). Měřit **dvakrát: s vygenerovanými stuby a bez nich** — rozdíl je cena §4.6. | Go/no-go pro D3, kalibrace D10 |
 | **1** — týdny 2–6 | Daemon + store + CAS + snapshot + dirty overlay. Extrakce komentářů (§4.5) — je zadarmo a schéma FTS ji musí mít od začátku. `find_symbol`, `find_refs`, `expand`. MCP frontend. | Použitelný produkt |
 | **2a** — týden 7 | Compose + Dockerfile binder, launcher resolver, `cairn://topology`, service attribution, commitnutelný `.cairn/topology.txt` + `topology --check`. | Mapa systému; nejlevnější kus v celém plánu |
 | **2b** — týdny 8–9 | Proto binder + route binder + generated-code detekce → cross-language a cross-service hrany. `blast_radius`. | **Diferenciátor, který nikdo nemá** |
@@ -970,6 +1144,9 @@ duplikující něco, co je zadarmo.
 | Komentáře zaplaví fulltext šumem | `get_context` zhorší, ne zlepší | Vážené FTS sloupce, detekce zakomentovaného kódu, měřit precision seedu odděleně (§10) |
 | Agent vezme zastaralý komentář jako fakt | Tichá chyba typu, kterému se celý návrh vyhýbá | Komentář v odpovědi je vždy `[comment, unverified]`; nikdy nevstupuje do L0/L1 tvrzení |
 | `refs/cairn/cache` nafoukne objektovou DB | Pomalý clone/fetch | Ref je prunovatelný a force-pushovatelný; fetch volitelný. Když bolí, přejít na CI artefakt |
+| Indexace nad nevygenerovaným codegenem | Tichý propad recallu, který vypadá jako selhání indexeru | §4.6: detekovat, degradovat, přiznat v každé odpovědi. Nikdy neindexovat naslepo |
+| `inotify` přes bind mount na Docker Desktopu (D13) | Dirty overlay přestane fungovat, agent dostává zastaralá data | Fallback na polling; frontend umí poslat explicitní invalidaci. Na Linuxu nativně OK |
+| Kontejnerové cesty prosáknou do odpovědí | Agent nedokáže otevřít soubor, o kterém mu cairn říká | Absolutní cesty jsou zakázané už kvůli §5.1; snapshot testy `cairn-fmt` to hlídají |
 | Scope creep | Rok bez produktu | V dokumentu je jeden produkt. Držet fázi 0–3 |
 
 ---
@@ -981,3 +1158,38 @@ duplikující něco, co je zadarmo.
    než v AST. Zapadá jako další binder + L2, ale je to samostatný produkt. Zatím mimo scope.
 3. **Multi-repo** — SCIP to umí ze své podstaty. Až bude jeden repo hotový.
 4. **Windows** — named pipes místo unix socketu; jinak beze změny. Kdy?
+5. **`orders-tools`** — testovací repo už jeden MCP server provozuje. Stojí za to zjistit,
+   co dělá, než postavíme druhý: buď je to nesouvisející doména, nebo je to signál o tom,
+   jak tým MCP používá.
+
+---
+
+## 16. Kalibrace na testovacím repu
+
+an internal repository, změřeno 30. 7. 2026. Slouží jako výchozí bod pro fázi 0 a jako doklad,
+že tvrzení v §7 a §8 nejsou hypotézy.
+
+| | |
+|---|---|
+| Velikost pracovního stromu | 34 MB |
+| Python | 218 193 řádků / 1 184 souborů · Django 5.2.6, pytest-django |
+| Go | 158 874 řádků / 516 souborů |
+| Proto | 9 768 řádků / 139 souborů |
+| **Generovaný Go** | **103 176 řádků = 65 % Go kódu** (220 × `.pb.go`) |
+| Generovaný Python | **0 souborů v repu** — vyrábí `make pbgen` (§4.6) |
+| Compose služby | 16 (15 vlastních + postgres) ze **2 build image** |
+| Compose soubory | `compose.yaml`, `compose.local.yaml`, `compose.test.yaml` |
+| Dockerfily | 7 (`srcpy`, `srcgo`, jejich interpreter/compiler báze, `pbgen`, sentinel, postgres) |
+| Go binárek z jednoho Dockerfile | 8, přes `xx-go build -o` + `COPY --from=builder` |
+
+Co z toho přímo vyplynulo do návrhu: §2.1 (D13), §4.6 (D14), korekce v §7.2, §7.3, §8.2,
+§8.3, §8.5 a §8.7.
+
+Co je potřeba doměřit ve fázi 0:
+
+1. podíl symbolů, které `scip-python` nerozřeší — **zvlášť s `make pbgen` a bez něj**
+2. syrová velikost SCIP indexu pro obě části → kalibrace cíle 50 MB (§5.5)
+3. jestli launcher resolver (§8.4) trefí všech 15 služeb, nebo kolik skončí v `unknown`
+4. kolik `.proto` služeb má obě strany (Go klient i Python servicer) — velikost §7.2 delty
+5. jestli `orders-admin` / `catalog-admin` jsou Django admin, a tedy
+   jestli je potřeba route binder i pro admin URL
