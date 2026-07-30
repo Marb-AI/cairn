@@ -10,11 +10,13 @@ use rusqlite::Connection;
 use std::path::Path;
 
 pub mod batch;
+pub mod graph;
 pub mod ingest;
 pub mod query;
 pub mod schema;
 
 pub use batch::{BatchStats, BatchWriter};
+pub use graph::{Direction, Walk, WalkNode};
 pub use query::{Occurrence, SymbolRow};
 
 /// Language tag. Stored as an integer; the set is closed on purpose (D16 puts
@@ -68,6 +70,35 @@ pub enum GeneratedVia {
     HeaderMarker = 1,
     GitAttributes = 2,
     PathPattern = 3,
+}
+
+/// Edge kinds. Numeric values are persisted, so they may be appended to but not
+/// reordered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i64)]
+pub enum EdgeKind {
+    Calls = 0,
+    Implements = 1,
+}
+
+/// Where an edge came from. Answers group by this so an exact edge is never presented
+/// next to a statistical one without saying so (architecture 3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i64)]
+pub enum EdgeSource {
+    /// Derived from the SCIP index: exact.
+    Scip = 0,
+    /// Weak, lexical: a candidate, not a fact (L1-W, architecture 18.4).
+    Weak = 1,
+}
+
+impl EdgeSource {
+    pub fn label(self) -> &'static str {
+        match self {
+            EdgeSource::Scip => "L1, exact",
+            EdgeSource::Weak => "L1-W, unverified",
+        }
+    }
 }
 
 pub struct Store {

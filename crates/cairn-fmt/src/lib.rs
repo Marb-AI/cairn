@@ -1,15 +1,43 @@
-//! Compact response rendering.
+//! Rendering.
 //!
-//! This is the product surface (architecture 6.3). Two rules drive everything here:
+//! Deliberately split in two: **selection** happens in cairn-store (which symbols, how
+//! deep, which edges), **presentation** happens here. Otherwise every new view would
+//! have to be re-implemented for every query, and the number of both is going to grow.
 //!
-//! * **Not JSON.** Braces, quotes and repeated keys cost several times more tokens than
-//!   an aligned text table carrying the same information. When the whole pitch is
-//!   cheaper context, the response format *is* the pitch.
-//! * **`unknown:` and `suppressed:` are mandatory** (D8). A missing section reads as
-//!   "this is everything", and that is the silent error the design exists to avoid.
+//! Two rules hold across every view (architecture 6.3, D8):
+//!
+//! * **Not JSON by default.** Braces, quotes and repeated keys cost several times more
+//!   tokens than an aligned text table carrying the same information. When the whole
+//!   pitch is cheaper context, the response format *is* the pitch.
+//! * **`unknown:`, `suppressed:` and `stale:` are always printed.** A missing section
+//!   reads as "this is everything", and that is the silent error the design avoids.
 
-use cairn_store::{Occurrence, SymbolRow};
+use cairn_store::{EdgeSource, Occurrence, SymbolRow, Walk};
 use std::fmt::Write;
+
+pub mod budget;
+pub use budget::Budget;
+
+/// How a result set is laid out. Orthogonal to *what* was selected, so any view can
+/// render any walk (architecture 18.1 — this is the fifth axis alongside detail,
+/// breadth x depth, aspect and budget).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum View {
+    /// One node per line, flat. Cheapest, good for "give me the list".
+    List,
+    /// Indented by depth, showing how each node was reached.
+    Tree,
+}
+
+impl View {
+    pub fn parse(s: &str) -> Option<View> {
+        match s {
+            "list" => Some(View::List),
+            "tree" => Some(View::Tree),
+            _ => None,
+        }
+    }
+}
 
 /// Every response carries the same envelope, so an agent can rely on it being there.
 pub struct Envelope {
@@ -67,25 +95,33 @@ pub fn symbol_line(s: &SymbolRow) -> String {
         .map(|d| d.location())
         .unwrap_or_else(|| "<no definition indexed>".to_string());
     format!(
-        "[{}] {:<44} {:<7} {}  {}",
+        "[{}] {:<40} {:<6} {}  {}",
         s.handle,
-        truncate(&s.qualified(), 44),
+        truncate(&s.qualified(), 40),
         s.kind.as_str(),
         s.lang.tag(),
         loc
     )
 }
 
-pub fn symbols(rows: &[SymbolRow], query: &str) -> Envelope {
+pub fn symbols(rows: &[SymbolRow], query: &str, budget: &mut Budget) -> Envelope {
     let mut body = String::new();
     let _ = writeln!(body, "{} matches for \"{}\"", rows.len(), query);
+    let mut shown = 0;
     for s in rows {
-        let _ = writeln!(body, "{}", symbol_line(s));
+        if !budget.push(&mut body, &symbol_line(s)) {
+            break;
+        }
+        shown += 1;
     }
     if rows.is_empty() {
         let _ = writeln!(body, "(nothing matched)");
     }
-    Envelope::new(body)
+    let mut env = Envelope::new(body);
+    if shown < rows.len() {
+        env = env.suppressed(budget.cut_note(rows.len() - shown, "matches"));
+    }
+    env
 }
 
 pub fn references(sym: &SymbolRow, refs: &[Occurrence], suppressed_generated: i64) -> Envelope {
@@ -106,6 +142,55 @@ pub fn references(sym: &SymbolRow, refs: &[Occurrence], suppressed_generated: i6
     if suppressed_generated > 0 {
         env = env.suppressed(format!(
             "{suppressed_generated} references in generated code (rerun with --include-generated)"
+        ));
+    }
+    env
+}
+
+/// Render a bounded walk over the call graph.
+pub fn walk(w: &Walk, title: &str, view: View, budget: &mut Budget) -> Envelope {
+    let mut body = String::new();
+    let _ = writeln!(body, "{title}");
+
+    let mut shown = 0usize;
+    for (i, node) in w.nodes.iter().enumerate() {
+        let line = match view {
+            View::Tree => {
+                let indent = "  ".repeat(node.depth);
+                let site = node
+                    .site
+                    .as_deref()
+                    .map(|s| format!("  @ {s}"))
+                    .unwrap_or_default();
+                let tag = if node.source == EdgeSource::Scip {
+                    String::new()
+                } else {
+                    format!("  [{}]", node.source.label())
+                };
+                format!("{indent}{}{site}{tag}", symbol_line(&node.symbol))
+            }
+            View::List => symbol_line(&node.symbol),
+        };
+        if !budget.push(&mut body, &line) {
+            break;
+        }
+        shown = i + 1;
+    }
+
+    let mut env = Envelope::new(body);
+    if shown < w.nodes.len() {
+        env = env.suppressed(budget.cut_note(w.nodes.len() - shown, "nodes"));
+    }
+    if w.truncated > 0 {
+        env = env.suppressed(format!(
+            "{} neighbours beyond --fanout",
+            w.truncated
+        ));
+    }
+    if w.revisited > 0 {
+        env = env.suppressed(format!(
+            "{} nodes reachable by more than one path, shown once",
+            w.revisited
         ));
     }
     env

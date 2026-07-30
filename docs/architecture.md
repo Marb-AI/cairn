@@ -1616,8 +1616,24 @@ ortogonální osy.
 | **šířka × hloubka** | jak daleko se jde | `--depth 2 --fanout 8` |
 | **aspekt** | které hrany se prochází | `--aspect callers,impls,tests,routes,services` |
 | **rozpočet** | tvrdý strop | `--budget 2000` (tokenů) |
+| **pohled** | jak se to vykreslí | `--view list\|tree\|path\|skeleton` |
 
-První tři jsou zřejmé. Čtvrtá je ta zajímavá.
+První tři jsou zřejmé. Čtvrtá je ta zajímavá. Pátá je ta, která rozhoduje o tom,
+jestli se kód nerozpadne.
+
+#### Pohled je oddělený od výběru
+
+Jakmile přibude call graph, přibudou i způsoby, jak tutéž znalost zobrazit — plochý
+seznam, strom, cesta A→B, kostra souboru, graf hran. Kombinace **osy × pohledy** roste
+násobně, a kdyby si každý dotaz nesl vlastní formátování, skončí to jako N×M kopií.
+
+Proto tvrdé rozdělení: **cairn-store vybírá** (co, jak hluboko, po kterých hranách)
+a vrací neutrální `Walk`; **cairn-fmt vykresluje** a o dotazech nic neví. Nový pohled
+je pak jeden `match` arm, ne nový dotaz, a nový dotaz umí okamžitě všechny pohledy.
+
+To je zároveň důvod, proč `--view` není jen kosmetika: `tree` a `list` mají velmi
+odlišnou cenu v tokenech za tutéž informaci, takže je to ve skutečnosti další
+rozpočtová páka.
 
 ### 18.2 Rozpočet jako prvotřídní vstup
 

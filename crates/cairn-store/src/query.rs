@@ -22,6 +22,9 @@ pub struct SymbolRow {
     pub lang: Lang,
     /// Definition site, if the index has one.
     pub def: Option<Occurrence>,
+    /// Last line of the definition's body, when the indexer emitted an enclosing
+    /// range. Absent for symbols without a body (fields, parameters, aliases).
+    pub def_end_line: Option<i64>,
     pub ref_count: i64,
 }
 
@@ -170,7 +173,7 @@ impl Store {
             SELECT s.id, h.s AS name, c.s AS container, m.s AS module, s.kind, s.lang,
                    s.ref_count, s.def_generated,
                    p.s AS def_path, s.def_line, s.def_col_start, s.def_col_end,
-                   f.generated, f.gen_via
+                   f.generated, f.gen_via, s.def_end_line
               FROM hits h
               JOIN symbols s ON s.name_id = h.id
               LEFT JOIN strings c ON c.id = s.container_id
@@ -211,13 +214,14 @@ impl Store {
                     r.get::<_, i64>(5)?,
                     r.get::<_, i64>(6)?,
                     def,
+                    r.get::<_, Option<i64>>(14)?,
                 ))
             },
         )?;
 
         let mut out = Vec::new();
         for row in rows {
-            let (id, name, container, module, kind, lang, refs, def) = row?;
+            let (id, name, container, module, kind, lang, refs, def, def_end_line) = row?;
             out.push(SymbolRow {
                 id,
                 handle: self.handle_for(id)?,
@@ -227,6 +231,7 @@ impl Store {
                 kind: kind_from_i64(kind),
                 lang: Lang::from_i64(lang),
                 def,
+                def_end_line,
                 ref_count: refs,
             });
         }
@@ -236,7 +241,7 @@ impl Store {
     pub fn symbol(&self, symbol_id: i64) -> Result<Option<SymbolRow>> {
         let mut stmt = self.conn.prepare_cached(
             r#"
-            SELECT s.id, n.s, c.s, m.s, s.kind, s.lang, s.ref_count
+            SELECT s.id, n.s, c.s, m.s, s.kind, s.lang, s.ref_count, s.def_end_line
               FROM symbols s
               JOIN strings n ON n.id = s.name_id
               LEFT JOIN strings c ON c.id = s.container_id
@@ -258,6 +263,7 @@ impl Store {
             kind: kind_from_i64(r.get(4)?),
             lang: Lang::from_i64(r.get(5)?),
             def: self.definition(id)?,
+            def_end_line: r.get(7)?,
             ref_count: r.get(6)?,
         }))
     }

@@ -43,6 +43,9 @@ pub struct IngestStats {
     pub batch_flushes: usize,
     /// Sub-directory the index's paths were rooted at, e.g. "srcpy".
     pub path_prefix: String,
+    /// Definitions carrying an enclosing range - the ones that can contain a call.
+    pub with_enclosing: usize,
+    pub implements_edges: usize,
 }
 
 /// Interns strings, keeping an in-process cache so the common case never touches SQLite.
@@ -116,7 +119,13 @@ pub fn ingest_scip(store: &mut Store, index_path: &Path, repo_root: Option<&Path
         // through the batching queue rather than one statement per row.
         let mut occ_batch = BatchWriter::new(
             "occurrences",
-            &["file_id", "symbol_id", "line", "col_start", "col_end", "role"],
+            &["file_id", "symbol_id", "line", "col_start", "col_end", "role", "enc_end"],
+        );
+        // `implements` relations come straight from the index; unlike call edges they
+        // need no derivation. On the spike corpus: 9,743 in Go, 2,549 in Python.
+        let mut edge_batch = BatchWriter::new(
+            "edges",
+            &["src_symbol", "dst_symbol", "kind", "source", "confidence"],
         );
 
         for doc in &index.documents {
@@ -138,7 +147,7 @@ pub fn ingest_scip(store: &mut Store, index_path: &Path, repo_root: Option<&Path
 
             // Symbols declared by this document, then the occurrences that use them.
             for info in &doc.symbols {
-                intern_symbol(
+                let src = intern_symbol(
                     &info.symbol,
                     lang,
                     &mut interner,
@@ -146,6 +155,30 @@ pub fn ingest_scip(store: &mut Store, index_path: &Path, repo_root: Option<&Path
                     &mut symbol_ids,
                     &mut stats,
                 )?;
+                for rel in &info.relationships {
+                    if !rel.is_implementation || rel.symbol.is_empty() {
+                        continue;
+                    }
+                    let dst = intern_symbol(
+                        &rel.symbol,
+                        lang,
+                        &mut interner,
+                        &mut insert_symbol,
+                        &mut symbol_ids,
+                        &mut stats,
+                    )?;
+                    edge_batch.push(
+                        &tx,
+                        vec![
+                            Value::from(src),
+                            Value::from(dst),
+                            Value::from(crate::EdgeKind::Implements as i64),
+                            Value::from(crate::EdgeSource::Scip as i64),
+                            Value::from(1.0f64),
+                        ],
+                    )?;
+                    stats.implements_edges += 1;
+                }
             }
 
             for occ in &doc.occurrences {
@@ -167,6 +200,10 @@ pub fn ingest_scip(store: &mut Store, index_path: &Path, repo_root: Option<&Path
                     &mut stats,
                 )?;
                 let (line, col_start, col_end) = occurrence_range(occ);
+                let enc_end = enclosing_end_line(occ);
+                if enc_end.is_some() {
+                    stats.with_enclosing += 1;
+                }
                 occ_batch.push(
                     &tx,
                     vec![
@@ -176,6 +213,10 @@ pub fn ingest_scip(store: &mut Store, index_path: &Path, repo_root: Option<&Path
                         Value::from(col_start),
                         Value::from(col_end),
                         Value::from(occ.symbol_roles as i64),
+                        match enc_end {
+                            Some(e) => Value::from(e),
+                            None => Value::Null,
+                        },
                     ],
                 )?;
                 stats.occurrences += 1;
@@ -183,7 +224,7 @@ pub fn ingest_scip(store: &mut Store, index_path: &Path, repo_root: Option<&Path
             stats.documents += 1;
         }
         let batch_stats = occ_batch.finish(&tx)?;
-        stats.batch_flushes = batch_stats.flushes;
+        stats.batch_flushes = batch_stats.flushes + edge_batch.finish(&tx)?.flushes;
     }
     tx.commit()?;
 
@@ -344,6 +385,29 @@ fn occurrence_range(occ: &cairn_scip::Occurrence) -> (i64, i64, i64) {
         None => {
             #[allow(deprecated)]
             decode_range(&occ.range)
+        }
+    }
+}
+
+/// Last line of the definition's body, if the indexer emitted an enclosing range.
+///
+/// This is what makes a call graph possible at all: SCIP carries no caller edges and
+/// leaves `enclosing_symbol` empty, so the only way to answer "who calls this" is to
+/// find the innermost definition whose body spans the reference (see
+/// `schema::derive_call_edges`).
+fn enclosing_end_line(occ: &cairn_scip::Occurrence) -> Option<i64> {
+    use cairn_scip::proto::occurrence::TypedEnclosingRange;
+    match &occ.typed_enclosing_range {
+        Some(TypedEnclosingRange::SingleLineEnclosingRange(r)) => Some(r.line as i64),
+        Some(TypedEnclosingRange::MultiLineEnclosingRange(r)) => Some(r.end_line as i64),
+        None => {
+            #[allow(deprecated)]
+            let r = &occ.enclosing_range;
+            match r.len() {
+                3 => Some(r[0] as i64),
+                4 => Some(r[2] as i64),
+                _ => None,
+            }
         }
     }
 }
