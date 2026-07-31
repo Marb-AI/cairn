@@ -341,12 +341,13 @@ fn run() -> Result<u8> {
 
         Cmd::Context { query, limit } => {
             let store = open(&db)?;
+            let coverage = store.coverage_summary()?;
             let res = store.context(&query, limit)?;
             let found = !res.seeds.is_empty();
             let paths = paths_of(res.seeds.iter().map(|s| s.symbol.def.as_ref()));
             print!(
                 "{}",
-                cairn_fmt::context(&query, &res, &mut budget)
+                cairn_fmt::context(&query, &res, &coverage, &mut budget)
                     .mark_stale(dirty.as_deref(), &paths)
                     .render()
             );
@@ -393,12 +394,13 @@ fn run() -> Result<u8> {
 
         Cmd::Symbol { query, limit } => {
             let store = open(&db)?;
+            let coverage = store.coverage_summary()?;
             let rows = store.find_symbols(&query, limit)?;
             let found = !rows.is_empty();
             let paths = paths_of(rows.iter().map(|r| r.def.as_ref()));
             print!(
                 "{}",
-                cairn_fmt::symbols(&rows, &query, &mut budget)
+                cairn_fmt::symbols(&rows, &query, &coverage, &mut budget)
                     .mark_stale(dirty.as_deref(), &paths)
                     .render()
             );

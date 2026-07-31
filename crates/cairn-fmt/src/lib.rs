@@ -145,7 +145,12 @@ pub fn symbol_line(s: &SymbolRow) -> String {
     )
 }
 
-pub fn symbols(rows: &[SymbolRow], query: &str, budget: &mut Budget) -> Envelope {
+pub fn symbols(
+    rows: &[SymbolRow],
+    query: &str,
+    coverage: &str,
+    budget: &mut Budget,
+) -> Envelope {
     let mut body = String::new();
     let _ = writeln!(body, "{} matches for \"{}\"", rows.len(), query);
     let mut shown = 0;
@@ -161,6 +166,25 @@ pub fn symbols(rows: &[SymbolRow], query: &str, budget: &mut Budget) -> Envelope
     let mut env = Envelope::new(body);
     if shown < rows.len() {
         env = env.suppressed(budget.cut_note(rows.len() - shown, "matches"));
+    }
+
+    // A miss, or a set of hits that are all generated, most often means the caller is
+    // asking about code this index does not cover. Saying what *is* covered turns a
+    // sequence of probes into one answer.
+    let all_generated = !rows.is_empty()
+        && rows
+            .iter()
+            .all(|r| r.def.as_ref().map(|d| d.generated).unwrap_or(false));
+    if rows.is_empty() {
+        env = env.unknown(format!(
+            "nothing by that name. {coverage} - if the code you mean lives elsewhere, \
+             it is not in this index and grep is the tool"
+        ));
+    } else if all_generated {
+        env = env.unknown(format!(
+            "every match is in generated code, which usually means the thing you meant \
+             is not indexed under this name. {coverage}"
+        ));
     }
     env
 }
@@ -858,7 +882,12 @@ impl LiveSymbolView {
 }
 
 /// Entry point by concept: seeds, why each one is here, and how far to trust it.
-pub fn context(query: &str, r: &cairn_store::ContextResult, budget: &mut Budget) -> Envelope {
+pub fn context(
+    query: &str,
+    r: &cairn_store::ContextResult,
+    coverage: &str,
+    budget: &mut Budget,
+) -> Envelope {
     let mut body = String::new();
     let _ = writeln!(body, "context for \"{query}\"   {} seeds", r.seeds.len());
     if !r.concepts_matched.is_empty() {
@@ -882,11 +911,12 @@ pub fn context(query: &str, r: &cairn_store::ContextResult, budget: &mut Budget)
     let mut env = Envelope::new(body);
     if r.low_confidence {
         // Handing over weak guesses dressed as answers is how a tool teaches an agent
-        // to stop trusting it. Say the seed is thin and name the fallback.
-        env = env.unknown(
-            "low confidence: no concept, name or docstring matched strongly. Try a term \
-             this project actually uses, or fall back to grep for the first hop",
-        );
+        // to stop trusting it. Say the seed is thin, say what is covered, name the
+        // fallback.
+        env = env.unknown(format!(
+            "low confidence: no concept, name or docstring matched strongly. {coverage} \
+             - if what you want is outside that, it is not indexed and grep is the tool"
+        ));
     }
     env = env.unknown(
         "seeds are a starting point, not an answer - expand with `cairn graph <handle>`",

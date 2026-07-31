@@ -204,6 +204,23 @@ impl Store {
         })
     }
 
+    /// One-line description of what is indexed, for answers that would otherwise leave
+    /// the caller guessing whether their code is covered at all.
+    ///
+    /// A miss is ambiguous without it: "no such symbol" and "that language is not in
+    /// this index" look identical, and an agent that cannot tell them apart probes
+    /// repeatedly. Measured: an arm asked about frontend code that lives in a different
+    /// repository and spent four times the baseline's tool calls establishing it was
+    /// not there.
+    pub fn coverage_summary(&self) -> Result<String> {
+        let roots = self.language_roots()?;
+        if roots.is_empty() {
+            return Ok("nothing recorded about what is indexed".to_string());
+        }
+        let parts: Vec<String> = roots.iter().map(|(l, r)| format!("{r}/ ({l})")).collect();
+        Ok(format!("indexed: {}", parts.join(", ")))
+    }
+
     /// Per-language source roots recorded at index time, as `(lang tag, relative dir)`.
     pub fn language_roots(&self) -> Result<Vec<(String, String)>> {
         let mut stmt = self
