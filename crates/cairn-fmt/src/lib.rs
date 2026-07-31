@@ -16,7 +16,9 @@ use cairn_store::{EdgeSource, Occurrence, PathHop, SymbolRow, Walk};
 use std::fmt::Write;
 
 pub mod budget;
+pub mod source;
 pub use budget::Budget;
+pub use source::{Detail, Excerpt, Source};
 
 /// How a result set is laid out. Orthogonal to *what* was selected, so any view can
 /// render any walk (architecture 18.1 — this is the fifth axis alongside detail,
@@ -148,10 +150,22 @@ pub fn references(sym: &SymbolRow, refs: &[Occurrence], suppressed_generated: i6
 }
 
 /// Render a bounded walk over the call graph.
-pub fn walk(w: &Walk, title: &str, view: View, budget: &mut Budget) -> Envelope {
+///
+/// `detail` decides how much of each node is printed. Anything above `Skeleton` needs
+/// `source`, and is the audit shape: walk the callers and show me their code.
+pub fn walk(
+    w: &Walk,
+    title: &str,
+    view: View,
+    detail: Detail,
+    source: Option<&mut Source>,
+    budget: &mut Budget,
+) -> Envelope {
     let mut body = String::new();
     let _ = writeln!(body, "{title}");
 
+    let mut notes: Vec<String> = Vec::new();
+    let mut source = source;
     let mut shown = 0usize;
     for (i, node) in w.nodes.iter().enumerate() {
         let line = match view {
@@ -175,9 +189,27 @@ pub fn walk(w: &Walk, title: &str, view: View, budget: &mut Budget) -> Envelope 
             break;
         }
         shown = i + 1;
+
+        if detail.needs_source() {
+            let indent = if view == View::Tree { "  ".repeat(node.depth + 1) } else { "  ".into() };
+            if !emit_excerpt(
+                &mut body,
+                &indent,
+                &node.symbol,
+                detail,
+                source.as_deref_mut(),
+                budget,
+                &mut notes,
+            ) {
+                break;
+            }
+        }
     }
 
     let mut env = Envelope::new(body);
+    for n in notes {
+        env = env.suppressed(n);
+    }
     if shown < w.nodes.len() {
         env = env.suppressed(budget.cut_note(w.nodes.len() - shown, "nodes"));
     }
@@ -197,13 +229,20 @@ pub fn walk(w: &Walk, title: &str, view: View, budget: &mut Budget) -> Envelope 
 }
 
 /// A resolved call chain, one hop per line with the call site that leads onward.
-pub fn path(hops: &[PathHop], budget: &mut Budget) -> Envelope {
+pub fn path(
+    hops: &[PathHop],
+    detail: Detail,
+    source: Option<&mut Source>,
+    budget: &mut Budget,
+) -> Envelope {
     let mut body = String::new();
     let _ = writeln!(
         body,
         "call path, {} hops                              [L1, exact]",
         hops.len().saturating_sub(1)
     );
+    let mut notes: Vec<String> = Vec::new();
+    let mut source = source;
     let mut shown = 0usize;
     for (i, hop) in hops.iter().enumerate() {
         let arrow = if i == 0 { "   " } else { "-> " };
@@ -217,8 +256,24 @@ pub fn path(hops: &[PathHop], budget: &mut Budget) -> Envelope {
             break;
         }
         shown = i + 1;
+        if detail.needs_source()
+            && !emit_excerpt(
+                &mut body,
+                "   ",
+                &hop.symbol,
+                detail,
+                source.as_deref_mut(),
+                budget,
+                &mut notes,
+            )
+        {
+            break;
+        }
     }
     let mut env = Envelope::new(body);
+    for n in notes {
+        env = env.suppressed(n);
+    }
     if shown < hops.len() {
         env = env.suppressed(budget.cut_note(hops.len() - shown, "hops"));
     }
@@ -281,6 +336,34 @@ pub fn weak_links(sym: &SymbolRow, sites: &[(String, f64)], budget: &mut Budget)
         );
     }
     env
+}
+
+/// Print one symbol's source at the requested detail. Returns false when the budget
+/// ran out mid-excerpt, so the caller stops the whole walk rather than emitting
+/// half-symbols to the end of the list.
+fn emit_excerpt(
+    out: &mut String,
+    indent: &str,
+    sym: &SymbolRow,
+    detail: Detail,
+    source: Option<&mut Source>,
+    budget: &mut Budget,
+    notes: &mut Vec<String>,
+) -> bool {
+    let (Some(src), Some(def)) = (source, sym.def.as_ref()) else {
+        return true;
+    };
+    let ex = src.excerpt(&def.path, def.line, sym.def_end_line, detail);
+    if let Some(note) = ex.note {
+        notes.push(format!("[{}] {note}", sym.handle));
+    }
+    for (n, text) in ex.lines {
+        if !budget.push(out, &format!("{indent}{n:>5} | {text}")) {
+            notes.push(format!("[{}] excerpt cut by the budget", sym.handle));
+            return false;
+        }
+    }
+    true
 }
 
 fn truncate(s: &str, max: usize) -> String {

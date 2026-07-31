@@ -1621,6 +1621,19 @@ ortogonální osy.
 První tři jsou zřejmé. Čtvrtá je ta zajímavá. Pátá je ta, která rozhoduje o tom,
 jestli se kód nerozpadne.
 
+#### Detail platí na průchod, ne jen na jeden symbol
+
+Osa detailu není o zobrazení jednoho symbolu — je o tom, **kolik kódu se vytiskne z každého
+uzlu, kterým procházíme**. To je tvar, který potřebuje audit: „projdi volající téhle funkce
+a ukaž mi jejich těla", protože hledání edge cases, porušených konvencí, bezpečnostních děr
+i výkonnostních problémů se nedá dělat ze seznamu jmen.
+
+Ve výchozím stavu je to vypnuté, protože je to nejdražší věc, kterou nástroj umí vydat —
+a právě proto je to zároveň místo, kde `--budget` (§18.2) rozhoduje nejvíc. Dvě pojistky:
+tělo jednoho symbolu má vlastní strop v řádcích, aby jedna dlouhá funkce nespolkla celý
+rozpočet a průchod neskončil po prvním uzlu; a když indexer nezná rozsah těla, vypíše se
+jen definiční řádek **a řekne se to**, místo aby se hádalo, kde tělo končí.
+
 #### Pohled je oddělený od výběru
 
 Jakmile přibude call graph, přibudou i způsoby, jak tutéž znalost zobrazit — plochý

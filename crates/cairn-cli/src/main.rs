@@ -6,7 +6,7 @@
 //! happens before the subcommand is known.
 
 use anyhow::{Context, Result};
-use cairn_fmt::{Budget, View};
+use cairn_fmt::{Budget, Detail, Source, View};
 use cairn_store::{ingest, Direction, EdgeKind, Store};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
@@ -91,6 +91,13 @@ enum Cmd {
         /// Layout: `tree` shows how each node was reached, `list` is flat and cheaper.
         #[arg(long, default_value = "tree")]
         view: String,
+        /// How much of each node to print: skeleton | signature | doc | body.
+        /// Anything but `skeleton` needs --repo. Use `body` for audit passes.
+        #[arg(long, default_value = "skeleton")]
+        detail: String,
+        /// Repo root, required when --detail prints source.
+        #[arg(long)]
+        repo: Option<PathBuf>,
     },
     /// Shortest call path between two symbols: how does one reach the other.
     Path {
@@ -98,6 +105,10 @@ enum Cmd {
         to: String,
         #[arg(long, default_value_t = 8)]
         max_depth: usize,
+        #[arg(long, default_value = "skeleton")]
+        detail: String,
+        #[arg(long)]
+        repo: Option<PathBuf>,
     },
     /// Show a symbol in more detail.
     Expand {
@@ -229,11 +240,16 @@ fn run() -> Result<u8> {
             depth,
             fanout,
             view,
+            detail,
+            repo,
         } => {
             let store = open(&db)?;
             let symbol_id = resolve(&store, &handle)?;
             let view = View::parse(&view)
                 .with_context(|| format!("unknown view '{view}' (list|tree)"))?;
+            let detail = Detail::parse(&detail)
+                .with_context(|| format!("unknown detail '{detail}' (skeleton|signature|doc|body)"))?;
+            let mut source = make_source(detail, repo)?;
             // `tests` is a filtered reachability question rather than a plain walk,
             // so it takes its own path through the store.
             if matches!(aspect, Aspect::Tests) {
@@ -265,7 +281,7 @@ fn run() -> Result<u8> {
             let title = format!(
                 "{label} [{handle}] {root}   depth={depth} fanout={fanout}   [L1, exact]"
             );
-            let mut env = cairn_fmt::walk(&w, &title, view, &mut budget);
+            let mut env = cairn_fmt::walk(&w, &title, view, detail, source.as_mut(), &mut budget);
             // References with no enclosing body are module-level, not missing. Say so
             // rather than letting the count look like a gap.
             if matches!(aspect, Aspect::Callers) {
@@ -281,13 +297,19 @@ fn run() -> Result<u8> {
             Ok(if w.nodes.len() > 1 { exit::FOUND } else { exit::NOT_FOUND })
         }
 
-        Cmd::Path { from, to, max_depth } => {
+        Cmd::Path { from, to, max_depth, detail, repo } => {
             let store = open(&db)?;
             let src = resolve(&store, &from)?;
             let dst = resolve(&store, &to)?;
+            let detail = Detail::parse(&detail)
+                .with_context(|| format!("unknown detail '{detail}' (skeleton|signature|doc|body)"))?;
+            let mut source = make_source(detail, repo)?;
             match store.call_path(src, dst, max_depth)? {
                 Some(hops) => {
-                    print!("{}", cairn_fmt::path(&hops, &mut budget).render());
+                    print!(
+                        "{}",
+                        cairn_fmt::path(&hops, detail, source.as_mut(), &mut budget).render()
+                    );
                     Ok(exit::FOUND)
                 }
                 None => {
@@ -402,6 +424,16 @@ fn run() -> Result<u8> {
             Ok(exit::FOUND)
         }
     }
+}
+
+/// Source access is only set up when a detail level actually needs it, so the common
+/// skeleton path never touches the filesystem.
+fn make_source(detail: Detail, repo: Option<PathBuf>) -> Result<Option<Source>> {
+    if !detail.needs_source() {
+        return Ok(None);
+    }
+    let root = repo.context("this --detail level prints source, so it needs --repo <dir>")?;
+    Ok(Some(Source::new(root)))
 }
 
 /// Resolving a handle that does not exist is a query error, not an empty result:
