@@ -587,9 +587,26 @@ fn run() -> Result<u8> {
             let store = open(&db)?;
             let symbol_id = resolve(&store, &handle)?;
             let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
-            let services = store.services_running(symbol_id, depth)?;
+            let mut services = store.services_running(symbol_id, depth)?;
+            // A method invoked through a dispatch table has no static caller, so the walk
+            // finds nothing and "0 services" reads as dead code. Its class is the honest
+            // unit of attribution; answer there and say that is what happened.
+            let mut via = None;
+            if services.is_empty() {
+                if let Some(owner) = store.enclosing_type(symbol_id)? {
+                    let owner_services = store.services_running(owner.id, depth)?;
+                    if !owner_services.is_empty() {
+                        services = owner_services;
+                        via = Some(owner);
+                    }
+                }
+            }
             let found = !services.is_empty();
-            print!("{}", cairn_fmt::runs_in(&sym, &services, depth).render());
+            let blind = store.services_without_entrypoint()?;
+            print!(
+                "{}",
+                cairn_fmt::runs_in(&sym, &services, depth, via.as_ref(), &blind).render()
+            );
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
@@ -597,16 +614,34 @@ fn run() -> Result<u8> {
             let store = open(&db)?;
             let symbol_id = resolve(&store, &handle)?;
             let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
-            let services = store.services_of(symbol_id)?;
-            let links = if outgoing {
-                store.cross_language_targets(symbol_id)?
-            } else {
-                store.cross_language_callers(symbol_id)?
+            let mut services = store.services_of(symbol_id)?;
+            let cross = |id| -> anyhow::Result<_> {
+                Ok(if outgoing {
+                    store.cross_language_targets(id)?
+                } else {
+                    store.cross_language_callers(id)?
+                })
             };
+            let mut links = cross(symbol_id)?;
+            // Same fallback, same reason: the service binding lives on the handler class,
+            // not on each RPC method, so asking about a method answered "nothing crosses
+            // a boundary here" about code that serves a live RPC.
+            let mut via = None;
+            if links.is_empty() {
+                if let Some(owner) = store.enclosing_type(symbol_id)? {
+                    let owner_links = cross(owner.id)?;
+                    if !owner_links.is_empty() {
+                        links = owner_links;
+                        services = store.services_of(owner.id)?;
+                        via = Some(owner);
+                    }
+                }
+            }
             let found = !links.is_empty();
             print!(
                 "{}",
-                cairn_fmt::cross_language(&sym, &services, &links, outgoing, &mut budget).render()
+                cairn_fmt::cross_language(&sym, &services, &links, outgoing, via.as_ref(), &mut budget)
+                    .render()
             );
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }

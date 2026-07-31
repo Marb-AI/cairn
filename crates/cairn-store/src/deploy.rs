@@ -401,6 +401,26 @@ impl Store {
         })
     }
 
+    /// Services the reachability walk can never attribute anything to.
+    ///
+    /// A container started with `tail -f /dev/null` runs no code at boot and everything
+    /// it does run arrives later — a cron entry, a management command, `docker exec`.
+    /// Reachability therefore attributes nothing to it, which is not the same as it
+    /// running nothing, and `runs` must say so or it silently under-reports. Measured:
+    /// task E, where the baseline found a nightly cron job in such a container and the
+    /// cairn run did not (eval/RESULTS.md).
+    pub fn services_without_entrypoint(&self) -> Result<Vec<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT name FROM deploy_services WHERE entry_file IS NULL ORDER BY name")?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
     /// Services whose entrypoint can reach this symbol.
     ///
     /// This is the question the filesystem cannot answer: fifteen services share two

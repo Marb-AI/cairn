@@ -1099,6 +1099,7 @@ pub fn cross_language(
     services: &[(String, String, cairn_store::ServiceRole)],
     links: &[cairn_store::CrossLink],
     outgoing: bool,
+    via: Option<&SymbolRow>,
     budget: &mut Budget,
 ) -> Envelope {
     let mut body = String::new();
@@ -1111,6 +1112,15 @@ pub fn cross_language(
         links.len(),
         if outgoing { "targets" } else { "callers" }
     );
+    if let Some(owner) = via {
+        let _ = writeln!(
+            body,
+            "  answered for the enclosing type [{}] {}: a service binding names the \
+             handler, not each of its RPC methods",
+            owner.handle,
+            owner.qualified()
+        );
+    }
     if !services.is_empty() {
         let list: Vec<String> = services
             .iter()
@@ -1194,7 +1204,13 @@ pub fn topology(
 }
 
 /// Which deployed services can reach a symbol.
-pub fn runs_in(sym: &SymbolRow, services: &[String], depth: usize) -> Envelope {
+pub fn runs_in(
+    sym: &SymbolRow,
+    services: &[String],
+    depth: usize,
+    via: Option<&SymbolRow>,
+    blind: &[String],
+) -> Envelope {
     let mut body = String::new();
     let _ = writeln!(
         body,
@@ -1203,6 +1219,16 @@ pub fn runs_in(sym: &SymbolRow, services: &[String], depth: usize) -> Envelope {
         sym.qualified(),
         services.len()
     );
+    if let Some(owner) = via {
+        let _ = writeln!(
+            body,
+            "  answered for the enclosing type [{}] {}: nothing calls the method \
+             statically, which for a dispatched method means the caller is a table, \
+             not that the code is dead",
+            owner.handle,
+            owner.qualified()
+        );
+    }
     for s in services {
         let _ = writeln!(body, "  {s}");
     }
@@ -1215,6 +1241,18 @@ pub fn runs_in(sym: &SymbolRow, services: &[String], depth: usize) -> Envelope {
             "no service reaches this within {depth} call hops. That can mean dead code, \
              a deeper path, or an entrypoint the topology could not resolve - check \
              `cairn topology` before concluding it is unused"
+        ));
+    }
+    if !blind.is_empty() {
+        // Stated on every answer, not only on the empty one: a *non-empty* list is
+        // where this misleads, because it looks complete.
+        env = env.unknown(format!(
+            "this list covers only what a service runs at start-up. {} service(s) start \
+             nothing ({}) and run code on demand instead - cron, a management command, \
+             `docker exec`. If one of those could invoke this, grep its cron and entrypoint \
+             scripts; reachability cannot see them",
+            blind.len(),
+            blind.join(", ")
         ));
     }
     env

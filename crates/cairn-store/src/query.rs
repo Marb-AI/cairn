@@ -334,6 +334,41 @@ impl Store {
         }))
     }
 
+    /// The type whose body contains this symbol's definition, if any.
+    ///
+    /// Measurement drove this in (eval/RESULTS.md, task E). Asked which services run
+    /// `PricingServiceHandler.recalculate_plan`, the tool answered "0 services" — true of
+    /// the method, since an RPC dispatch table invokes it rather than a static call, and
+    /// badly wrong as an answer, because the class it belongs to demonstrably runs. The
+    /// agent believed it, worked around the tool by hand, and got the topology wrong.
+    ///
+    /// Span containment rather than a declared parent link: it is what every indexer
+    /// gives us for free, and it means the same fallback works for a Go method on a
+    /// receiver as for a Python method on a class.
+    pub fn enclosing_type(&self, symbol_id: i64) -> Result<Option<SymbolRow>> {
+        let mut stmt = self.conn.prepare_cached(
+            r#"
+            SELECT enc.id
+              FROM symbols me
+              JOIN symbols enc
+                ON enc.def_file_id = me.def_file_id
+               AND enc.id <> me.id
+               AND enc.kind = 1
+               AND enc.def_end_line IS NOT NULL
+               AND enc.def_line     <= me.def_line
+               AND enc.def_end_line >= coalesce(me.def_end_line, me.def_line)
+             WHERE me.id = ?1
+             ORDER BY (enc.def_end_line - enc.def_line) ASC
+             LIMIT 1
+            "#,
+        )?;
+        let mut rows = stmt.query(params![symbol_id])?;
+        match rows.next()? {
+            Some(r) => self.symbol(r.get(0)?),
+            None => Ok(None),
+        }
+    }
+
     pub fn definition(&self, symbol_id: i64) -> Result<Option<Occurrence>> {
         let mut stmt = self.conn.prepare_cached(
             r#"
