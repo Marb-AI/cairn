@@ -15,7 +15,7 @@ use rusqlite::Connection;
 /// Bumped whenever the schema changes in a way that invalidates existing databases.
 /// The ingest path drops and rebuilds rather than migrating: the store is a projection,
 /// never a source of truth.
-pub const SCHEMA_VERSION: i64 = 9;
+pub const SCHEMA_VERSION: i64 = 10;
 
 pub const SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -110,6 +110,25 @@ CREATE TABLE IF NOT EXISTS occurrences (
     enc_end   INTEGER
 );
 
+-- gRPC services, recovered from generated symbol names rather than from .proto files
+-- (protolink.rs). The package is part of the key: orders_api.AuthService and
+-- orders_fe.AuthService are different services that share a name.
+CREATE TABLE IF NOT EXISTS proto_services (
+    id   INTEGER PRIMARY KEY,
+    pkg  TEXT NOT NULL,
+    name TEXT NOT NULL,
+    UNIQUE(pkg, name)
+);
+
+CREATE TABLE IF NOT EXISTS service_links (
+    service_id INTEGER NOT NULL REFERENCES proto_services(id),
+    symbol_id  INTEGER NOT NULL REFERENCES symbols(id),
+    role       INTEGER NOT NULL,   -- 0 serves, 1 calls
+    -- Generated artefact the link was recovered through, so an answer can show its work.
+    via_symbol INTEGER REFERENCES symbols(id),
+    UNIQUE(service_id, symbol_id, role)
+);
+
 -- Short, stable, deterministic codes for progressive disclosure (architecture 6.5).
 -- Assigned lazily and persisted, so a handle stays valid across sessions.
 CREATE TABLE IF NOT EXISTS handles (
@@ -131,6 +150,8 @@ CREATE INDEX IF NOT EXISTS sym_by_defspan ON symbols(def_file_id, def_line, def_
 CREATE INDEX IF NOT EXISTS edge_out       ON edges(src_symbol, kind);
 CREATE INDEX IF NOT EXISTS edge_in        ON edges(dst_symbol, kind);
 CREATE INDEX IF NOT EXISTS file_is_test   ON files(is_test);
+CREATE INDEX IF NOT EXISTS slink_by_symbol  ON service_links(symbol_id, role);
+CREATE INDEX IF NOT EXISTS slink_by_service ON service_links(service_id, role);
 "#;
 
 /// Authored knowledge: concepts and hand-written links.

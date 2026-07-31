@@ -31,6 +31,9 @@ cairn refs <h> --context auto --repo <dir> --budget N
                                  get a block, many get one line
 cairn graph <h> --aspect callers|calls|impls|tests [--depth N] [--exclude-tests]
 cairn path <a> <b>               how one reaches the other
+cairn reaches <h> [--outgoing]   who reaches it ACROSS a gRPC boundary, in the other
+                                 language. grep cannot answer this at all: the two
+                                 sides share no identifier
 cairn expand <h> --detail body --repo <dir>
 
 cairn outline <path>             what a module holds, and what is actually used

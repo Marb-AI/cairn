@@ -176,6 +176,13 @@ enum Cmd {
         #[arg(long)]
         repo: Option<PathBuf>,
     },
+    /// Who reaches this across a gRPC boundary - the query no name search can answer.
+    Reaches {
+        handle: String,
+        /// Show what this symbol reaches instead of what reaches it.
+        #[arg(long)]
+        outgoing: bool,
+    },
     /// Shortest call path between two symbols: how does one reach the other.
     Path {
         from: String,
@@ -327,6 +334,13 @@ fn run() -> Result<u8> {
                     );
                 }
             }
+            // Cross-language links are derived once the whole index is in place: the
+            // two sides of a service boundary usually arrive from different SCIP files.
+            let links = store.link_services()?;
+            println!(
+                "services: {} gRPC services, {} serve links, {} call links",
+                links.services, links.serves, links.calls
+            );
             let c = store.counts()?;
             println!(
                 "store: {} files, {} symbols, {} occurrences in {:.1}s -> {}",
@@ -526,6 +540,24 @@ fn run() -> Result<u8> {
             }
             print!("{}", env.render());
             Ok(if w.nodes.len() > 1 { exit::FOUND } else { exit::NOT_FOUND })
+        }
+
+        Cmd::Reaches { handle, outgoing } => {
+            let store = open(&db)?;
+            let symbol_id = resolve(&store, &handle)?;
+            let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
+            let services = store.services_of(symbol_id)?;
+            let links = if outgoing {
+                store.cross_language_targets(symbol_id)?
+            } else {
+                store.cross_language_callers(symbol_id)?
+            };
+            let found = !links.is_empty();
+            print!(
+                "{}",
+                cairn_fmt::cross_language(&sym, &services, &links, outgoing, &mut budget).render()
+            );
+            Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
         Cmd::Path { from, to, max_depth, detail, repo } => {

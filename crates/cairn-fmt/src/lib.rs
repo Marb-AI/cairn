@@ -1087,3 +1087,61 @@ pub fn usage(sym: &SymbolRow, rows: &[(String, i64, bool)], budget: &mut Budget)
     }
     env
 }
+
+/// Reachability across a gRPC service boundary.
+///
+/// The header names the service, because the answer is only trustworthy if the caller
+/// can see the route: these edges are recovered from a generator's naming convention,
+/// not resolved by a compiler, and a reader who cannot check the hop should not be
+/// asked to believe it.
+pub fn cross_language(
+    sym: &SymbolRow,
+    services: &[(String, String, cairn_store::ServiceRole)],
+    links: &[cairn_store::CrossLink],
+    outgoing: bool,
+    budget: &mut Budget,
+) -> Envelope {
+    let mut body = String::new();
+    let direction = if outgoing { "reached by" } else { "reaches" };
+    let _ = writeln!(
+        body,
+        "[{}] {} — {} {} across gRPC        [L1, convention]",
+        sym.handle,
+        sym.qualified(),
+        links.len(),
+        if outgoing { "targets" } else { "callers" }
+    );
+    if !services.is_empty() {
+        let list: Vec<String> = services
+            .iter()
+            .map(|(p, n, r)| format!("{} {p}.{n}", r.label()))
+            .collect();
+        let _ = writeln!(body, "  via: {}", list.join(", "));
+    }
+    let _ = writeln!(body, "  ({direction} it, in the other language)");
+
+    let mut shown = 0usize;
+    for (i, l) in links.iter().enumerate() {
+        if !budget.push(
+            &mut body,
+            &format!("  {}  [{}.{}]", symbol_line(&l.symbol), l.pkg, l.service),
+        ) {
+            break;
+        }
+        shown = i + 1;
+    }
+    if links.is_empty() {
+        let _ = writeln!(body, "  (nothing on the other side of a service boundary)");
+    }
+
+    let mut env = Envelope::new(body);
+    if shown < links.len() {
+        env = env.suppressed(budget.cut_note(links.len() - shown, "links"));
+    }
+    env = env.unknown(
+        "these edges come from the protobuf generator's naming convention, not from a \
+         compiler. They are exact where the convention holds, and blind to any service \
+         wired up by hand or reached over a transport other than the generated client.",
+    );
+    env
+}
