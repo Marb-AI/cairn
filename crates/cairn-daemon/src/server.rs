@@ -109,6 +109,7 @@ impl Daemon {
                     files_tracked: self.tracker.tracked(),
                     generation: self.tracker.snapshot().generation,
                     uptime_secs: self.started.elapsed().as_secs(),
+                    reindex_due: self.tracker.snapshot().reindex_due,
                 }),
                 false,
             ),

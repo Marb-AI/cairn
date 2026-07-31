@@ -14,6 +14,7 @@ use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::schedule::{Decision, Scheduler};
 use crate::DirtySet;
 
 /// Directories never worth watching. Watching them is not merely wasted work: a build
@@ -36,6 +37,7 @@ struct State {
     /// Path -> content hash recorded at index time.
     indexed: HashMap<String, [u8; 16]>,
     dirty: DirtySet,
+    scheduler: Scheduler,
 }
 
 impl DirtyTracker {
@@ -46,12 +48,37 @@ impl DirtyTracker {
                 repo: repo.to_path_buf(),
                 indexed,
                 dirty: DirtySet { complete: false, ..Default::default() },
+                scheduler: Scheduler::new(),
             })),
         }
     }
 
     pub fn snapshot(&self) -> DirtySet {
-        self.inner.lock().unwrap().dirty.clone()
+        let mut st = self.inner.lock().unwrap();
+        let now = Instant::now();
+        // The decision is recomputed on read rather than on a timer: it is pure and
+        // cheap, and this way an idle daemon does not need a tick just to notice that
+        // time has passed.
+        let due = match st.scheduler.decide(now) {
+            Decision::Due(t) => Some(t.reason().to_string()),
+            Decision::WaitingForQuiet(t) => {
+                Some(format!("{} - waiting for the tree to settle", t.reason()))
+            }
+            Decision::Cooling(t) => Some(format!("{} - rate limited", t.reason())),
+            Decision::Idle => None,
+        };
+        st.dirty.reindex_due = due;
+        st.dirty.clone()
+    }
+
+    /// `.git/HEAD` moving means a commit, checkout, merge or rebase: the cleanest
+    /// moment to reindex, because the tree is in a state someone chose.
+    fn note_head_moved(&self) {
+        self.inner
+            .lock()
+            .unwrap()
+            .scheduler
+            .on_head_moved(Instant::now());
     }
 
     pub fn tracked(&self) -> usize {
@@ -116,6 +143,8 @@ impl DirtyTracker {
             st.dirty.created.len(),
             st.dirty.removed.len(),
         );
+        let debt = st.dirty.len();
+        st.scheduler.on_change(Instant::now(), debt);
         if before != after {
             st.dirty.generation += 1;
             true
@@ -130,6 +159,9 @@ impl DirtyTracker {
         let (tx, rx) = mpsc::channel::<notify::Result<notify::Event>>();
         let mut watcher = notify::recommended_watcher(tx)?;
         watcher.watch(&repo, RecursiveMode::Recursive)?;
+        // Watched explicitly: the recursive watch above skips nothing, but `.git`
+        // events are dropped by the ignore filter, and HEAD is the one we want.
+        let _ = watcher.watch(&repo.join(".git"), RecursiveMode::Recursive);
 
         let mut pending: Vec<PathBuf> = Vec::new();
         let mut last_event = Instant::now();
@@ -158,6 +190,12 @@ impl DirtyTracker {
                 let mut seen: Vec<String> = Vec::new();
                 for p in batch {
                     let Some(rel) = relativise(&repo, &p) else { continue };
+                    // `.git` is ignored for indexing, but HEAD moving is the single
+                    // most useful reindex signal there is, so it is read first.
+                    if rel == ".git/HEAD" || rel.starts_with(".git/refs/heads/") {
+                        self.note_head_moved();
+                        continue;
+                    }
                     if is_ignored(&rel) || seen.contains(&rel) {
                         continue;
                     }

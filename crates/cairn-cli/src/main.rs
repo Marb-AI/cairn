@@ -642,6 +642,10 @@ fn run() -> Result<u8> {
                             println!("       {p}");
                         }
                     }
+                    if let Some(why) = &d.reindex_due {
+                        println!("reindex due: {why}");
+                        println!("             run `cairn index <scip...> --repo <dir>`");
+                    }
                     Ok(if d.is_empty() { exit::FOUND } else { exit::DEGRADED })
                 }
                 None => {

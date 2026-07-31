@@ -20,10 +20,12 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 pub mod client;
+pub mod schedule;
 pub mod server;
 pub mod watch;
 
 pub use client::Client;
+pub use schedule::{Decision, Scheduler, Trigger};
 pub use server::Daemon;
 
 /// One request. An enum rather than a free-form command so that an old client talking
@@ -62,6 +64,9 @@ pub struct DirtySet {
     /// False while the initial scan is still running: the set is incomplete and must
     /// not be presented as authoritative.
     pub complete: bool,
+    /// Set when the scheduler has decided a reindex is warranted. Reported rather than
+    /// acted on: deciding is free, running spawns heavy external indexers.
+    pub reindex_due: Option<String>,
 }
 
 impl DirtySet {
@@ -88,6 +93,7 @@ pub struct DaemonStatus {
     pub files_tracked: usize,
     pub generation: u64,
     pub uptime_secs: u64,
+    pub reindex_due: Option<String>,
 }
 
 /// Socket path for a workspace.
