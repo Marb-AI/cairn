@@ -11,6 +11,7 @@ use std::path::Path;
 
 pub mod batch;
 pub mod concepts;
+pub mod context;
 pub mod conventions;
 pub mod graph;
 pub mod ingest;
@@ -22,6 +23,7 @@ pub mod weak;
 pub use batch::{BatchStats, BatchWriter};
 pub use graph::{Direction, PathHop, Walk, WalkNode};
 pub use concepts::{Concept, ConceptLink};
+pub use context::{ContextResult, Seed, SeedSource};
 pub use verify::Report;
 pub use query::{Occurrence, SymbolRow};
 

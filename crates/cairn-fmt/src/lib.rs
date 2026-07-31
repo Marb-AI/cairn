@@ -778,3 +778,40 @@ impl LiveSymbolView {
         self.kind == 13 && self.container.is_some()
     }
 }
+
+/// Entry point by concept: seeds, why each one is here, and how far to trust it.
+pub fn context(query: &str, r: &cairn_store::ContextResult, budget: &mut Budget) -> Envelope {
+    let mut body = String::new();
+    let _ = writeln!(body, "context for \"{query}\"   {} seeds", r.seeds.len());
+    if !r.concepts_matched.is_empty() {
+        let _ = writeln!(body, "matched concepts: {}", r.concepts_matched.join(", "));
+    }
+    for s in &r.seeds {
+        let why = s
+            .sources
+            .iter()
+            .map(|x| x.label())
+            .collect::<Vec<_>>()
+            .join("+");
+        if !budget.push(&mut body, &format!("{}  [{why}]", symbol_line(&s.symbol))) {
+            break;
+        }
+    }
+    if r.seeds.is_empty() {
+        let _ = writeln!(body, "  (nothing matched)");
+    }
+
+    let mut env = Envelope::new(body);
+    if r.low_confidence {
+        // Handing over weak guesses dressed as answers is how a tool teaches an agent
+        // to stop trusting it. Say the seed is thin and name the fallback.
+        env = env.unknown(
+            "low confidence: no concept, name or docstring matched strongly. Try a term \
+             this project actually uses, or fall back to grep for the first hop",
+        );
+    }
+    env = env.unknown(
+        "seeds are a starting point, not an answer - expand with `cairn graph <handle>`",
+    );
+    env
+}

@@ -899,6 +899,24 @@ deterministicky. Pořadí podle ceny:
 5. **Dokumenty** — README, ADR, `docs/`.
 6. **Nic z toho nezabralo** — vrátit slabý seed a **přiznat to**.
 
+**Postaveno.** Docstringy jsou zadarmo: SCIP je nese pro **77,7 % Python symbolů**
+a 10,5 % Go symbolů na testovacím repu (4,1 MB textu), takže se při ingestu jen
+nesmí zahodit. Ověřeno, že to funguje na termínech, které v žádném identifikátoru
+nejsou — `cairn context "fail-closed"` najde symboly výhradně přes prózu.
+
+Dvě věci, které rozhodly o použitelnosti a nebyly zřejmé předem:
+
+- **Generovaný kód musí spadnout dolů.** První verze na dotaz „quota" vrátila
+  protobuf fieldy jménem `quota` a pohřbila `QuotaModule`, jehož vlastní dokumentace
+  říká, že je to kvótový klient. Potlačit, ne vyloučit — termín, který žije jen
+  v generovaném kódu, má pořád něco vrátit.
+- **Váha podle druhu symbolu.** Typ nebo funkce *může být* „ta část systému, na kterou
+  se ptám"; field ne. Bez toho vyhrávají shody jmen na atributech.
+
+Každý seed nese **štítek, odkud pochází** (`[concept+name+doc]`). „Tohle někdo pojmenoval"
+a „tohle se fuzzy trefilo do jména" si zaslouží velmi různou míru důvěry a agent to
+nemá jak poznat, když mu to neřekneme.
+
 Bod 6 je díky D1 jednodušší, než byl. Původní návrh sem chtěl LLM krok přes MCP sampling.
 U CLI sampling neexistuje — a ukazuje se, že je to zlepšení: **volající agent LLM sám je.**
 Cairn nemá dělat horší verzi toho, co si zavolá o řádek výš. Takže:

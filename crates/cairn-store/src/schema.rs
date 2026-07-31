@@ -15,7 +15,7 @@ use rusqlite::Connection;
 /// Bumped whenever the schema changes in a way that invalidates existing databases.
 /// The ingest path drops and rebuilds rather than migrating: the store is a projection,
 /// never a source of truth.
-pub const SCHEMA_VERSION: i64 = 8;
+pub const SCHEMA_VERSION: i64 = 9;
 
 pub const SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -68,7 +68,12 @@ CREATE TABLE IF NOT EXISTS symbols (
     -- Only definitions with a body get it (~22 % of all definitions), which is
     -- exactly the set that can *contain* a reference - measured coverage of
     -- reference attribution is 87 % for Go and 92 % for Python.
-    def_end_line  INTEGER
+    def_end_line  INTEGER,
+    -- Docstring or doc comment, straight from the index. Free: SCIP already carries it
+    -- (77.7 % of Python symbols, 10.5 % of Go ones on the target repo), and it is the
+    -- best bridge there is between a feature name and a symbol - "OAuth" often appears
+    -- in no identifier at all but in the first line of the docs (architecture 4.5).
+    doc           TEXT
 );
 
 -- Derived relations. One table for every edge kind so that exact (L1), weak (L1-W),
@@ -121,6 +126,7 @@ CREATE INDEX IF NOT EXISTS occ_by_file   ON occurrences(file_id, line);
 CREATE INDEX IF NOT EXISTS sym_by_name   ON symbols(name_id);
 CREATE INDEX IF NOT EXISTS sym_rank       ON symbols(name_id, def_generated, ref_count DESC);
 CREATE INDEX IF NOT EXISTS sym_by_module ON symbols(module_id);
+CREATE INDEX IF NOT EXISTS sym_has_doc   ON symbols(def_file_id) WHERE doc IS NOT NULL;
 CREATE INDEX IF NOT EXISTS sym_by_defspan ON symbols(def_file_id, def_line, def_end_line);
 CREATE INDEX IF NOT EXISTS edge_out       ON edges(src_symbol, kind);
 CREATE INDEX IF NOT EXISTS edge_in        ON edges(dst_symbol, kind);

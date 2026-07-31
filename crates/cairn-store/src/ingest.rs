@@ -56,6 +56,7 @@ pub struct IngestStats {
     pub with_enclosing: usize,
     pub implements_edges: usize,
     pub test_files: usize,
+    pub documented: usize,
     pub hashed_files: usize,
     /// Documents whose path escaped the workspace root and were dropped.
     pub paths_outside_repo: usize,
@@ -114,6 +115,9 @@ pub fn ingest_scip(store: &mut Store, index_path: &Path, repo_root: Option<&Path
         let mut interner = Interner::new(&tx);
         // Symbol string -> row id, so repeated occurrences do not re-hash and re-query.
         let mut symbol_ids: HashMap<String, i64> = HashMap::with_capacity(128 * 1024);
+        // Collected during the pass and written at the end: documentation arrives with
+        // the symbol declaration, which may be seen before or after its occurrences.
+        let mut docs: HashMap<String, String> = HashMap::new();
 
         // RETURNING gives us the row id without a second round trip; the DO UPDATE
         // is a no-op that exists only so the clause still fires on conflict.
@@ -180,6 +184,9 @@ pub fn ingest_scip(store: &mut Store, index_path: &Path, repo_root: Option<&Path
 
             // Symbols declared by this document, then the occurrences that use them.
             for info in &doc.symbols {
+                if !info.documentation.is_empty() {
+                    docs.insert(info.symbol.clone(), clean_doc(&info.documentation));
+                }
                 let src = intern_symbol(
                     &info.symbol,
                     lang,
@@ -255,6 +262,17 @@ pub fn ingest_scip(store: &mut Store, index_path: &Path, repo_root: Option<&Path
                 stats.occurrences += 1;
             }
             stats.documents += 1;
+        }
+        {
+            let mut set_doc =
+                tx.prepare("UPDATE symbols SET doc = ?2 WHERE hash = ?1")?;
+            for (symbol, text) in &docs {
+                if text.is_empty() {
+                    continue;
+                }
+                set_doc.execute(params![&crate::symbol_hash(symbol)[..], text])?;
+                stats.documented += 1;
+            }
         }
         let batch_stats = occ_batch.finish(&tx)?;
         stats.batch_flushes = batch_stats.flushes + edge_batch.finish(&tx)?.flushes;
@@ -340,6 +358,51 @@ fn intern_symbol(
     cache.insert(symbol.to_string(), id);
     stats.symbols += 1;
     Ok(id)
+}
+
+/// Strip the signature preamble language servers put in front of a docstring.
+///
+/// pyright emits ```` ```python\ndef f(...) -> X:\n``` ```` followed by the real prose.
+/// Indexing that would match every query against Python keywords and parameter names,
+/// which is worse than useless for concept search.
+fn clean_doc(parts: &[String]) -> String {
+    let mut out = String::new();
+    for part in parts {
+        let mut text = part.as_str();
+        // Drop leading fenced blocks.
+        while let Some(rest) = text.trim_start().strip_prefix("```") {
+            match rest.find("```") {
+                Some(end) => text = &rest[end + 3..],
+                None => {
+                    text = "";
+                    break;
+                }
+            }
+        }
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(text);
+    }
+    // Long docs are mostly examples and parameter tables; the first paragraphs carry
+    // the meaning and stop a handful of symbols dominating the search corpus.
+    // Truncating on a byte offset panics mid-character - this repo's docs contain
+    // Czech - so the cut lands on a char boundary.
+    const MAX_DOC: usize = 1200;
+    if out.len() > MAX_DOC {
+        let end = out
+            .char_indices()
+            .map(|(i, _)| i)
+            .take_while(|i| *i <= MAX_DOC)
+            .last()
+            .unwrap_or(0);
+        out.truncate(end);
+    }
+    out
 }
 
 /// blake3-128 of a file's contents, or None when it cannot be read.
@@ -557,6 +620,32 @@ pub fn ingest_path(store: &mut Store, path: &Path, repo_root: Option<&Path>) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn strips_the_signature_fence_from_docs() {
+        let parts = vec![
+            "```python\nclass OrderGrpcClients:\n```".to_string(),
+            "Internal Python gRPC service client.".to_string(),
+        ];
+        let out = clean_doc(&parts);
+        assert!(!out.contains("class OrderGrpcClients"));
+        assert!(out.starts_with("Internal Python gRPC service"));
+    }
+
+    #[test]
+    fn truncates_on_a_character_boundary() {
+        // Multi-byte text is not hypothetical here: the target repo documents in Czech.
+        let long = "příliš žluťoučký kůň úpěl ďábelské ódy ".repeat(80);
+        let out = clean_doc(&[long]);
+        assert!(out.len() <= 1200);
+        assert!(std::str::from_utf8(out.as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn keeps_plain_doc_comments() {
+        let parts = vec!["QuotaModule is a standalone client.".to_string()];
+        assert_eq!(clean_doc(&parts), "QuotaModule is a standalone client.");
+    }
 
     #[test]
     fn decodes_ranges() {

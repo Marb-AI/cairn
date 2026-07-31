@@ -102,6 +102,12 @@ enum Cmd {
         #[arg(long)]
         repo: Option<PathBuf>,
     },
+    /// Entry point by concept: turn "the OAuth stuff" into symbols to start from.
+    Context {
+        query: String,
+        #[arg(long, default_value_t = 12)]
+        limit: usize,
+    },
     /// Find symbols by name.
     Symbol {
         query: String,
@@ -298,6 +304,20 @@ fn run() -> Result<u8> {
                 db.display()
             );
             Ok(exit::FOUND)
+        }
+
+        Cmd::Context { query, limit } => {
+            let store = open(&db)?;
+            let res = store.context(&query, limit)?;
+            let found = !res.seeds.is_empty();
+            let paths = paths_of(res.seeds.iter().map(|s| s.symbol.def.as_ref()));
+            print!(
+                "{}",
+                cairn_fmt::context(&query, &res, &mut budget)
+                    .mark_stale(dirty.as_deref(), &paths)
+                    .render()
+            );
+            Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
         Cmd::Symbol { query, limit } => {
