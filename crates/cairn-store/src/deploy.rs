@@ -421,6 +421,63 @@ impl Store {
         Ok(out)
     }
 
+    /// `services_running`, but answered for the enclosing type when the symbol itself is
+    /// dispatched.
+    ///
+    /// An RPC method is invoked from a dispatch table, so no static call reaches it and
+    /// the walk attributes it to nothing — which reads as dead code for something serving
+    /// live traffic. Its class is the honest unit of attribution. Kept here rather than in
+    /// the CLI so every caller gets it, which is how `affects` came to report `?` for the
+    /// service on both ends of every hop.
+    pub fn services_running_attributed(
+        &self,
+        symbol_id: i64,
+        max_depth: usize,
+    ) -> Result<(Vec<String>, Option<crate::SymbolRow>)> {
+        let direct = self.services_running(symbol_id, max_depth)?;
+        if !direct.is_empty() {
+            return Ok((direct, None));
+        }
+        if let Some(owner) = self.enclosing_type(symbol_id)? {
+            let via = self.services_running(owner.id, max_depth)?;
+            if !via.is_empty() {
+                return Ok((via, Some(owner)));
+            }
+        }
+        Ok((Vec::new(), None))
+    }
+
+    /// Services that run *some* symbol in this symbol's file.
+    ///
+    /// Weaker than reaching the symbol itself, and stated as such wherever it is used. It
+    /// exists because a framework route handler has no static caller at all: FastAPI
+    /// registers `endpoints.py`'s functions by decorator and calls them from the server
+    /// loop, so reachability attributes them to nothing while the module they live in is
+    /// plainly loaded by a service. Importing a module executes it, which is the same rule
+    /// the entrypoint seeding already relies on — applied one level out.
+    pub fn services_running_file(&self, symbol_id: i64, max_depth: usize) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT s.id FROM symbols s
+              WHERE s.def_file_id = (SELECT def_file_id FROM symbols WHERE id = ?1)
+                AND s.id <> ?1
+              ORDER BY s.ref_count DESC
+              LIMIT 40",
+        )?;
+        let rows = stmt.query_map(params![symbol_id], |r| r.get::<_, i64>(0))?;
+        let mut found: Vec<String> = Vec::new();
+        for r in rows {
+            for svc in self.services_running(r?, max_depth)? {
+                if !found.contains(&svc) {
+                    found.push(svc);
+                }
+            }
+            if !found.is_empty() {
+                break;
+            }
+        }
+        Ok(found)
+    }
+
     /// Services whose entrypoint can reach this symbol.
     ///
     /// This is the question the filesystem cannot answer: fifteen services share two

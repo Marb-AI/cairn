@@ -39,6 +39,9 @@ cairn reaches <h> [--outgoing]   who reaches it ACROSS a gRPC boundary, in the o
                                  of services need one call per hop
 cairn expand <h> --detail body --repo <dir>
 
+cairn affects <h>                EVERY deployed service a change here touches: in-process,
+                                 then each network hop with the RPC that carries it. One
+                                 call - do not assemble this from runs/reaches/topology
 cairn topology                   deployed services and what starts each one
 cairn runs <h>                   which services actually run this code. The filesystem
                                  cannot say: many services share one source tree

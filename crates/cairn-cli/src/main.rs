@@ -178,6 +178,17 @@ enum Cmd {
     },
     /// Deployed services and what each one runs.
     Topology,
+    /// Every deployed service a change here touches, in-process and over the network.
+    ///
+    /// One call instead of `runs` plus `reaches` per hop plus `topology`: measurement
+    /// showed the cost of this question was in assembling those by hand, not in asking.
+    Affects {
+        handle: String,
+        #[arg(long, default_value_t = 12)]
+        depth: usize,
+        #[arg(long, default_value_t = 200)]
+        fanout: usize,
+    },
     /// Which deployed services can run this code - the filesystem cannot say.
     Runs {
         handle: String,
@@ -583,24 +594,21 @@ fn run() -> Result<u8> {
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
+        Cmd::Affects { handle, depth, fanout } => {
+            let store = open(&db)?;
+            let symbol_id = resolve(&store, &handle)?;
+            let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
+            let a = store.affects(symbol_id, depth, fanout)?;
+            let found = !a.in_process.is_empty() || !a.hops.is_empty();
+            print!("{}", cairn_fmt::affects(&sym, &a, &mut budget).render());
+            Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+        }
+
         Cmd::Runs { handle, depth } => {
             let store = open(&db)?;
             let symbol_id = resolve(&store, &handle)?;
             let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
-            let mut services = store.services_running(symbol_id, depth)?;
-            // A method invoked through a dispatch table has no static caller, so the walk
-            // finds nothing and "0 services" reads as dead code. Its class is the honest
-            // unit of attribution; answer there and say that is what happened.
-            let mut via = None;
-            if services.is_empty() {
-                if let Some(owner) = store.enclosing_type(symbol_id)? {
-                    let owner_services = store.services_running(owner.id, depth)?;
-                    if !owner_services.is_empty() {
-                        services = owner_services;
-                        via = Some(owner);
-                    }
-                }
-            }
+            let (services, via) = store.services_running_attributed(symbol_id, depth)?;
             let found = !services.is_empty();
             let blind = store.services_without_entrypoint()?;
             print!(

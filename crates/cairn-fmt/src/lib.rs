@@ -1305,3 +1305,108 @@ pub fn runs_in(
     }
     env
 }
+
+/// The whole answer to "what does changing this touch", shaped like the answer.
+///
+/// Laid out so it can be used as the deliverable rather than as material for one: the
+/// in-process services with the command that makes them the runner, then the network
+/// route hop by hop with the RPC that carries it. The `unknown:` section names what
+/// reachability cannot see, so a caller can tell a complete answer from a partial one
+/// without going to check — which is the whole point of answering in one call.
+pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -> Envelope {
+    let mut body = String::new();
+    let services: usize = a.in_process.len()
+        + a.hops
+            .iter()
+            .flat_map(|h| h.from.iter())
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
+    let _ = writeln!(
+        body,
+        "[{}] {} — affects {} deployed service(s)        [L1 + L0-D]",
+        sym.handle,
+        sym.qualified(),
+        services
+    );
+
+    let _ = writeln!(body, "\nin-process");
+    for p in &a.in_process {
+        let _ = budget.push(
+            &mut body,
+            &format!(
+                "  {:<20} {}",
+                p.service,
+                p.command.as_deref().unwrap_or("(image default)")
+            ),
+        );
+    }
+    if a.in_process.is_empty() {
+        let _ = writeln!(body, "  (no service entrypoint reaches it)");
+    }
+
+    if !a.hops.is_empty() {
+        let _ = writeln!(body, "\nover the network, by hop");
+    }
+    for h in &a.hops {
+        let from = if h.from.is_empty() {
+            "(starts nothing)".to_string()
+        } else if h.from_by_file {
+            format!("{} ~", h.from.join(", "))
+        } else {
+            h.from.join(", ")
+        };
+        let to = if h.to.is_empty() { "?".to_string() } else { h.to.join(", ") };
+        if !budget.push(
+            &mut body,
+            &format!(
+                "  {:<18} -> {:<18} {}.{}.{}\n    {:<16} {}",
+                from,
+                to,
+                h.pkg,
+                h.service,
+                h.rpc,
+                "",
+                h.call_site
+                    .def
+                    .as_ref()
+                    .map(|d| d.location())
+                    .unwrap_or_else(|| "<no definition>".into()),
+            ),
+        ) {
+            break;
+        }
+    }
+
+    let mut env = Envelope::new(body);
+    if !a.blind.is_empty() {
+        env = env.unknown(format!(
+            "{} service(s) start nothing and run code on demand instead - cron, a \
+             management command, `docker exec` ({}). Where one appears above it is on a \
+             path; how it is triggered is not something reachability can see",
+            a.blind.len(),
+            a.blind.join(", ")
+        ));
+    }
+    if a.hops.iter().any(|h| h.from_by_file) {
+        env = env.unknown(
+            "`~` marks a service attributed through the file the call sits in rather than \
+             through a call path: a framework route handler has no static caller, so this \
+             says the module is loaded there, not that the handler is reached from the \
+             entrypoint",
+        );
+    }
+    if a.truncated_hops {
+        env = env.suppressed("the service chain continued past the hop limit".to_string());
+    }
+    env = env.unknown(
+        "hops are calls through a generated gRPC client, and are exact. A service that \
+         reaches this some other way - a hand-written transport, a queue, an HTTP call - \
+         is not here",
+    );
+    env = env.unknown(
+        "the in-process side follows static calls only. A path that goes through a \
+         wrapper - `sync_to_async`, a task queue, a registry of callables - is not \
+         followed, so a handler can serve this code without appearing above",
+    );
+    env
+}

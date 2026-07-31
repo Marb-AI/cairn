@@ -9,6 +9,7 @@ use anyhow::Result;
 use rusqlite::Connection;
 use std::path::Path;
 
+pub mod affects;
 pub mod batch;
 pub mod concepts;
 pub mod deploy;
@@ -28,6 +29,7 @@ pub use graph::{Direction, PathHop, Walk, WalkNode};
 pub use concepts::{Concept, ConceptLink};
 pub use context::{ContextResult, Seed, SeedSource};
 pub use deploy::{DeployStats, Service, Topology};
+pub use affects::{Affects, Hop, InProcess};
 pub use protolink::{CrossLink, RpcCaller, ServiceRole};
 pub use survey::{OutlineEntry, Unreached, UnreachedSymbol};
 pub use verify::Report;
