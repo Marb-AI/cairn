@@ -15,6 +15,11 @@ RUN git clone --depth 1 https://github.com/sourcegraph/scip /tmp/scip \
  || echo "scip CLI se nepodařilo postavit — pokračuji bez něj" > /go/bin/.scip-missing
 RUN touch /go/bin/scip
 
+# gopls needs a newer toolchain than scip-go does, so it gets its own stage rather
+# than forcing the whole image up a Go version.
+FROM golang:1.26-bookworm AS goplsbuild
+RUN go install golang.org/x/tools/gopls@latest
+
 # -- Runtime -----------------------------------------------------------------
 # Python 3.13.7 to match `requires-python == 3.13.7` in srcpy/pyproject.toml.
 FROM python:3.13.7-slim AS spike
@@ -27,6 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=golang:1.25-bookworm /usr/local/go /usr/local/go
 COPY --from=gotools /go/bin/scip-go /usr/local/bin/scip-go
 COPY --from=gotools /go/bin/scip    /usr/local/bin/scip
+COPY --from=goplsbuild /go/bin/gopls /usr/local/bin/gopls
 
 # Node for scip-python (an npm package built on top of pyright).
 COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
@@ -38,8 +44,10 @@ ENV PATH="/usr/local/go/bin:/root/.local/bin:${PATH}" \
     GOTOOLCHAIN=local \
     PIP_ROOT_USER_ACTION=ignore
 
-RUN npm install -g @sourcegraph/scip-python@latest \
+RUN npm install -g @sourcegraph/scip-python@latest pyright@latest \
  && pip install --no-cache-dir uv
+
+
 
 WORKDIR /spike
 COPY run.sh scipstat.py ./

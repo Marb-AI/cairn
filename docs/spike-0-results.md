@@ -145,6 +145,44 @@ one knob and translate it per language. A container `mem_limit` should still sit
 as a hard backstop — both flags above are soft (V8 heap, Go soft limit) and do not cover
 allocations outside them.
 
+### 4.2c LSP hot path: the 10-100 ms assumption holds
+
+Architecture 4.2 assumed a warm language server answers about one changed file in
+10-100 ms, and the dirty overlay leans on it. It had never been measured. Measured now
+against the real repo, with both servers warmed and the file edited via `didChange`:
+
+| | pyright (Python, 1,169 files) | gopls (Go, 99 packages) |
+|---|---|---|
+| `initialize` | 205 ms | 62 ms |
+| `documentSymbol`, warm | 1.5-1.8 ms | 0.9-1.2 ms |
+| `references`, first call | **1,353 ms** | 4.7 ms |
+| `references`, warm | 130 ms | 1.1 ms |
+| **`didChange` + `documentSymbol`** | **4-5 ms** | **3.6-7.3 ms** |
+| **`didChange` + `references`** | **94-115 ms** | **23-27 ms** |
+
+The assumption survives: an edit followed by a structural question costs single-digit
+milliseconds, and an edit followed by a reference lookup costs tens of milliseconds — at
+the top of the assumed band for Python, comfortably inside it for Go.
+
+Two honest caveats, both of which make these numbers optimistic:
+
+* **The measured symbol had no references.** The harness picks the first symbol with a
+  range and it happened to have none, so the reference timings exclude result
+  marshalling. A symbol with hundreds of references will cost more.
+* **Warm-up was a fixed 40 s wait, not a measurement.** How long after start the pool is
+  actually usable is still unknown, and it matters: pyright's *first* cross-file query
+  took 1.35 s even after that wait, so the first query following a daemon start is in a
+  different class from the rest.
+
+One thing the numbers say that the design did not anticipate: **pyright is roughly 4x
+slower than gopls on the hot path**, which inverts the batch picture, where Go's indexer
+was the one with no cheap partial mode. The two paths have opposite shapes, so the
+daemon should not treat the languages symmetrically.
+
+*Harness: `spike/lsp_bench.py`. Its first version reported a 180 s timeout for every
+pyright request — that was the harness, not pyright: a client must answer the server's
+`workspace/configuration` request or pyright blocks before serving anything.*
+
 ### 4.3 scip-python misattributes third-party packages
 
 Roughly 37,000 reference occurrences point at symbols whose package field says
