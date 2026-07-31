@@ -17,6 +17,7 @@ pub mod graph;
 pub mod ingest;
 pub mod query;
 pub mod schema;
+pub mod survey;
 pub mod verify;
 pub mod weak;
 
@@ -24,6 +25,7 @@ pub use batch::{BatchStats, BatchWriter};
 pub use graph::{Direction, PathHop, Walk, WalkNode};
 pub use concepts::{Concept, ConceptLink};
 pub use context::{ContextResult, Seed, SeedSource};
+pub use survey::{OutlineEntry, Unreached, UnreachedSymbol};
 pub use verify::Report;
 pub use query::{Occurrence, SymbolRow};
 

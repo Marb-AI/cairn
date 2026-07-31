@@ -35,6 +35,21 @@ Both return `[handles]` — two to four characters. Everything else takes a hand
 | show me the code | `cairn expand <h> --detail body --repo <dir>` |
 | is anything referring to it dynamically? | `cairn weaklinks <h>` |
 
+## Questions about a whole area, not one symbol
+
+These answer in a single call what would otherwise be one call per symbol. Reach for
+them first when the question is about a package, a directory or a change's blast radius.
+
+| question | command |
+|---|---|
+| what is in this module, and what is actually used? | `cairn outline <path>` |
+| what here does production never call? | `cairn unreached <path>` |
+| where is this used, grouped by file? | `cairn usage <h>` |
+
+`cairn unreached` distinguishes "called only from tests" from "called by nothing at
+all". It is static reachability, so check `cairn weaklinks` before concluding anything
+is safe to delete.
+
 ## Use this instead of grep when
 
 - **finding usages of a symbol.** grep matches comments, strings and same-named symbols

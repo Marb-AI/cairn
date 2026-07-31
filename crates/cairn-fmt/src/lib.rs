@@ -815,3 +815,78 @@ pub fn context(query: &str, r: &cairn_store::ContextResult, budget: &mut Budget)
     );
     env
 }
+
+/// Symbols in a subtree that production code never calls.
+pub fn unreached(
+    prefix: &str,
+    rows: &[cairn_store::UnreachedSymbol],
+    budget: &mut Budget,
+) -> Envelope {
+    let mut body = String::new();
+    let _ = writeln!(
+        body,
+        "{} symbols under {prefix} with no production caller       [L1, exact]",
+        rows.len()
+    );
+    for r in rows {
+        let why = match r.why {
+            cairn_store::Unreached::TestsOnly => format!("tests only ({})", r.test_callers),
+            cairn_store::Unreached::Never => "no callers".to_string(),
+        };
+        if !budget.push(&mut body, &format!("  {:<22} {}", why, symbol_line(&r.symbol))) {
+            break;
+        }
+    }
+    if rows.is_empty() {
+        let _ = writeln!(body, "  (everything here has a production caller)");
+    }
+    Envelope::new(body).unknown(
+        "reachability is static: a symbol invoked by name at runtime looks unreached. \
+         Check `cairn weaklinks <handle>` before deleting anything",
+    )
+}
+
+/// What a module contains, and how used each thing is.
+pub fn outline(prefix: &str, rows: &[cairn_store::OutlineEntry], budget: &mut Budget) -> Envelope {
+    let mut body = String::new();
+    let _ = writeln!(body, "{prefix}   {} definitions", rows.len());
+    for r in rows {
+        let use_note = if r.production_callers > 0 {
+            format!("{} prod", r.production_callers)
+        } else if r.caller_count > 0 {
+            format!("{} test-only", r.caller_count)
+        } else {
+            "unused".to_string()
+        };
+        if !budget.push(&mut body, &format!("  {:<12} {}", use_note, symbol_line(&r.symbol))) {
+            break;
+        }
+    }
+    if rows.is_empty() {
+        let _ = writeln!(body, "  (nothing indexed under that path)");
+    }
+    Envelope::new(body)
+}
+
+/// Where a symbol is used, grouped by file rather than listed flat.
+pub fn usage(sym: &SymbolRow, rows: &[(String, i64, bool)], budget: &mut Budget) -> Envelope {
+    let mut body = String::new();
+    let total: i64 = rows.iter().map(|(_, n, _)| n).sum();
+    let _ = writeln!(
+        body,
+        "[{}] {} used at {total} sites in {} files      [L0, exact]",
+        sym.handle,
+        sym.qualified(),
+        rows.len()
+    );
+    for (path, n, is_test) in rows {
+        let tag = if *is_test { "  [test]" } else { "" };
+        if !budget.push(&mut body, &format!("  {n:>4}x  {path}{tag}")) {
+            break;
+        }
+    }
+    if rows.is_empty() {
+        let _ = writeln!(body, "  (no uses outside its own definition)");
+    }
+    Envelope::new(body)
+}

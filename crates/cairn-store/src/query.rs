@@ -93,6 +93,13 @@ impl Store {
     /// The handle is the shortest prefix of the symbol's hash, rendered in the alphabet
     /// above, that is not already taken. Because assignment is persisted, a handle the
     /// agent noted in a previous session still resolves.
+    /// Look up the persistent short handle for a symbol.
+    ///
+    /// Read-only: handles are assigned in bulk at ingest (`schema::assign_handles`).
+    /// They used to be handed out lazily here, which made every *query* a write - fine
+    /// until the binary runs as a user who does not own the index, or two readers run
+    /// at once. If one is somehow missing, the deterministic prefix is returned without
+    /// persisting it rather than failing the query.
     pub fn handle_for(&self, symbol_id: i64) -> Result<String> {
         if let Some(h) = self.existing_handle(symbol_id)? {
             return Ok(h);
@@ -103,29 +110,7 @@ impl Store {
             |r| r.get(0),
         )?;
         let full = encode(&hash, HANDLE_MAX_LEN);
-        for len in HANDLE_MIN_LEN..=HANDLE_MAX_LEN {
-            let candidate = &full[..len];
-            let taken: Option<i64> = self
-                .conn
-                .query_row(
-                    "SELECT symbol_id FROM handles WHERE handle = ?1",
-                    params![candidate],
-                    |r| r.get(0),
-                )
-                .ok();
-            match taken {
-                Some(owner) if owner == symbol_id => return Ok(candidate.to_string()),
-                Some(_) => continue, // collision, lengthen
-                None => {
-                    self.conn.execute(
-                        "INSERT INTO handles(symbol_id, handle) VALUES (?1, ?2)",
-                        params![symbol_id, candidate],
-                    )?;
-                    return Ok(candidate.to_string());
-                }
-            }
-        }
-        anyhow::bail!("could not assign a unique handle for symbol {symbol_id}")
+        Ok(full[..HANDLE_MIN_LEN.min(full.len())].to_string())
     }
 
     fn existing_handle(&self, symbol_id: i64) -> Result<Option<String>> {
@@ -431,6 +416,11 @@ fn kind_from_i64(v: i64) -> SymbolKind {
         7 => SymbolKind::Local,
         _ => SymbolKind::Unknown,
     }
+}
+
+/// Base32 of a symbol hash, from which the shortest unique prefix is taken.
+pub(crate) fn encode_handle(bytes: &[u8]) -> String {
+    encode(bytes, HANDLE_MAX_LEN)
 }
 
 fn encode(bytes: &[u8], max_chars: usize) -> String {

@@ -254,7 +254,53 @@ pub fn finalize(conn: &Connection) -> Result<()> {
         "#,
     )?;
     derive_call_edges(conn)?;
+    assign_handles(conn)?;
     conn.execute_batch("ANALYZE;")?;
+    Ok(())
+}
+
+/// Assign a handle to every symbol, in bulk, at ingest.
+///
+/// These used to be handed out lazily on first display, which meant **a read query
+/// wrote to the database**. That breaks a read-only deployment, contends between
+/// concurrent readers, and showed up the moment the binary was run as a user who did
+/// not own the index. Handles are deterministic anyway (a prefix of the symbol hash),
+/// so there is no reason to defer the work.
+///
+/// Shortest unique prefix: try two characters, lengthen on collision. Done in SQL so it
+/// is one pass rather than 71k round trips.
+fn assign_handles(conn: &Connection) -> Result<()> {
+    // Encoding in Rust rather than SQL: base32 over a byte string is awkward in SQL and
+    // the collision walk needs a running set of what is taken, which is natural here.
+    let mut rows: Vec<(i64, Vec<u8>)> = Vec::new();
+    {
+        let mut stmt = conn.prepare("SELECT id, hash FROM symbols ORDER BY id")?;
+        let it = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?)))?;
+        for r in it {
+            rows.push(r?);
+        }
+    }
+    let mut taken: std::collections::HashSet<String> = std::collections::HashSet::new();
+    {
+        let mut stmt = conn.prepare("SELECT handle FROM handles")?;
+        let it = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        for h in it {
+            taken.insert(h?);
+        }
+    }
+    let mut insert = conn.prepare("INSERT OR IGNORE INTO handles(symbol_id, handle) VALUES (?1, ?2)")?;
+    for (id, hash) in rows {
+        let full = crate::query::encode_handle(&hash);
+        for len in 2..=full.len() {
+            let candidate = &full[..len];
+            if taken.contains(candidate) {
+                continue;
+            }
+            taken.insert(candidate.to_string());
+            insert.execute(rusqlite::params![id, candidate])?;
+            break;
+        }
+    }
     Ok(())
 }
 

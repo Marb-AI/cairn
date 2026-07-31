@@ -108,6 +108,27 @@ enum Cmd {
         #[arg(long, default_value_t = 12)]
         limit: usize,
     },
+    /// Symbols under a path that production code never calls.
+    Unreached {
+        /// Repo-relative path prefix, e.g. srcpy/domains/orders/lib/pricing
+        prefix: String,
+        #[arg(long, default_value_t = 60)]
+        limit: usize,
+    },
+    /// What a module or directory contains, and how used each thing is.
+    Outline {
+        prefix: String,
+        #[arg(long, default_value_t = 80)]
+        limit: usize,
+    },
+    /// Where a symbol is used, grouped by file - the blast radius of changing it.
+    Usage {
+        handle: String,
+        #[arg(long)]
+        include_tests: bool,
+        #[arg(long, default_value_t = 40)]
+        limit: usize,
+    },
     /// Find symbols by name.
     Symbol {
         query: String,
@@ -321,6 +342,44 @@ fn run() -> Result<u8> {
                     .mark_stale(dirty.as_deref(), &paths)
                     .render()
             );
+            Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+        }
+
+        Cmd::Unreached { prefix, limit } => {
+            let store = open(&db)?;
+            let rows = store.unreached(&prefix, limit)?;
+            let found = !rows.is_empty();
+            let paths = paths_of(rows.iter().map(|r| r.symbol.def.as_ref()));
+            print!(
+                "{}",
+                cairn_fmt::unreached(&prefix, &rows, &mut budget)
+                    .mark_stale(dirty.as_deref(), &paths)
+                    .render()
+            );
+            Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+        }
+
+        Cmd::Outline { prefix, limit } => {
+            let store = open(&db)?;
+            let rows = store.outline(&prefix, limit)?;
+            let found = !rows.is_empty();
+            let paths = paths_of(rows.iter().map(|r| r.symbol.def.as_ref()));
+            print!(
+                "{}",
+                cairn_fmt::outline(&prefix, &rows, &mut budget)
+                    .mark_stale(dirty.as_deref(), &paths)
+                    .render()
+            );
+            Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+        }
+
+        Cmd::Usage { handle, include_tests, limit } => {
+            let store = open(&db)?;
+            let symbol_id = resolve(&store, &handle)?;
+            let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
+            let rows = store.usage_by_file(symbol_id, include_tests, limit)?;
+            let found = !rows.is_empty();
+            print!("{}", cairn_fmt::usage(&sym, &rows, &mut budget).render());
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
