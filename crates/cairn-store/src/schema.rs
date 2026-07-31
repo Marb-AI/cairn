@@ -15,7 +15,7 @@ use rusqlite::Connection;
 /// Bumped whenever the schema changes in a way that invalidates existing databases.
 /// The ingest path drops and rebuilds rather than migrating: the store is a projection,
 /// never a source of truth.
-pub const SCHEMA_VERSION: i64 = 7;
+pub const SCHEMA_VERSION: i64 = 8;
 
 pub const SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -126,6 +126,65 @@ CREATE INDEX IF NOT EXISTS edge_out       ON edges(src_symbol, kind);
 CREATE INDEX IF NOT EXISTS edge_in        ON edges(dst_symbol, kind);
 CREATE INDEX IF NOT EXISTS file_is_test   ON files(is_test);
 "#;
+
+/// Authored knowledge: concepts and hand-written links.
+///
+/// Lives in its own database file, attached as `k`, for two reasons that both bite:
+///
+/// * **Lifecycle.** The main store is a projection and is dropped and rebuilt whenever
+///   the schema changes or the repo is reindexed. Authored knowledge is the one thing
+///   here that cannot be re-derived, so it must not share that fate.
+/// * **Identity.** Symbol rowids are assigned per ingest and differ between rebuilds.
+///   Authored rows therefore reference symbols by their content hash (`symbol_hash`),
+///   which is stable across machines and rebuilds by construction (5.1).
+pub const SQL_KNOWLEDGE: &str = r#"
+CREATE TABLE IF NOT EXISTS k.concepts (
+    id      INTEGER PRIMARY KEY,
+    ns      TEXT NOT NULL,
+    name    TEXT NOT NULL,
+    note    TEXT,
+    author  INTEGER NOT NULL,        -- EdgeSource: 2 agent, 3 human
+    UNIQUE(ns, name)
+);
+
+CREATE TABLE IF NOT EXISTS k.concept_links (
+    concept_id  INTEGER NOT NULL REFERENCES concepts(id),
+    symbol_hash BLOB NOT NULL,       -- stable across rebuilds, unlike a rowid
+    rel         TEXT NOT NULL,
+    note        TEXT,
+    -- Anchor: path plus the file's content hash at the time of the claim. Stored as
+    -- text, because the files table belongs to the rebuildable side.
+    anchor_path TEXT,
+    anchor_line INTEGER,
+    anchor_hash BLOB,
+    needs_review INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(concept_id, symbol_hash, rel)
+);
+
+CREATE TABLE IF NOT EXISTS k.links (
+    src_hash    BLOB NOT NULL,
+    dst_hash    BLOB NOT NULL,
+    rel         TEXT NOT NULL,
+    note        TEXT,
+    author      INTEGER NOT NULL,
+    anchor_path TEXT,
+    anchor_line INTEGER,
+    anchor_hash BLOB,
+    needs_review INTEGER NOT NULL DEFAULT 0,
+    UNIQUE(src_hash, dst_hash, rel)
+);
+
+CREATE INDEX IF NOT EXISTS k.clink_by_symbol ON concept_links(symbol_hash);
+CREATE INDEX IF NOT EXISTS k.links_by_src    ON links(src_hash);
+CREATE INDEX IF NOT EXISTS k.links_by_dst    ON links(dst_hash);
+"#;
+
+/// Attach the knowledge database beside the projection and make sure it exists.
+pub fn attach_knowledge(conn: &Connection, path: &std::path::Path) -> Result<()> {
+    conn.execute("ATTACH DATABASE ?1 AS k", [path.to_string_lossy()])?;
+    conn.execute_batch(SQL_KNOWLEDGE)?;
+    Ok(())
+}
 
 pub fn apply(conn: &Connection) -> Result<()> {
     conn.execute_batch(SQL)?;

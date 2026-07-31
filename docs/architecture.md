@@ -1744,6 +1744,59 @@ Příznak se nikdy nemaže automaticky — smaže ho jedině nový úsudek.
 Provenience je součástí typu hrany (`L2, agent-asserted` / `L2, human-asserted`),
 takže se ručně psaná vazba nikdy nesmíchá s exaktní.
 
+### 18.6 Jeden graf, ne dva
+
+Zvažovaná varianta: nechat agenta stavět si vedle našeho grafu vlastní, s primitivními
+grafovými nástroji. **Zamítnuto**, a stojí za to napsat proč, protože ta potřeba za tím
+je reálná.
+
+**Dvě pravdy jsou horší než jedna neúplná.** Teze produktu je, že existuje vrstva, které
+agent věří a přestane si ji hlídat. S vlastním grafem bez provenience a invalidace by je
+musel při každém dotazu smiřovat — a to je ta explorační smyčka, jen o patro výš.
+
+**Invalidace se nepřenáší.** Náš graf zneplatňují hashe obsahu; ruční vazba funguje jen
+proto, že je ukotvená v kódu (§18.4b). Volný graf nemá kde být ukotvený, takže tiše shnije.
+
+**A byla by to jiná firma.** Obecné grafové úložiště je memory produkt, ne navigace
+v kódu — patřilo by na seznam „nikdy" hned vedle vlastních parserů a storage enginu.
+
+#### Co ta potřeba reálně byla: uzly, které nejsou symboly
+
+Chyběl přesně jeden typ uzlu. „OAuth flow", „billing doména" nejsou symboly a žádný
+indexer je nevydá — takže agent, který se něco dozví, je nemá kam uložit. Řešením není
+druhý graf, ale **koncepty v tom našem**, plus hrany koncept ↔ symbol. Mimochodem je to
+i to, co potřebuje `cairn context` (§6.4).
+
+Tři podmínky, které z toho nedělají grafovou databázi:
+
+| podmínka | proč |
+|---|---|
+| **Ukotvení** k místu v kódu, s hashem | jinak se tvrzení nedá zneplatnit a tiše shnije |
+| **Jmenné prostory** | domněnky jedné session jdou filtrovat i zahodit vcelku, bez dopadu na sdílené |
+| **Žádné property, žádný dotazovací jazyk** | koncept má jméno, poznámku a vazby; víc už je graf DB |
+
+Typ vztahu (`part-of`, `entry-point`, `owns`) je naopak volný text — slovník patří tomu,
+kdo tvrdí, a uzavřený výčet by ho jen vyhnal zpátky k vlastnímu úložišti.
+
+#### Autorská znalost žije ve vlastním souboru
+
+`index.sqlite` je projekce a při reindexu i změně schématu se zahazuje. Autorská znalost
+je jediná věc, která se **nedá znovu odvodit**, takže sdílet ten osud nesmí — bydlí
+v `index-knowledge.sqlite` vedle a připojuje se přes `ATTACH`.
+
+Z toho plyne druhá věc: **autorské řádky odkazují na symboly hashem, ne rowid.** Rowid se
+přiděluje při každé indexaci znovu a po přestavbě by visel v prázdnu. Hash je stabilní
+napříč přestavbami i stroji ze své podstaty (§5.1).
+
+Když symbol z indexu zmizí úplně — kód byl přejmenován nebo smazán — vazba se
+**nezahazuje ani netváří jako platná**, ale reportuje se jako `symbol gone`.
+
+#### Co tím zároveň podporujeme
+
+Scénář „postavím si vlastní pohled" jsme neodstřihli — `path:start-end` v každém řádku
+a reference graph znamenají, že agent si vlastní graf **postavit může**, kdykoli chce.
+Podporujeme to tím, že jsme dobrý *zdroj*, ne tím, že mu budeme dělat databázi.
+
 ### 18.5 Co tím nechceme
 
 Ne agenta uvnitř nástroje. Osy z §18.1 jsou parametry deterministického výběru, ne

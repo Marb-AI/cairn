@@ -485,6 +485,18 @@ pub fn verify(r: &cairn_store::Report) -> Envelope {
             ));
         }
     }
+    if r.concept_links_dangling > 0 {
+        env = env.unknown(format!(
+            "{} authored links point at symbols no longer in the index; the code was              renamed or removed after the claim was made",
+            r.concept_links_dangling
+        ));
+    }
+    if r.concept_links_stale > 0 {
+        env = env.unknown(format!(
+            "{} authored links are anchored in code that has since changed and need a              fresh judgement (`cairn concept show`)",
+            r.concept_links_stale
+        ));
+    }
     if r.manual_edges_stale > 0 {
         env = env.unknown(format!(
             "{} hand-authored links are anchored in code that has since changed. The \
@@ -545,4 +557,89 @@ pub fn asserted(
         ));
     }
     Ok(env)
+}
+
+/// A concept and everything attached to it.
+pub fn concept(
+    store: &cairn_store::Store,
+    c: &cairn_store::Concept,
+    links: &[cairn_store::ConceptLink],
+    budget: &mut Budget,
+) -> anyhow::Result<Envelope> {
+    let mut body = String::new();
+    let _ = writeln!(body, "{}/{}   [{}]", c.ns, c.name, c.author.label());
+    if !c.note.is_empty() {
+        let _ = writeln!(body, "  {}", c.note);
+    }
+    let _ = writeln!(body, "{} linked symbols", links.len());
+
+    let mut needs_review = 0;
+    let mut unanchored = 0;
+    for l in links {
+        let label = if l.resolved {
+            store
+                .symbol(l.symbol_id)?
+                .map(|s| symbol_line(&s))
+                .unwrap_or_else(|| "<gone from index>".to_string())
+        } else {
+            "<symbol no longer in the index>".to_string()
+        };
+        if l.needs_review {
+            needs_review += 1;
+        }
+        if l.anchor.is_none() {
+            unanchored += 1;
+        }
+        let flag = if l.needs_review {
+            "  !! anchor changed"
+        } else if !l.resolved {
+            "  !! symbol gone"
+        } else {
+            ""
+        };
+        let note = if l.note.is_empty() {
+            String::new()
+        } else {
+            format!("  — {}", l.note)
+        };
+        if !budget.push(&mut body, &format!("  {:<12} {label}{note}{flag}", l.rel)) {
+            break;
+        }
+    }
+    if links.is_empty() {
+        let _ = writeln!(body, "  (nothing linked yet)");
+    }
+
+    let mut env = Envelope::new(body);
+    if needs_review > 0 {
+        env = env.unknown(format!(
+            "{needs_review} links are anchored in code that changed after they were \
+             recorded; the static pass cannot re-derive them, so they need a fresh look"
+        ));
+    }
+    if unanchored > 0 {
+        env = env.unknown(format!(
+            "{unanchored} links have no anchor and can never be checked against the code"
+        ));
+    }
+    env = env.unknown("concepts are asserted knowledge, not derived facts");
+    Ok(env)
+}
+
+pub fn concept_list(list: &[cairn_store::Concept], budget: &mut Budget) -> Envelope {
+    let mut body = String::new();
+    let _ = writeln!(body, "{} concepts", list.len());
+    for c in list {
+        let note = if c.note.is_empty() { String::new() } else { format!("  — {}", c.note) };
+        if !budget.push(
+            &mut body,
+            &format!("  {:<28} {:>3} links{note}", format!("{}/{}", c.ns, c.name), c.link_count),
+        ) {
+            break;
+        }
+    }
+    if list.is_empty() {
+        let _ = writeln!(body, "  (none)");
+    }
+    Envelope::new(body)
 }

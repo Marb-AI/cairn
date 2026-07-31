@@ -46,6 +46,14 @@ pub struct Report {
     pub manual_edges: i64,
     /// Manual edges whose anchor file changed after the edge was recorded.
     pub manual_edges_stale: i64,
+    pub concepts: i64,
+    pub concept_links: i64,
+    /// Concept links with no anchor: nothing can ever invalidate them.
+    pub concept_links_unanchored: i64,
+    pub concept_links_stale: i64,
+    /// Authored links whose symbol is not in the current index: the code was renamed
+    /// or deleted after the claim was made.
+    pub concept_links_dangling: i64,
 
     /// Files whose contents differ from what was indexed.
     pub stale_files: Vec<String>,
@@ -62,6 +70,8 @@ impl Report {
             && self.missing_files.is_empty()
             && self.generated_by_path_only == 0
             && self.manual_edges_stale == 0
+            && self.concept_links_stale == 0
+            && self.concept_links_dangling == 0
     }
 }
 
@@ -94,6 +104,15 @@ impl Store {
             )?,
             weak_edges: one("SELECT count(*) FROM edges WHERE kind = 2")?,
             manual_edges: one("SELECT count(*) FROM edges WHERE source >= 2")?,
+            concepts: one("SELECT count(*) FROM k.concepts")?,
+            concept_links: one("SELECT count(*) FROM k.concept_links")?,
+            concept_links_unanchored: one(
+                "SELECT count(*) FROM k.concept_links WHERE anchor_hash IS NULL",
+            )?,
+            concept_links_dangling: one(
+                "SELECT count(*) FROM k.concept_links l
+                  WHERE NOT EXISTS (SELECT 1 FROM symbols s WHERE s.hash = l.symbol_hash)",
+            )?,
             ..Default::default()
         };
         let attributed = one("SELECT count(*) FROM edges WHERE kind = 0")?;
@@ -128,6 +147,11 @@ impl Store {
             rep.missing_files.sort();
 
             rep.manual_edges_stale = self.count_stale_manual_edges(root)?;
+            rep.concept_links_stale = self.conn.query_row(
+                "SELECT count(*) FROM k.concept_links WHERE needs_review = 1",
+                [],
+                |r| r.get(0),
+            )?;
         }
         Ok(rep)
     }

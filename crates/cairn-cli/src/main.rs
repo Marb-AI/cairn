@@ -39,6 +39,45 @@ struct Cli {
     cmd: Cmd,
 }
 
+#[derive(Subcommand)]
+enum ConceptCmd {
+    /// Create or update a concept.
+    Add {
+        name: String,
+        #[arg(long, default_value = "")]
+        note: String,
+        #[arg(long, default_value = cairn_store::concepts::DEFAULT_NS)]
+        ns: String,
+        #[arg(long, default_value = "agent")]
+        by: String,
+    },
+    /// Attach a symbol to a concept.
+    Link {
+        name: String,
+        handle: String,
+        /// Free-text relation: part-of, entry-point, owns, ...
+        #[arg(long, default_value = "part-of")]
+        rel: String,
+        #[arg(long, default_value = "")]
+        note: String,
+        #[arg(long, default_value = cairn_store::concepts::DEFAULT_NS)]
+        ns: String,
+    },
+    /// Show a concept and everything attached to it.
+    Show {
+        name: String,
+        #[arg(long, default_value = cairn_store::concepts::DEFAULT_NS)]
+        ns: String,
+    },
+    /// List concepts, optionally in one namespace.
+    List {
+        #[arg(long)]
+        ns: Option<String>,
+    },
+    /// Discard a whole namespace in one move.
+    Drop { ns: String },
+}
+
 /// Which relation a graph command follows.
 #[derive(Clone, Copy, clap::ValueEnum)]
 enum Aspect {
@@ -154,6 +193,9 @@ enum Cmd {
     },
     /// Hand-authored links touching a symbol.
     Links { handle: String },
+    /// Named nodes that are not symbols, and their links to code.
+    #[command(subcommand)]
+    Concept(ConceptCmd),
     /// What is indexed, and how stale it is.
     Status,
 }
@@ -441,7 +483,8 @@ fn run() -> Result<u8> {
             if flag_stale {
                 let root = repo.clone().context("--flag-stale needs --repo")?;
                 let n = store.flag_stale_manual_edges(&root)?;
-                println!("flagged {n} hand-authored links for review");
+                let m = store.flag_stale_concept_links(&root)?;
+                println!("flagged {n} hand-authored links and {m} concept links for review");
             }
             let rep = store.verify(repo.as_deref())?;
             print!("{}", cairn_fmt::verify(&rep).render());
@@ -492,6 +535,8 @@ fn run() -> Result<u8> {
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
+        Cmd::Concept(sub) => run_concept(sub, &db, &mut budget),
+
         Cmd::Status => {
             if !db.exists() {
                 println!("no index at {}", db.display());
@@ -506,6 +551,69 @@ fn run() -> Result<u8> {
             println!("occurrence {}", c.occurrences);
             println!("generated  {} files", c.generated_files);
             println!("stale: unknown (no snapshot tracking yet)");
+            Ok(exit::FOUND)
+        }
+    }
+}
+
+fn run_concept(sub: ConceptCmd, db: &PathBuf, budget: &mut Budget) -> Result<u8> {
+    use cairn_store::concepts::DEFAULT_NS;
+    let store = open(db)?;
+    match sub {
+        ConceptCmd::Add { name, note, ns, by } => {
+            let author = match by.as_str() {
+                "agent" => cairn_store::EdgeSource::Agent,
+                "human" => cairn_store::EdgeSource::Human,
+                other => anyhow::bail!("unknown --by '{other}' (agent|human)"),
+            };
+            store.concept_upsert(&ns, &name, &note, author)?;
+            println!("concept {ns}/{name} recorded");
+            Ok(exit::FOUND)
+        }
+        ConceptCmd::Link { name, handle, rel, note, ns } => {
+            let concept = store
+                .concept_find(&ns, &name)?
+                .with_context(|| format!("no concept {ns}/{name} (create it first)"))?;
+            let symbol_id = resolve(&store, &handle)?;
+            let anchored = store.concept_link(concept.id, symbol_id, &rel, &note)?;
+            println!("{ns}/{name} --{rel}--> [{handle}]");
+            if !anchored {
+                // Without an anchor nothing can ever invalidate this claim, so it can
+                // never be more than a claim. Say so at the moment it is made.
+                println!(
+                    "note: that symbol has no definition site, so this link has no anchor \
+                     and can never be checked against the code"
+                );
+            }
+            Ok(exit::FOUND)
+        }
+        ConceptCmd::Show { name, ns } => {
+            let Some(concept) = store.concept_find(&ns, &name)? else {
+                eprintln!("cairn: no concept {ns}/{name}");
+                return Ok(exit::NOT_FOUND);
+            };
+            let links = store.concept_links(concept.id)?;
+            print!("{}", cairn_fmt::concept(&store, &concept, &links, budget)?.render());
+            Ok(exit::FOUND)
+        }
+        ConceptCmd::List { ns } => {
+            let list = store.concept_list(ns.as_deref())?;
+            let found = !list.is_empty();
+            print!("{}", cairn_fmt::concept_list(&list, budget).render());
+            Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+        }
+        ConceptCmd::Drop { ns } => {
+            if ns == DEFAULT_NS {
+                // Cheap guard: dropping the default namespace is almost always a
+                // mistake, and it is the one holding accumulated knowledge.
+                eprintln!(
+                    "cairn: refusing to drop the default namespace '{DEFAULT_NS}' - \
+                     name a session namespace instead"
+                );
+                return Ok(exit::ERROR);
+            }
+            let (concepts, links) = store.concept_drop_ns(&ns)?;
+            println!("dropped {concepts} concepts and {links} links in namespace '{ns}'");
             Ok(exit::FOUND)
         }
     }

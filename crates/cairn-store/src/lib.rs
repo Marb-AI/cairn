@@ -10,6 +10,7 @@ use rusqlite::Connection;
 use std::path::Path;
 
 pub mod batch;
+pub mod concepts;
 pub mod conventions;
 pub mod graph;
 pub mod ingest;
@@ -20,6 +21,7 @@ pub mod weak;
 
 pub use batch::{BatchStats, BatchWriter};
 pub use graph::{Direction, PathHop, Walk, WalkNode};
+pub use concepts::{Concept, ConceptLink};
 pub use verify::Report;
 pub use query::{Occurrence, SymbolRow};
 
@@ -134,6 +136,7 @@ impl Store {
             rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
         schema::tune_for_query(&conn)?;
+        schema::attach_knowledge(&conn, &knowledge_path(path))?;
         let store = Store { conn };
         store.check_schema_version()?;
         Ok(store)
@@ -154,6 +157,7 @@ impl Store {
     pub fn open_in_memory() -> Result<Store> {
         let conn = Connection::open_in_memory()?;
         schema::apply(&conn)?;
+        schema::attach_knowledge(&conn, std::path::Path::new(":memory:"))?;
         Ok(Store { conn })
     }
 
@@ -172,6 +176,9 @@ impl Store {
         let conn = Connection::open(path)?;
         schema::tune_for_bulk_load(&conn)?;
         schema::apply(&conn)?;
+        // Deliberately attached *after* the projection was wiped: authored knowledge
+        // survives every rebuild, which is the whole reason it lives in its own file.
+        schema::attach_knowledge(&conn, &knowledge_path(path))?;
         Ok(Store { conn })
     }
 
@@ -216,6 +223,16 @@ pub struct Counts {
 ///
 /// This is both the primary key for symbols and the seed for handles (6.5), so it must
 /// stay stable forever: same symbol string anywhere, on any machine, same hash.
+/// Where authored knowledge lives, beside the projection it annotates.
+pub fn knowledge_path(index_path: &Path) -> std::path::PathBuf {
+    index_path.with_file_name(
+        index_path
+            .file_stem()
+            .map(|s| format!("{}-knowledge.sqlite", s.to_string_lossy()))
+            .unwrap_or_else(|| "knowledge.sqlite".to_string()),
+    )
+}
+
 pub fn symbol_hash(symbol: &str) -> [u8; 16] {
     let full = blake3::hash(symbol.as_bytes());
     let mut out = [0u8; 16];
