@@ -53,6 +53,7 @@ impl Store {
         dir: Direction,
         depth: usize,
         fanout: usize,
+        exclude_tests: bool,
     ) -> Result<Walk> {
         let mut walk = Walk::default();
         let Some(root_sym) = self.symbol(root)? else {
@@ -74,7 +75,7 @@ impl Store {
             let mut next = Vec::new();
             for &idx in &frontier {
                 let parent_id = walk.nodes[idx].symbol.id;
-                let (rows, total) = self.neighbours(parent_id, kind, dir, fanout)?;
+                let (rows, total) = self.neighbours(parent_id, kind, dir, fanout, exclude_tests)?;
                 let mut added = 0;
                 for (sym_id, source, site) in rows {
                     if !seen.insert(sym_id) {
@@ -108,12 +109,19 @@ impl Store {
     }
 
     /// Direct neighbours plus the total count, so truncation can be reported.
+    /// Direct neighbours plus the total, so truncation can be reported.
+    ///
+    /// `exclude_tests` exists because it is the commonest filter there is when asking
+    /// "does anything actually use this": a symbol called only from tests is dead in
+    /// production, and that distinction is the whole question. Measurement found this
+    /// gap - the first analysis run had to pipe the output through grep.
     fn neighbours(
         &self,
         symbol_id: i64,
         kind: EdgeKind,
         dir: Direction,
         limit: usize,
+        exclude_tests: bool,
     ) -> Result<(Vec<(i64, EdgeSource, Option<String>)>, i64)> {
         let (from_col, to_col) = match dir {
             Direction::In => ("dst_symbol", "src_symbol"),
@@ -125,14 +133,19 @@ impl Store {
               FROM edges e
               LEFT JOIN files   f ON f.id = e.file_id
               LEFT JOIN strings p ON p.id = f.path_id
+              JOIN symbols other ON other.id = e.{to_col}
+              LEFT JOIN files otherf ON otherf.id = other.def_file_id
              WHERE e.{from_col} = ?1 AND e.kind = ?2
+               AND (?4 = 0 OR coalesce(otherf.is_test, 0) = 0)
              GROUP BY e.{to_col}
              ORDER BY e.source ASC, e.confidence DESC
              LIMIT ?3
             "#
         );
         let mut stmt = self.conn.prepare_cached(&sql)?;
-        let rows = stmt.query_map(params![symbol_id, kind as i64, limit as i64], |r| {
+        let rows = stmt.query_map(
+            params![symbol_id, kind as i64, limit as i64, exclude_tests as i64],
+            |r| {
             let path: Option<String> = r.get(2)?;
             let line: Option<i64> = r.get(3)?;
             let site = match (path, line) {
@@ -147,17 +160,27 @@ impl Store {
                 },
                 site,
             ))
-        })?;
+            },
+        )?;
         let mut out = Vec::new();
         for r in rows {
             out.push(r?);
         }
 
-        let count_sql =
-            format!("SELECT count(DISTINCT {to_col}) FROM edges WHERE {from_col} = ?1 AND kind = ?2");
-        let total: i64 = self
-            .conn
-            .query_row(&count_sql, params![symbol_id, kind as i64], |r| r.get(0))?;
+        // The total counts what the same filter would have matched, so "N beyond
+        // --fanout" never includes rows the caller asked to exclude.
+        let count_sql = format!(
+            "SELECT count(DISTINCT e.{to_col}) FROM edges e
+               JOIN symbols other ON other.id = e.{to_col}
+               LEFT JOIN files otherf ON otherf.id = other.def_file_id
+              WHERE e.{from_col} = ?1 AND e.kind = ?2
+                AND (?3 = 0 OR coalesce(otherf.is_test, 0) = 0)"
+        );
+        let total: i64 = self.conn.query_row(
+            &count_sql,
+            params![symbol_id, kind as i64, exclude_tests as i64],
+            |r| r.get(0),
+        )?;
         Ok((out, total))
     }
 

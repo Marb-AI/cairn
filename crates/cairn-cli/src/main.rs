@@ -140,6 +140,10 @@ enum Cmd {
         /// Anything but `skeleton` needs --repo. Use `body` for audit passes.
         #[arg(long, default_value = "skeleton")]
         detail: String,
+        /// Skip nodes defined in test files. The question behind "who uses this" is
+        /// usually whether anything in production does.
+        #[arg(long)]
+        exclude_tests: bool,
         /// Repo root, required when --detail prints source.
         #[arg(long)]
         repo: Option<PathBuf>,
@@ -369,6 +373,7 @@ fn run() -> Result<u8> {
             view,
             detail,
             repo,
+            exclude_tests,
         } => {
             let store = open(&db)?;
             let symbol_id = resolve(&store, &handle)?;
@@ -399,7 +404,7 @@ fn run() -> Result<u8> {
                 Aspect::Impls => (EdgeKind::Implements, Direction::In, "implementations of"),
                 Aspect::Tests => unreachable!("handled above"),
             };
-            let w = store.walk(symbol_id, kind, dir, depth, fanout)?;
+            let w = store.walk(symbol_id, kind, dir, depth, fanout, exclude_tests)?;
             let root = w
                 .nodes
                 .first()
