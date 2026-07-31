@@ -127,6 +127,29 @@ impl Store {
             Direction::In => ("dst_symbol", "src_symbol"),
             Direction::Out => ("src_symbol", "dst_symbol"),
         };
+        // A `calls` edge is really "a reference inside this body", which for parameters,
+        // type variables and locals is not a call by any reading. Walking *inwards* that
+        // barely shows, because the answer is aggregated onto the enclosing function.
+        // Walking outwards it is ruinous: a forward trace from a gRPC handler returned 68
+        // rows of which three were calls — the rest were parameters, protobuf message
+        // types and stdlib names with no definition in this repository. An agent asked to
+        // trace an entry point to its database write read that list and then went symbol
+        // by symbol, which is where task F's 34 tool calls went (eval/RESULTS.md).
+        //
+        // Only applied outwards, and only to call edges: `impls` genuinely wants types,
+        // and the inward direction is not polluted.
+        let outward_calls = dir == Direction::Out && kind == EdgeKind::Calls;
+        let noise_filter = if outward_calls {
+            // 4 TypeParameter, 5 Parameter, 6 Meta, 7 Local; and anything with no
+            // definition here, which is a stdlib or third-party name we cannot follow.
+            // Generated code as well: reading `message.user_id` off a protobuf request is
+            // a field access, not a call, and the generated message types crowded out the
+            // real callees once the parameters were gone. Behaviour does not live there.
+            "AND other.kind NOT IN (4, 5, 6, 7) AND other.def_file_id IS NOT NULL \
+             AND coalesce(otherf.generated, 0) = 0"
+        } else {
+            ""
+        };
         let sql = format!(
             r#"
             SELECT e.{to_col}, e.source, p.s, e.line
@@ -137,6 +160,7 @@ impl Store {
               LEFT JOIN files otherf ON otherf.id = other.def_file_id
              WHERE e.{from_col} = ?1 AND e.kind = ?2
                AND (?4 = 0 OR coalesce(otherf.is_test, 0) = 0)
+               {noise_filter}
              GROUP BY e.{to_col}
              ORDER BY e.source ASC, e.confidence DESC
              LIMIT ?3
@@ -174,7 +198,8 @@ impl Store {
                JOIN symbols other ON other.id = e.{to_col}
                LEFT JOIN files otherf ON otherf.id = other.def_file_id
               WHERE e.{from_col} = ?1 AND e.kind = ?2
-                AND (?3 = 0 OR coalesce(otherf.is_test, 0) = 0)"
+                AND (?3 = 0 OR coalesce(otherf.is_test, 0) = 0)
+                {noise_filter}"
         );
         let total: i64 = self.conn.query_row(
             &count_sql,
