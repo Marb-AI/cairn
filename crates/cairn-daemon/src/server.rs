@@ -13,6 +13,7 @@ use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::lsp::Pool;
 use crate::watch::DirtyTracker;
 use crate::{DaemonStatus, Request, Response};
 
@@ -21,15 +22,24 @@ pub struct Daemon {
     socket: PathBuf,
     tracker: Arc<DirtyTracker>,
     started: Instant,
+    /// Guarded rather than per-connection: language servers are expensive and
+    /// stateful, so one pool is shared and requests to it are serialised.
+    pool: Arc<std::sync::Mutex<Pool>>,
 }
 
 impl Daemon {
-    pub fn new(repo: &Path, socket: &Path, indexed: HashMap<String, [u8; 16]>) -> Daemon {
+    pub fn new(
+        repo: &Path,
+        socket: &Path,
+        indexed: HashMap<String, [u8; 16]>,
+        roots: &[(String, String)],
+    ) -> Daemon {
         Daemon {
             repo: repo.to_path_buf(),
             socket: socket.to_path_buf(),
             tracker: Arc::new(DirtyTracker::new(repo, indexed)),
             started: Instant::now(),
+            pool: Arc::new(std::sync::Mutex::new(Pool::new(repo, roots))),
         }
     }
 
@@ -46,6 +56,23 @@ impl Daemon {
         // clients say so rather than treating an empty set as "nothing changed".
         let scanner = Arc::clone(&self.tracker);
         std::thread::spawn(move || scanner.initial_scan());
+
+        // Warm the servers off the accept loop. Measurement showed the first
+        // cross-file query costs an order of magnitude more than the rest, so paying
+        // that at start-up rather than on the first question is the whole point of
+        // having a daemon (spike-0-results 4.2c).
+        let pool = Arc::clone(&self.pool);
+        std::thread::spawn(move || {
+            let t0 = Instant::now();
+            let mut p = pool.lock().unwrap();
+            p.warm();
+            let langs = p.languages().join(", ");
+            let failed = p.failures().len();
+            eprintln!(
+                "cairn daemon: language servers ready ({langs}) in {:.1}s, {failed} unavailable",
+                t0.elapsed().as_secs_f64()
+            );
+        });
 
         let (stop_tx, stop_rx) = mpsc::channel();
         let watcher = Arc::clone(&self.tracker);
@@ -72,6 +99,7 @@ impl Daemon {
 
         let _ = stop_tx.send(());
         let _ = std::fs::remove_file(&self.socket);
+        self.pool.lock().unwrap().shutdown();
         let _ = watch_handle.join();
         Ok(())
     }
@@ -113,6 +141,12 @@ impl Daemon {
                 }),
                 false,
             ),
+            Ok(Request::FileSymbols { path }) => {
+                match self.pool.lock().unwrap().document_symbols(&path) {
+                    Ok(symbols) => (Response::FileSymbols { symbols }, false),
+                    Err(e) => (Response::Error { message: format!("{e:#}") }, false),
+                }
+            }
             Ok(Request::Shutdown) => (Response::Ok, true),
             Err(e) => (
                 Response::Error { message: format!("bad request: {e}") },

@@ -200,6 +200,24 @@ impl Store {
         })
     }
 
+    /// Per-language source roots recorded at index time, as `(lang tag, relative dir)`.
+    pub fn language_roots(&self) -> Result<Vec<(String, String)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT key, value FROM meta WHERE key LIKE 'root.%'")?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?.trim_start_matches("root.").to_string(),
+                r.get::<_, String>(1)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
     pub fn counts(&self) -> Result<Counts> {
         let one = |sql: &str| -> Result<i64> { Ok(self.conn.query_row(sql, [], |r| r.get(0))?) };
         Ok(Counts {

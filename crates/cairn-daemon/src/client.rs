@@ -11,9 +11,15 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::Duration;
 
-/// Connect timeout. Generous enough for a loaded machine, short enough that a stale
-/// socket never noticeably delays a query.
-const TIMEOUT: Duration = Duration::from_millis(250);
+/// Timeout for the cheap requests. Deliberately tight: `dirty` is asked on *every*
+/// CLI invocation, so a wedged daemon must never noticeably delay an ordinary query.
+const FAST_TIMEOUT: Duration = Duration::from_millis(250);
+
+/// Timeout for requests that make the daemon do real work. A language server query
+/// after an edit costs tens of milliseconds warm, but pyright's first cross-file query
+/// measured 1.35 s even after warm-up (spike-0-results 4.2c), so the bound has to leave
+/// room for the cold case rather than turning it into a spurious failure.
+const WORK_TIMEOUT: Duration = Duration::from_secs(15);
 
 pub struct Client {
     stream: UnixStream,
@@ -26,13 +32,18 @@ impl Client {
     /// Connect, or return None when no daemon is listening.
     pub fn connect(socket: &Path) -> Option<Client> {
         let stream = UnixStream::connect(socket).ok()?;
-        let _ = stream.set_read_timeout(Some(TIMEOUT));
-        let _ = stream.set_write_timeout(Some(TIMEOUT));
+        let _ = stream.set_read_timeout(Some(FAST_TIMEOUT));
+        let _ = stream.set_write_timeout(Some(FAST_TIMEOUT));
         let reader = BufReader::new(stream.try_clone().ok()?);
         Some(Client { stream, reader })
     }
 
     fn call(&mut self, req: Request) -> Result<Response> {
+        self.call_with(req, FAST_TIMEOUT)
+    }
+
+    fn call_with(&mut self, req: Request, timeout: Duration) -> Result<Response> {
+        let _ = self.stream.set_read_timeout(Some(timeout));
         writeln!(self.stream, "{}", serde_json::to_string(&req)?)?;
         self.stream.flush()?;
         let mut line = String::new();
@@ -51,6 +62,15 @@ impl Client {
     pub fn status(&mut self) -> Result<crate::DaemonStatus> {
         match self.call(Request::Status)? {
             Response::Status(s) => Ok(s),
+            Response::Error { message } => Err(anyhow!(message)),
+            other => Err(anyhow!("unexpected response: {other:?}")),
+        }
+    }
+
+    /// Ask the language server what is in a file right now.
+    pub fn file_symbols(&mut self, path: &str) -> Result<Vec<crate::lsp::LiveSymbol>> {
+        match self.call_with(Request::FileSymbols { path: path.to_string() }, WORK_TIMEOUT)? {
+            Response::FileSymbols { symbols } => Ok(symbols),
             Response::Error { message } => Err(anyhow!(message)),
             other => Err(anyhow!("unexpected response: {other:?}")),
         }

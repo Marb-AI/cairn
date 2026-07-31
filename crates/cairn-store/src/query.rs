@@ -139,6 +139,53 @@ impl Store {
         })
     }
 
+    /// Symbols the index believes are defined in a file, as
+    /// `(qualified name, start, end)`.
+    ///
+    /// Qualified, not bare: two classes in one file can both have `on_call_tool`, and
+    /// matching on the bare name would pair one with the other and report a move that
+    /// never happened.
+    pub fn symbols_in_file(&self, path: &str) -> Result<Vec<(String, i64, Option<i64>)>> {
+        let mut stmt = self.conn.prepare_cached(
+            r#"
+            SELECT n.s, s.def_line, s.def_end_line, c.s, s.kind
+              FROM symbols s
+              LEFT JOIN strings c ON c.id = s.container_id
+              JOIN files   f ON f.id = s.def_file_id
+              JOIN strings p ON p.id = f.path_id
+              JOIN strings n ON n.id = s.name_id
+             WHERE p.s = ?1
+             ORDER BY s.def_line
+            "#,
+        )?;
+        let rows = stmt.query_map(params![path], |r| {
+            let name: String = r.get(0)?;
+            let container: Option<String> = r.get(3)?;
+            let kind: i64 = r.get(4)?;
+            let qualified = match container.as_deref().filter(|c| c.ends_with('#')) {
+                Some(c) => format!("{}.{name}", last_container_segment(c)),
+                None => name,
+            };
+            Ok((
+                qualified,
+                r.get::<_, Option<i64>>(1)?.unwrap_or(0),
+                r.get(2)?,
+                kind,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            let (q, start, end, kind) = r?;
+            // Parameters and locals are not file structure; the live view does not
+            // list them either, so including them would manufacture "gone" entries.
+            if matches!(kind_from_i64(kind), SymbolKind::Parameter | SymbolKind::TypeParameter) {
+                continue;
+            }
+            out.push((q, start, end));
+        }
+        Ok(out)
+    }
+
     pub fn file_id_for_path(&self, path: &str) -> Result<Option<i64>> {
         let mut stmt = self.conn.prepare_cached(
             "SELECT f.id FROM files f JOIN strings p ON p.id = f.path_id WHERE p.s = ?1",

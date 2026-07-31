@@ -678,3 +678,103 @@ pub fn concept_list(list: &[cairn_store::Concept], budget: &mut Budget) -> Envel
     }
     Envelope::new(body)
 }
+
+/// The dirty overlay for one file: what the language server sees now, against what the
+/// index recorded.
+///
+/// The comparison is the product, not the listing. An agent asking about a file it just
+/// edited needs to know which symbols the index no longer describes correctly - showing
+/// only the live list would leave it to diff two outputs by eye.
+pub fn live_overlay(
+    path: &str,
+    live: &[LiveSymbolView],
+    indexed: &[(String, i64, Option<i64>)],
+    budget: &mut Budget,
+) -> Envelope {
+    use std::collections::HashSet;
+    // Compare qualified names on both sides. Two classes in a file can share a method
+    // name, and matching bare names pairs them and invents a move.
+    let live_q: Vec<(String, &LiveSymbolView)> =
+        live.iter().map(|s| (s.qualified(), s)).collect();
+    let live_names: HashSet<&str> = live_q.iter().map(|(q, _)| q.as_str()).collect();
+    let indexed_names: HashSet<&str> = indexed.iter().map(|(n, _, _)| n.as_str()).collect();
+
+    let mut body = String::new();
+    let _ = writeln!(
+        body,
+        "{path}   {} symbols live, {} in the index        [L0, live]",
+        live.len(),
+        indexed.len()
+    );
+
+    let mut added = 0;
+    let mut moved = 0;
+    for (qualified, s) in &live_q {
+        let known = indexed.iter().find(|(n, _, _)| n == qualified);
+        let (mark, note) = match known {
+            None => {
+                added += 1;
+                ("+", String::new())
+            }
+            Some((_, line, _)) if *line != s.start_line => {
+                moved += 1;
+                ("~", format!("  (index says line {})", line + 1))
+            }
+            Some(_) => (" ", String::new()),
+        };
+        if !budget.push(
+            &mut body,
+            &format!(
+                "{mark} {}:{}-{}  {qualified}{note}",
+                path,
+                s.start_line + 1,
+                s.end_line + 1
+            ),
+        ) {
+            break;
+        }
+    }
+
+    let gone: Vec<&str> = indexed_names.difference(&live_names).copied().collect();
+    for name in &gone {
+        let _ = budget.push(&mut body, &format!("- {name}   (in the index, not in the file now)"));
+    }
+
+    let mut env = Envelope::new(body);
+    if added + moved + gone.len() > 0 {
+        env.stale.push(format!(
+            "the index is behind for this file: {added} new, {moved} moved, {} gone",
+            gone.len()
+        ));
+    }
+    env = env.unknown(
+        "this view is `documentSymbol` only: it shows what is defined in the file now,          not what references it. Reference answers still come from the index.",
+    );
+    env
+}
+
+/// Mirror of the daemon's live symbol shape, so cairn-fmt does not depend on the
+/// daemon crate for one struct.
+pub struct LiveSymbolView {
+    pub name: String,
+    pub kind: i64,
+    pub start_line: i64,
+    pub end_line: i64,
+    pub container: Option<String>,
+}
+
+impl LiveSymbolView {
+    /// `Class.method`, matching how the index qualifies its own names.
+    pub fn qualified(&self) -> String {
+        match &self.container {
+            Some(c) if !c.is_empty() => format!("{c}.{}", self.name),
+            _ => self.name.clone(),
+        }
+    }
+
+    /// LSP `SymbolKind::Variable`. Locals and parameters arrive as variables nested in
+    /// a function, and they are not file structure.
+    pub fn is_local_variable(&self) -> bool {
+        self.kind == 13 && self.container.is_some()
+    }
+}

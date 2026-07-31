@@ -291,6 +291,45 @@ Výsledek se přemapuje do stejného SCIP schématu a **překryje** bázi.
 Latence: 10–100 ms na soubor. To je přesně ten dotaz, na kterém nejvíc záleží
 („právě jsem změnil signaturu, koho jsem rozbil").
 
+### 4.2b LSP pool — druhá polovina overlaye
+
+Dávkový indexer neumí odpovědět na soubor, který se změnil, bez plného běhu. Teplý
+language server ano, a **naměřeno**: po editaci stojí `documentSymbol` 4–5 ms u pyrightu
+a 3,6–7,3 ms u gopls, `references` 94–115 ms a 23–27 ms (spike-0-results §4.2c).
+
+Celý `cairn live <soubor>` — start procesu, socket, LSP dotaz, dotaz do indexu i
+formátování — vychází na **11 ms medián**.
+
+Tři věci, které přineslo měření a promítly se do kódu:
+
+- **Klient musí odpovídat na požadavky serveru.** pyright si během startu vyžádá
+  `workspace/configuration` a než dostane odpověď, neobslouží nic. První verze benchmarku
+  je ignorovala a „naměřila" 180s timeout na každém dotazu.
+- **První dotaz je jiná kategorie.** pyrightu trvalo první `references` 1 353 ms i po
+  zahřátí, proti 130 ms teplým. Proto pool zahřívá servery na pozadí při startu a proto
+  má klient **různé timeouty podle druhu požadavku**: `dirty` se ptá při každém volání
+  CLI a musí mít těsný strop, aby zaseknutý daemon nezdržoval běžný dotaz; LSP dotaz
+  dostane prostor na studený případ.
+- **Jazyky nejsou symetrické.** pyright je na hot path zhruba 4× pomalejší než gopls —
+  což je obrácený obrázek než u dávkové cesty, kde naopak Go nemá levný částečný reindex.
+
+#### Co overlay ukazuje
+
+Ne živý výpis, ale **porovnání**: co server vidí teď proti tomu, co má index.
+
+```
+$ cairn live srcpy/domains/orders/mcp/middleware.py
++ …:136-138  BrandNewMiddleware
++ …:137-138  BrandNewMiddleware.on_call_tool
+stale: the index is behind for this file: 2 new, 0 moved, 1 gone
+```
+
+Porovnávat se musí **kvalifikovanými jmény**. Dvě třídy v jednom souboru mohou mít
+metodu téhož jména a porovnání holých jmen je spáruje a vymyslí přesun, který se nestal.
+
+Zbývající nepřesnost, přiznaná: index zná `__init__`, které `documentSymbol` nevypisuje,
+takže se hlásí jako `gone`. Je to jeden záznam a je poctivě označený, ne skrytý.
+
 ### 4.3b Daemon drží živý stav, ne dotazy
 
 Naivní varianta by nechala daemona proxovat všechny dotazy. **Zamítnuto po měření:**

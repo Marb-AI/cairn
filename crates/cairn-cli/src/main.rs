@@ -204,6 +204,9 @@ enum Cmd {
         #[arg(long)]
         stop: bool,
     },
+    /// Symbols in a file as the language server sees it *now* - the dirty overlay.
+    /// Answers about a changed file that the index cannot.
+    Live { path: String },
     /// What is indexed, and how stale it is.
     Status,
 }
@@ -592,13 +595,48 @@ fn run() -> Result<u8> {
             }
             let store = open(&db)?;
             let indexed = store.file_hashes()?;
+            let roots = store.language_roots()?;
             drop(store);
             println!(
-                "starting daemon for {} ({} indexed files)",
+                "starting daemon for {} ({} indexed files, roots: {})",
                 repo.display(),
-                indexed.len()
+                indexed.len(),
+                if roots.is_empty() {
+                    "none recorded - reindex to enable the LSP overlay".to_string()
+                } else {
+                    roots
+                        .iter()
+                        .map(|(l, r)| format!("{l}={r}"))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                }
             );
-            cairn_daemon::Daemon::new(&repo, &socket, indexed).run()?;
+            cairn_daemon::Daemon::new(&repo, &socket, indexed, &roots).run()?;
+            Ok(exit::FOUND)
+        }
+
+        Cmd::Live { path } => {
+            let socket = cairn_daemon::socket_path(&db);
+            let Some(mut client) = cairn_daemon::Client::connect(&socket) else {
+                anyhow::bail!(
+                    "the live view needs a running daemon (`cairn daemon --repo <dir>`)"
+                );
+            };
+            let live: Vec<cairn_fmt::LiveSymbolView> = client
+                .file_symbols(&path)?
+                .into_iter()
+                .map(|s| cairn_fmt::LiveSymbolView {
+                    name: s.name,
+                    kind: s.kind,
+                    start_line: s.start_line,
+                    end_line: s.end_line,
+                    container: s.container,
+                })
+                .filter(|s| !s.is_local_variable())
+                .collect();
+            let store = open(&db)?;
+            let indexed = store.symbols_in_file(&path)?;
+            print!("{}", cairn_fmt::live_overlay(&path, &live, &indexed, &mut budget).render());
             Ok(exit::FOUND)
         }
 

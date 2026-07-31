@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 pub mod client;
+pub mod lsp;
 pub mod schedule;
 pub mod server;
 pub mod watch;
@@ -37,6 +38,10 @@ pub enum Request {
     Dirty,
     /// Liveness and what is being watched.
     Status,
+    /// Current symbols in a file, straight from the language server. This is the
+    /// dirty overlay: the index cannot answer about a file that changed, a warm
+    /// server can.
+    FileSymbols { path: String },
     /// Stop the daemon.
     Shutdown,
 }
@@ -46,6 +51,7 @@ pub enum Request {
 pub enum Response {
     Dirty(DirtySet),
     Status(DaemonStatus),
+    FileSymbols { symbols: Vec<lsp::LiveSymbol> },
     Ok,
     /// The daemon understood the request and cannot serve it. Distinct from a
     /// transport failure, which the client reports as "no daemon".

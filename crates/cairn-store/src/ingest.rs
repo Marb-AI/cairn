@@ -261,6 +261,18 @@ pub fn ingest_scip(store: &mut Store, index_path: &Path, repo_root: Option<&Path
     }
     tx.commit()?;
 
+    // The language server for each language has to be rooted where its indexer was,
+    // not at the repo root: pyright wants srcpy/, gopls wants srcgo/. That prefix is
+    // resolved during ingest and would otherwise be thrown away.
+    if let Some(lang) = index
+        .documents
+        .first()
+        .map(detect_lang)
+        .filter(|l| *l != Lang::Unknown)
+    {
+        store.set_meta(&format!("root.{}", lang.tag()), &stats.path_prefix)?;
+    }
+
     schema::create_indexes(&store.conn)?;
     schema::finalize(&store.conn)?;
     store.set_meta("schema_version", &schema::SCHEMA_VERSION.to_string())?;
