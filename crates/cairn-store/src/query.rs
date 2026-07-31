@@ -363,6 +363,28 @@ impl Store {
             "#,
         )?;
         let mut rows = stmt.query(params![symbol_id])?;
+        if let Some(r) = rows.next()? {
+            return self.symbol(r.get(0)?);
+        }
+        drop(rows);
+
+        // Go declares methods outside the type's body, so nothing encloses them by line
+        // range. The container descriptor still names the receiver — `…/pricingService#` —
+        // so fall back to resolving that name to a type in the same file.
+        let mut stmt = self.conn.prepare_cached(
+            r#"
+            SELECT t.id
+              FROM symbols me
+              JOIN strings c ON c.id = me.container_id
+              JOIN symbols t ON t.def_file_id = me.def_file_id AND t.kind = 1 AND t.id <> me.id
+              JOIN strings tn ON tn.id = t.name_id
+             WHERE me.id = ?1
+               AND (c.s = tn.s OR c.s LIKE '%/' || tn.s || '#')
+             ORDER BY length(tn.s) DESC
+             LIMIT 1
+            "#,
+        )?;
+        let mut rows = stmt.query(params![symbol_id])?;
         match rows.next()? {
             Some(r) => self.symbol(r.get(0)?),
             None => Ok(None),

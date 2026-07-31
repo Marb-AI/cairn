@@ -1094,6 +1094,54 @@ pub fn usage(sym: &SymbolRow, rows: &[(String, i64, bool)], budget: &mut Budget)
 /// can see the route: these edges are recovered from a generator's naming convention,
 /// not resolved by a compiler, and a reader who cannot check the hop should not be
 /// asked to believe it.
+/// Callers of one RPC, which is a stronger claim than callers of its handler: these are
+/// real call sites, not a naming convention, so they are labelled exact.
+pub fn rpc_reaches(
+    sym: &SymbolRow,
+    callers: &[cairn_store::RpcCaller],
+    budget: &mut Budget,
+) -> Envelope {
+    let mut body = String::new();
+    let _ = writeln!(
+        body,
+        "[{}] {} — {} caller(s) of this RPC across gRPC        [L1, exact]",
+        sym.handle,
+        sym.qualified(),
+        callers.len()
+    );
+    let _ = writeln!(
+        body,
+        "  this RPC only, not everything its handler serves. The package is part of the \
+         answer: two packages can carry the same service name to different processes"
+    );
+    let mut shown = 0usize;
+    for (i, c) in callers.iter().enumerate() {
+        if !budget.push(
+            &mut body,
+            &format!(
+                "  {}  [{}.{}.{}]",
+                symbol_line(&c.symbol),
+                c.pkg,
+                c.service,
+                c.rpc
+            ),
+        ) {
+            break;
+        }
+        shown = i + 1;
+    }
+    let mut env = Envelope::new(body);
+    if shown < callers.len() {
+        env = env.suppressed(budget.cut_note(callers.len() - shown, "callers"));
+    }
+    env = env.unknown(
+        "these are calls to the generated client for this RPC. A service that reaches it \
+         some other way - a hand-written transport, a REST gateway, a queue - is not here; \
+         `cairn reaches` on the handler type is the wider, weaker answer",
+    );
+    env
+}
+
 pub fn cross_language(
     sym: &SymbolRow,
     services: &[(String, String, cairn_store::ServiceRole)],

@@ -622,6 +622,17 @@ fn run() -> Result<u8> {
                     store.cross_language_callers(id)?
                 })
             };
+            // A method implements exactly one RPC, and its real call sites are indexed.
+            // Answer from those rather than from the handler-wide convention: it is the
+            // narrower and the stronger claim, and it is the narrowing an agent otherwise
+            // does by hand (eval/RESULTS.md, task E).
+            if !outgoing {
+                let precise = store.rpc_callers(symbol_id)?;
+                if !precise.is_empty() {
+                    print!("{}", cairn_fmt::rpc_reaches(&sym, &precise, &mut budget).render());
+                    return Ok(exit::FOUND);
+                }
+            }
             let mut links = cross(symbol_id)?;
             // Same fallback, same reason: the service binding lives on the handler class,
             // not on each RPC method, so asking about a method answered "nothing crosses

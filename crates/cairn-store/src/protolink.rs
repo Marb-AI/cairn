@@ -13,7 +13,7 @@
 //! |---|---|---|
 //! | Python server | `<Svc>Base` | `orders_api.AuthServiceBase` |
 //! | Python client | `<Svc>Stub` | `orders_api.AuthServiceStub` |
-//! | Go server | `Register<Svc>Server` | in `srcgo/schema/orders_api/` |
+//! | Go server | `<Svc>Server`, embedded, or `Register<Svc>Server` | `orders_api.PricingServiceServer` |
 //! | Go client | `<Svc>Client` | `orders_api.AuthServiceClient` |
 //!
 //! The package comes from the directory the generated file sits in, so
@@ -73,6 +73,13 @@ fn classify(name: &str) -> Option<(String, ServiceRole)> {
         (rest.strip_suffix("Server")?, ServiceRole::Serves)
     } else if let Some(s) = name.strip_suffix("Base") {
         (s, ServiceRole::Serves)
+    } else if let Some(s) = name.strip_suffix("Server") {
+        // grpc-go's server interface, which an implementation embeds. Without this the
+        // Go serving side is invisible: only `Register<Svc>Server` was matched, so a
+        // service was attributed to whichever function calls the registration rather
+        // than to the type that actually implements the RPCs. Python's serving side has
+        // always been visible, because there it is an inheritance edge SCIP records.
+        (s, ServiceRole::Serves)
     } else if let Some(s) = name.strip_suffix("Stub") {
         (s, ServiceRole::Calls)
     } else if let Some(s) = name.strip_suffix("Client") {
@@ -87,6 +94,15 @@ fn classify(name: &str) -> Option<(String, ServiceRole)> {
 fn canonical_service(stem: &str) -> Option<String> {
     // A constructor: `NewChatServiceClient` -> `ChatService`.
     let stem = stem.strip_prefix("New").unwrap_or(stem);
+    // protoc-gen-go's forward-compatibility base: `UnimplementedChatServiceServer`, and
+    // the guard method every server interface carries,
+    // `mustEmbedUnimplementedChatServiceServer`. Measured: without the second, 52
+    // `MustEmbedUnimplemented*Service` phantoms appeared alongside 51 real declarations -
+    // the exact failure this function exists to prevent.
+    let stem = stem.strip_prefix("mustEmbedUnimplemented").unwrap_or(stem);
+    let stem = stem.strip_prefix("MustEmbedUnimplemented").unwrap_or(stem);
+    let stem = stem.strip_prefix("Unimplemented").unwrap_or(stem);
+    let stem = stem.strip_prefix("Unsafe").unwrap_or(stem);
     // A per-method streaming type: `OrderMirrorService_MirrorOrdersClient`.
     let stem = match stem.find('_') {
         Some(i) => &stem[..i],
@@ -183,6 +199,24 @@ impl Store {
             let mut implementors = tx.prepare(
                 "SELECT e.src_symbol FROM edges e WHERE e.dst_symbol = ?1 AND e.kind = 1",
             )?;
+            // Go binds by embedding the generated interface in a struct. The `users`
+            // query above cannot see it: the reference sits inside a type declaration
+            // rather than a function body, and scip-go emits no enclosing range for a
+            // type, so the occurrence is attributed to nothing and the whole Go serving
+            // side vanishes. What it does emit is the embedded field as a symbol of its
+            // own, named after the interface and containered by the struct - so resolve
+            // the container to a type in the same file and bind that.
+            let mut embedders = tx.prepare(
+                "SELECT DISTINCT t.id
+                   FROM symbols art
+                   JOIN symbols field ON field.name_id = art.name_id AND field.id <> art.id
+                   JOIN files ff ON ff.id = field.def_file_id AND ff.generated = 0
+                   JOIN strings c ON c.id = field.container_id
+                   JOIN symbols t ON t.def_file_id = field.def_file_id AND t.kind = 1
+                   JOIN strings tn ON tn.id = t.name_id
+                  WHERE art.id = ?1
+                    AND (c.s = tn.s OR c.s LIKE '%/' || tn.s || '#')",
+            )?;
 
             for (artefact_id, pkg, svc, role) in artefacts {
                 let service_id: i64 =
@@ -211,6 +245,12 @@ impl Store {
                 if role == ServiceRole::Serves {
                     let rows =
                         implementors.query_map(params![artefact_id], |r| r.get::<_, i64>(0))?;
+                    for r in rows {
+                        link(r?, ServiceRole::Serves)?;
+                        stats.serves += 1;
+                    }
+                    let rows =
+                        embedders.query_map(params![artefact_id], |r| r.get::<_, i64>(0))?;
                     for r in rows {
                         link(r?, ServiceRole::Serves)?;
                         stats.serves += 1;
@@ -257,6 +297,70 @@ impl Store {
             let (pkg, service, caller_id) = row?;
             let Some(caller) = self.symbol(caller_id)? else { continue };
             out.push(CrossLink { pkg, service, symbol: caller });
+        }
+        Ok(out)
+    }
+
+    /// Callers of the one RPC this method implements, not of every RPC its handler owns.
+    ///
+    /// `cross_language_callers` answers at the granularity of the handler class, because
+    /// that is where the generator's naming convention binds. Measured (task E), an agent
+    /// asked which services a change to one repository function would affect, got the
+    /// whole handler's caller set back, and spent a large share of the run reading Go and
+    /// Python by hand to narrow it to the RPCs that actually reach the change. Every edge
+    /// it reconstructed was already in the index.
+    ///
+    /// This walks one step further than the convention: from the service, to the
+    /// generated client type that calls it, to the member of that type with the same RPC
+    /// name, to that member's real call sites. Those last edges are compiler-derived, so
+    /// the result is exact where `cross_language_callers` is conventional — and it keeps
+    /// the two proto packages apart, which matters here because `orders_api` and
+    /// `orders_fe` carry the same service names to different processes.
+    pub fn rpc_callers(&self, method_id: i64) -> Result<Vec<RpcCaller>> {
+        let Some(me) = self.symbol(method_id)? else { return Ok(Vec::new()) };
+        let Some(owner) = self.enclosing_type(method_id)? else { return Ok(Vec::new()) };
+
+        let mut stmt = self.conn.prepare_cached(
+            r#"
+            SELECT DISTINCT ps.pkg, ps.name, rpc_name.s, caller.id
+              FROM service_links mine
+              JOIN proto_services ps ON ps.id = mine.service_id
+              JOIN service_links theirs
+                ON theirs.service_id = mine.service_id AND theirs.role = 1
+              JOIN symbols art ON art.id = theirs.via_symbol AND art.kind = 1
+              JOIN strings art_name ON art_name.id = art.name_id
+              -- Membership by container, not by line range: a Go interface method carries
+              -- no enclosing range, so span containment silently drops every Go client -
+              -- which is the whole other side of the boundary. Same file keeps the two
+              -- proto packages apart, since both spell the service the same way.
+              JOIN symbols rpc
+                ON rpc.def_file_id = art.def_file_id AND rpc.id <> art.id
+              JOIN strings cont ON cont.id = rpc.container_id
+               AND (cont.s = art_name.s OR cont.s LIKE '%/' || art_name.s || '#')
+              JOIN strings rpc_name ON rpc_name.id = rpc.name_id
+              JOIN edges e ON e.dst_symbol = rpc.id AND e.kind = 0
+              JOIN symbols caller ON caller.id = e.src_symbol
+              JOIN files cf ON cf.id = caller.def_file_id AND cf.generated = 0
+             WHERE mine.symbol_id = ?1 AND mine.role = 0
+               AND caller.id <> ?2
+            "#,
+        )?;
+        let rows = stmt.query_map(params![owner.id, method_id], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, i64>(3)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (pkg, service, rpc, caller_id) = row?;
+            if !same_rpc(&rpc, &me.name) {
+                continue;
+            }
+            let Some(symbol) = self.symbol(caller_id)? else { continue };
+            out.push(RpcCaller { pkg, service, rpc, symbol });
         }
         Ok(out)
     }
@@ -324,6 +428,26 @@ pub struct CrossLink {
     pub symbol: crate::SymbolRow,
 }
 
+/// A caller of one specific RPC, rather than of the handler that owns it.
+#[derive(Debug, Clone)]
+pub struct RpcCaller {
+    pub pkg: String,
+    pub service: String,
+    /// The RPC as the caller's language spells it — `GetPricingDashboard` in Go, where the
+    /// handler being asked about spells it `get_pricing_dashboard`.
+    pub rpc: String,
+    pub symbol: crate::SymbolRow,
+}
+
+/// Method names across the boundary differ only in case and underscores, because both
+/// spellings are the generator's rendering of the same proto RPC.
+fn same_rpc(a: &str, b: &str) -> bool {
+    let norm = |s: &str| -> String {
+        s.chars().filter(|c| *c != '_').flat_map(|c| c.to_lowercase()).collect()
+    };
+    norm(a) == norm(b)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,6 +483,35 @@ mod tests {
                 "{name} should fold onto ChatService"
             );
         }
+    }
+
+    #[test]
+    fn classifies_the_go_serving_side() {
+        // The half that was missing: grpc-go binds a server by embedding the generated
+        // interface, so these names are how a Go service says "I implement this".
+        assert_eq!(c("AuthServiceServer"), Some(("AuthService".into(), ServiceRole::Serves)));
+        assert_eq!(
+            c("UnimplementedAuthServiceServer"),
+            Some(("AuthService".into(), ServiceRole::Serves))
+        );
+        assert_eq!(
+            c("UnsafeAuthServiceServer"),
+            Some(("AuthService".into(), ServiceRole::Serves))
+        );
+        // grpc-go's guard method, which is not a service of its own.
+        assert_eq!(
+            c("mustEmbedUnimplementedAuthServiceServer"),
+            Some(("AuthService".into(), ServiceRole::Serves))
+        );
+        // Still not a service artefact, despite the suffix.
+        assert_eq!(c("HttpServer"), None);
+    }
+
+    #[test]
+    fn matches_rpc_names_across_the_generators_two_spellings() {
+        assert!(same_rpc("get_pricing_dashboard", "GetPricingDashboard"));
+        assert!(same_rpc("GetPricingDashboard", "get_pricing_dashboard"));
+        assert!(!same_rpc("get_pricing_dashboard", "GetPricingState"));
     }
 
     #[test]
