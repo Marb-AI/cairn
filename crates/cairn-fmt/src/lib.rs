@@ -1099,20 +1099,26 @@ pub fn usage(sym: &SymbolRow, rows: &[(String, i64, bool)], budget: &mut Budget)
 pub fn rpc_reaches(
     sym: &SymbolRow,
     callers: &[cairn_store::RpcCaller],
+    whole_type: bool,
     budget: &mut Budget,
 ) -> Envelope {
     let mut body = String::new();
     let _ = writeln!(
         body,
-        "[{}] {} — {} caller(s) of this RPC across gRPC        [L1, exact]",
+        "[{}] {} — {} caller(s) across gRPC, by RPC        [L1, exact]",
         sym.handle,
         sym.qualified(),
         callers.len()
     );
     let _ = writeln!(
         body,
-        "  this RPC only, not everything its handler serves. The package is part of the \
-         answer: two packages can carry the same service name to different processes"
+        "  {}. The package is part of the answer: two packages can carry the same \
+         service name to different processes",
+        if whole_type {
+            "every RPC this handler serves, with the callers of each - one call, not one per method"
+        } else {
+            "this RPC only, not everything its handler serves"
+        }
     );
     let mut shown = 0usize;
     for (i, c) in callers.iter().enumerate() {
@@ -1135,9 +1141,8 @@ pub fn rpc_reaches(
         env = env.suppressed(budget.cut_note(callers.len() - shown, "callers"));
     }
     env = env.unknown(
-        "these are calls to the generated client for this RPC. A service that reaches it \
-         some other way - a hand-written transport, a REST gateway, a queue - is not here; \
-         `cairn reaches` on the handler type is the wider, weaker answer",
+        "these are calls to the generated client. A service that reaches this some other \
+         way - a hand-written transport, a REST gateway, a queue - is not here",
     );
     env
 }

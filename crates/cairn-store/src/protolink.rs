@@ -365,6 +365,77 @@ impl Store {
         Ok(out)
     }
 
+    /// Per-RPC callers for every RPC a handler type serves, in one query pair.
+    ///
+    /// `rpc_callers` answers about one method, which is right when that is the question
+    /// and wrong when the question is about the handler. Measured (task D): asked which
+    /// Go code reaches a Python handler, an agent called `reaches` once per RPC method and
+    /// spent more than the run it was meant to beat. Same shape as `affects` — a question
+    /// about a set has to be answered as a set.
+    pub fn rpc_callers_of_type(&self, type_id: i64) -> Result<Vec<RpcCaller>> {
+        // The handler's own methods, so a client method is only reported when the handler
+        // actually implements that RPC.
+        let mut mine = self.conn.prepare(
+            r#"
+            SELECT n.s FROM symbols t
+              JOIN strings tn ON tn.id = t.name_id
+              JOIN symbols m ON m.def_file_id = t.def_file_id AND m.id <> t.id
+              JOIN strings c ON c.id = m.container_id
+               AND (c.s = tn.s OR c.s LIKE '%/' || tn.s || '#')
+              JOIN strings n ON n.id = m.name_id
+             WHERE t.id = ?1
+            "#,
+        )?;
+        let rows = mine.query_map(params![type_id], |r| r.get::<_, String>(0))?;
+        let mut names: Vec<String> = Vec::new();
+        for r in rows {
+            names.push(r?);
+        }
+        if names.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT DISTINCT ps.pkg, ps.name, rpc_name.s, caller.id
+              FROM service_links mine
+              JOIN proto_services ps ON ps.id = mine.service_id
+              JOIN service_links theirs
+                ON theirs.service_id = mine.service_id AND theirs.role = 1
+              JOIN symbols art ON art.id = theirs.via_symbol AND art.kind = 1
+              JOIN strings art_name ON art_name.id = art.name_id
+              JOIN symbols rpc
+                ON rpc.def_file_id = art.def_file_id AND rpc.id <> art.id
+              JOIN strings cont ON cont.id = rpc.container_id
+               AND (cont.s = art_name.s OR cont.s LIKE '%/' || art_name.s || '#')
+              JOIN strings rpc_name ON rpc_name.id = rpc.name_id
+              JOIN edges e ON e.dst_symbol = rpc.id AND e.kind = 0
+              JOIN symbols caller ON caller.id = e.src_symbol
+              JOIN files cf ON cf.id = caller.def_file_id AND cf.generated = 0
+             WHERE mine.symbol_id = ?1 AND mine.role = 0
+            "#,
+        )?;
+        let rows = stmt.query_map(params![type_id], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, i64>(3)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (pkg, service, rpc, caller_id) = row?;
+            if !names.iter().any(|n| same_rpc(n, &rpc)) {
+                continue;
+            }
+            let Some(symbol) = self.symbol(caller_id)? else { continue };
+            out.push(RpcCaller { pkg, service, rpc, symbol });
+        }
+        out.sort_by(|a, b| (&a.rpc, a.symbol.id).cmp(&(&b.rpc, b.symbol.id)));
+        Ok(out)
+    }
+
     /// The reverse: which handlers a caller reaches through service boundaries.
     pub fn cross_language_targets(&self, symbol_id: i64) -> Result<Vec<CrossLink>> {
         let mut stmt = self.conn.prepare_cached(

@@ -640,9 +640,21 @@ fn run() -> Result<u8> {
             // narrower and the stronger claim, and it is the narrowing an agent otherwise
             // does by hand (eval/RESULTS.md, task E).
             if !outgoing {
+                // A handler type: answer for all of its RPCs at once rather than making
+                // the caller ask once per method (eval/RESULTS.md, task D).
+                if matches!(sym.kind, cairn_scip::SymbolKind::Type) {
+                    let precise = store.rpc_callers_of_type(symbol_id)?;
+                    if !precise.is_empty() {
+                        print!(
+                            "{}",
+                            cairn_fmt::rpc_reaches(&sym, &precise, true, &mut budget).render()
+                        );
+                        return Ok(exit::FOUND);
+                    }
+                }
                 let precise = store.rpc_callers(symbol_id)?;
                 if !precise.is_empty() {
-                    print!("{}", cairn_fmt::rpc_reaches(&sym, &precise, &mut budget).render());
+                    print!("{}", cairn_fmt::rpc_reaches(&sym, &precise, false, &mut budget).render());
                     return Ok(exit::FOUND);
                 }
             }
