@@ -241,10 +241,15 @@ pub fn resolve_command(command: &str) -> Option<CommandTarget> {
         return Some(CommandTarget::Idle);
     }
     // manage.py <subcommand>
-    if words.iter().any(|w| w.ends_with("manage.py")) {
-        return Some(CommandTarget::DjangoCommand(
-            words.last().unwrap_or(&"").to_string(),
-        ));
+    if let Some(i) = words.iter().position(|w| w.ends_with("manage.py")) {
+        // The word after `manage.py`, not the last word: a runner script ends its line
+        // with `"$@"` to forward arguments, and taking the last word named the command
+        // `"$@"`, which resolves to nothing.
+        if let Some(sub) = words.get(i + 1) {
+            if !sub.starts_with('-') && !sub.starts_with('"') && !sub.starts_with('$') {
+                return Some(CommandTarget::DjangoCommand(sub.to_string()));
+            }
+        }
     }
     // celery -A proj worker
     if words[0].ends_with("celery") {
@@ -321,7 +326,25 @@ impl Store {
     /// Record the topology and attribute each service to its entrypoint symbol.
     pub fn link_deployment(&mut self, repo: &Path, topo: &Topology) -> Result<DeployStats> {
         let mut stats = DeployStats::default();
-        self.conn.execute_batch("DELETE FROM deploy_services;")?;
+        self.conn
+            .execute_batch("DELETE FROM deploy_services; DELETE FROM deploy_on_demand;")?;
+
+        // Cron entries and runner scripts: what a service runs after it has started.
+        for od in crate::ondemand::scan(repo)? {
+            let entry = match resolve_command(&od.command) {
+                Some(target) => self.entry_file_for_target(repo, &target, None)?,
+                None => None,
+            };
+            if entry.is_some() {
+                stats.on_demand += 1;
+            }
+            self.conn.execute(
+                "INSERT OR IGNORE INTO deploy_on_demand(service, schedule, script, command,
+                                                        entry_file)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![od.service, od.schedule, od.script, od.command, entry],
+            )?;
+        }
 
         for svc in &topo.services {
             let entry = self.resolve_entry_file(repo, svc)?;
@@ -369,7 +392,19 @@ impl Store {
         };
         // Paths in the index are repo-relative and prefixed by the source root, which is
         // the build context for a built service.
-        let prefix = svc.build_context.clone().unwrap_or_default();
+        self.entry_file_for_target(repo, &target, svc.build_context.as_deref())
+    }
+
+    /// The file a resolved command lands in. Split out from `resolve_entry_file` so a
+    /// cron entry, which has a command but no compose service behind it, resolves by the
+    /// same rules as a start command.
+    fn entry_file_for_target(
+        &self,
+        repo: &Path,
+        target: &CommandTarget,
+        build_context: Option<&str>,
+    ) -> Result<Option<i64>> {
+        let prefix = build_context.unwrap_or_default().to_string();
 
         let path_hint = match target {
             CommandTarget::PythonModule(m) => {
@@ -380,7 +415,21 @@ impl Store {
             CommandTarget::Binary(bin) => {
                 let dockerfile = repo.join(&prefix).join("Dockerfile");
                 let text = std::fs::read_to_string(dockerfile).unwrap_or_default();
-                binary_to_package(&text, &bin).map(|pkg| format!("{prefix}/{pkg}"))
+                binary_to_package(&text, bin).map(|pkg| format!("{prefix}/{pkg}"))
+            }
+            // A management command is found by the convention that names the file after
+            // the command. Same class of thing as the protobuf naming convention, and
+            // stated as a convention wherever it is used.
+            CommandTarget::DjangoCommand(name) => {
+                let mut stmt = self.conn.prepare_cached(
+                    "SELECT f.id FROM files f JOIN strings p ON p.id = f.path_id
+                      WHERE p.s LIKE ?1 ORDER BY length(p.s) ASC LIMIT 1",
+                )?;
+                let mut rows = stmt.query(params![format!("%/{name}.py")])?;
+                return Ok(match rows.next()? {
+                    Some(r) => Some(r.get(0)?),
+                    None => None,
+                });
             }
             _ => None,
         };
@@ -410,9 +459,15 @@ impl Store {
     /// task E, where the baseline found a nightly cron job in such a container and the
     /// cairn run did not (eval/RESULTS.md).
     pub fn services_without_entrypoint(&self) -> Result<Vec<String>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT name FROM deploy_services WHERE entry_file IS NULL ORDER BY name")?;
+        // A service with a resolved cron entry is no longer blind: something it runs is
+        // in the graph. It may still run more than that, which is what the wording says.
+        let mut stmt = self.conn.prepare(
+            "SELECT name FROM deploy_services
+              WHERE entry_file IS NULL
+                AND name NOT IN (SELECT service FROM deploy_on_demand
+                                  WHERE entry_file IS NOT NULL)
+              ORDER BY name",
+        )?;
         let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
         let mut out = Vec::new();
         for r in rows {
@@ -490,8 +545,16 @@ impl Store {
         // the handlers, not from the first definition in the file.
         let mut entries: Vec<(String, Vec<i64>)> = Vec::new();
         {
+            // Start commands and on-demand entrypoints seed the same walk. The label
+            // differs because the claim differs: one is what the deployment starts, the
+            // other is what a schedule or an operator invokes, and an answer that blurs
+            // them is claiming more than it knows.
             let mut svc_stmt = self.conn.prepare(
-                "SELECT name, entry_file FROM deploy_services WHERE entry_file IS NOT NULL",
+                "SELECT name, entry_file FROM deploy_services WHERE entry_file IS NOT NULL
+                 UNION ALL
+                 SELECT service || ' (' || coalesce('cron ' || schedule, 'on demand')
+                        || ': ' || command || ')', entry_file
+                   FROM deploy_on_demand WHERE entry_file IS NOT NULL",
             )?;
             // Symbols defined in the entry file, plus everything it references at
             // module level. The second half matters: running a module executes its
@@ -590,6 +653,8 @@ pub struct DeployStats {
     /// Built services whose command could not be resolved. Named, not counted: an
     /// unresolved entrypoint silently declares live code dead (architecture 8.4).
     pub unresolved: Vec<String>,
+    /// Cron entries and runner scripts resolved to code.
+    pub on_demand: usize,
 }
 
 #[cfg(test)]

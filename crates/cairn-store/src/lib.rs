@@ -17,6 +17,7 @@ pub mod context;
 pub mod conventions;
 pub mod graph;
 pub mod ingest;
+pub mod ondemand;
 pub mod protolink;
 pub mod query;
 pub mod schema;

@@ -369,10 +369,15 @@ fn run() -> Result<u8> {
                 if !topo.services.is_empty() {
                     let d = store.link_deployment(root, &topo)?;
                     println!(
-                        "deploy:   {} services from {}, {} with a resolved entrypoint",
+                        "deploy:   {} services from {}, {} with a resolved entrypoint{}",
                         d.services,
                         topo.sources.join(" + "),
-                        d.with_entrypoint
+                        d.with_entrypoint,
+                        if d.on_demand > 0 {
+                            format!(", {} on-demand entrypoint(s) from cron", d.on_demand)
+                        } else {
+                            String::new()
+                        }
                     );
                     // Naming them rather than counting: an unresolved entrypoint makes
                     // live code look unreachable, which is the failure mode 8.4 warns

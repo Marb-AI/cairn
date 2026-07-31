@@ -147,6 +147,24 @@ CREATE TABLE IF NOT EXISTS deploy_services (
     entry_file    INTEGER REFERENCES files(id)
 );
 
+-- Code a service runs *after* it has started: a cron entry, a management command, a
+-- `docker exec`. Kept apart from deploy_services because the relationship is different —
+-- a service has one start command and any number of on-demand entrypoints, and the two
+-- carry different confidence. Measured: without this, a container started with
+-- `tail -f /dev/null` looks like it runs nothing while a nightly job in it reaches deep
+-- into the codebase (eval/RESULTS.md, task E).
+CREATE TABLE IF NOT EXISTS deploy_on_demand (
+    service    TEXT NOT NULL,
+    -- The cron expression, when the trigger is one. Null for an entrypoint script with
+    -- no schedule behind it.
+    schedule   TEXT,
+    -- Repo-relative path of the runner script, so an answer can cite its evidence.
+    script     TEXT NOT NULL,
+    command    TEXT NOT NULL,
+    entry_file INTEGER REFERENCES files(id),
+    UNIQUE(service, script, command)
+);
+
 -- Short, stable, deterministic codes for progressive disclosure (architecture 6.5).
 -- Assigned lazily and persisted, so a handle stays valid across sessions.
 CREATE TABLE IF NOT EXISTS handles (

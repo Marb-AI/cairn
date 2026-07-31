@@ -1331,14 +1331,18 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
 
     let _ = writeln!(body, "\nin-process");
     for p in &a.in_process {
-        let _ = budget.push(
-            &mut body,
-            &format!(
+        // An on-demand row already carries its trigger and its command in the label, and
+        // the container's own start command is not what runs this code.
+        let line = if p.service.contains(" (cron ") || p.service.contains(" (on demand") {
+            format!("  {}", p.service)
+        } else {
+            format!(
                 "  {:<20} {}",
                 p.service,
                 p.command.as_deref().unwrap_or("(image default)")
-            ),
-        );
+            )
+        };
+        let _ = budget.push(&mut body, &line);
     }
     if a.in_process.is_empty() {
         let _ = writeln!(body, "  (no service entrypoint reaches it)");
