@@ -10,13 +10,15 @@ use rusqlite::Connection;
 use std::path::Path;
 
 pub mod batch;
+pub mod conventions;
 pub mod graph;
 pub mod ingest;
 pub mod query;
 pub mod schema;
+pub mod weak;
 
 pub use batch::{BatchStats, BatchWriter};
-pub use graph::{Direction, Walk, WalkNode};
+pub use graph::{Direction, PathHop, Walk, WalkNode};
 pub use query::{Occurrence, SymbolRow};
 
 /// Language tag. Stored as an integer; the set is closed on purpose (D16 puts
@@ -79,6 +81,8 @@ pub enum GeneratedVia {
 pub enum EdgeKind {
     Calls = 0,
     Implements = 1,
+    /// Lexical candidate: a string literal naming this symbol (architecture 18.4).
+    WeakRef = 2,
 }
 
 /// Where an edge came from. Answers group by this so an exact edge is never presented

@@ -179,3 +179,189 @@ impl Store {
         Ok((refs - attributed).max(0))
     }
 }
+
+/// One hop of a resolved path.
+#[derive(Debug, Clone)]
+pub struct PathHop {
+    pub symbol: SymbolRow,
+    /// Call site inside the *previous* symbol that leads here.
+    pub site: Option<String>,
+}
+
+impl Store {
+    /// Shortest call path from one symbol to another.
+    ///
+    /// Answers "how does this reach that", which is the question behind most
+    /// architecture spelunking and most incident work. Breadth-first from the source,
+    /// so the first path found is a shortest one; nothing here tries to find *all*
+    /// paths, because on a real graph that is unbounded and unreadable.
+    ///
+    /// Returns `None` when no path exists within `max_depth`, which is a real answer
+    /// and must not be confused with "there is no path at all".
+    pub fn call_path(
+        &self,
+        from: i64,
+        to: i64,
+        max_depth: usize,
+    ) -> Result<Option<Vec<PathHop>>> {
+        use std::collections::{HashMap, VecDeque};
+
+        if from == to {
+            let Some(sym) = self.symbol(from)? else {
+                return Ok(None);
+            };
+            return Ok(Some(vec![PathHop { symbol: sym, site: None }]));
+        }
+
+        // parent[node] = (previous node, call site) so the path can be rebuilt.
+        let mut parent: HashMap<i64, (i64, Option<String>)> = HashMap::new();
+        let mut seen: HashSet<i64> = HashSet::from([from]);
+        let mut queue: VecDeque<(i64, usize)> = VecDeque::from([(from, 0usize)]);
+
+        let mut stmt = self.conn.prepare_cached(
+            r#"
+            SELECT e.dst_symbol, p.s, e.line
+              FROM edges e
+              LEFT JOIN files   f ON f.id = e.file_id
+              LEFT JOIN strings p ON p.id = f.path_id
+             WHERE e.src_symbol = ?1 AND e.kind = 0
+            "#,
+        )?;
+
+        let mut found = false;
+        while let Some((node, depth)) = queue.pop_front() {
+            if depth >= max_depth {
+                continue;
+            }
+            let rows = stmt.query_map(params![node], |r| {
+                let path: Option<String> = r.get(1)?;
+                let line: Option<i64> = r.get(2)?;
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    match (path, line) {
+                        (Some(p), Some(l)) => Some(format!("{p}:{}", l + 1)),
+                        _ => None,
+                    },
+                ))
+            })?;
+            for row in rows {
+                let (next, site) = row?;
+                if !seen.insert(next) {
+                    continue;
+                }
+                parent.insert(next, (node, site));
+                if next == to {
+                    found = true;
+                    break;
+                }
+                queue.push_back((next, depth + 1));
+            }
+            if found {
+                break;
+            }
+        }
+        if !found {
+            return Ok(None);
+        }
+
+        let mut chain = vec![to];
+        let mut cursor = to;
+        while let Some((prev, _)) = parent.get(&cursor) {
+            chain.push(*prev);
+            cursor = *prev;
+        }
+        chain.reverse();
+
+        let mut hops = Vec::with_capacity(chain.len());
+        for id in chain {
+            let Some(sym) = self.symbol(id)? else { continue };
+            let site = parent.get(&id).and_then(|(_, s)| s.clone());
+            hops.push(PathHop { symbol: sym, site });
+        }
+        Ok(Some(hops))
+    }
+
+    /// Tests that reach this symbol, through the call graph.
+    ///
+    /// A test is a symbol defined in a file the language's own runner would collect
+    /// (see `conventions`). This is derived, not a separate index: coverage-based test
+    /// impact is the L3 story (architecture 9), and when the two disagree that is a
+    /// finding rather than a bug.
+    pub fn tests_reaching(&self, symbol_id: i64, depth: usize, limit: usize) -> Result<Vec<SymbolRow>> {
+        use std::collections::VecDeque;
+
+        let mut seen: HashSet<i64> = HashSet::from([symbol_id]);
+        let mut queue: VecDeque<(i64, usize)> = VecDeque::from([(symbol_id, 0usize)]);
+        let mut out = Vec::new();
+
+        let mut stmt = self.conn.prepare_cached(
+            r#"
+            SELECT e.src_symbol, coalesce(f.is_test, 0)
+              FROM edges e
+              JOIN symbols s ON s.id = e.src_symbol
+              LEFT JOIN files f ON f.id = s.def_file_id
+             WHERE e.dst_symbol = ?1 AND e.kind = 0
+            "#,
+        )?;
+
+        while let Some((node, d)) = queue.pop_front() {
+            if d >= depth || out.len() >= limit {
+                continue;
+            }
+            let rows = stmt.query_map(params![node], |r| {
+                Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)? != 0))
+            })?;
+            for row in rows {
+                let (caller, is_test) = row?;
+                if !seen.insert(caller) {
+                    continue;
+                }
+                if is_test {
+                    if let Some(sym) = self.symbol(caller)? {
+                        out.push(sym);
+                        if out.len() >= limit {
+                            break;
+                        }
+                    }
+                    // A test does not need walking further: whatever it calls is
+                    // reached *by* the test, which is what we already recorded.
+                    continue;
+                }
+                queue.push_back((caller, d + 1));
+            }
+        }
+        Ok(out)
+    }
+}
+
+impl Store {
+    /// Sites whose string literals name this symbol (architecture 18.4).
+    ///
+    /// Returned separately from exact edges, and every caller must label them as
+    /// unverified. Confirming or refuting one is cheap for an agent that has the file
+    /// open, and the result can be written back so the next session does not re-ask.
+    pub fn weak_sites(&self, symbol_id: i64, limit: usize) -> Result<Vec<(String, f64)>> {
+        let mut stmt = self.conn.prepare_cached(
+            r#"
+            SELECT p.s, e.line, e.confidence
+              FROM edges e
+              JOIN files   f ON f.id = e.file_id
+              JOIN strings p ON p.id = f.path_id
+             WHERE e.dst_symbol = ?1 AND e.kind = 2
+             ORDER BY f.is_test ASC, p.s ASC, e.line ASC
+             LIMIT ?2
+            "#,
+        )?;
+        let rows = stmt.query_map(params![symbol_id, limit as i64], |r| {
+            Ok((
+                format!("{}:{}", r.get::<_, String>(0)?, r.get::<_, i64>(1)? + 1),
+                r.get::<_, f64>(2)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+}

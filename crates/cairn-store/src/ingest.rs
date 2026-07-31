@@ -46,6 +46,7 @@ pub struct IngestStats {
     /// Definitions carrying an enclosing range - the ones that can contain a call.
     pub with_enclosing: usize,
     pub implements_edges: usize,
+    pub test_files: usize,
 }
 
 /// Interns strings, keeping an in-process cache so the common case never touches SQLite.
@@ -111,7 +112,8 @@ pub fn ingest_scip(store: &mut Store, index_path: &Path, repo_root: Option<&Path
              RETURNING id",
         )?;
         let mut insert_file = tx.prepare(
-            "INSERT INTO files(path_id, lang, generated, gen_via) VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO files(path_id, lang, generated, gen_via, is_test)
+             VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(path_id) DO UPDATE SET lang = excluded.lang
              RETURNING id",
         )?;
@@ -140,8 +142,12 @@ pub fn ingest_scip(store: &mut Store, index_path: &Path, repo_root: Option<&Path
 
             let rel_path = join_prefix(&prefix, &doc.relative_path);
             let path_id = interner.intern(&rel_path)?;
+            let is_test = crate::conventions::is_test_path(&rel_path);
+            if is_test {
+                stats.test_files += 1;
+            }
             let file_id: i64 = insert_file.query_row(
-                params![path_id, lang as i64, generated as i64, via as i64],
+                params![path_id, lang as i64, generated as i64, via as i64, is_test as i64],
                 |r| r.get(0),
             )?;
 

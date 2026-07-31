@@ -48,6 +48,8 @@ enum Aspect {
     Calls,
     /// Implementations of this interface, or what this type implements.
     Impls,
+    /// Tests that reach this symbol through the call graph.
+    Tests,
 }
 
 #[derive(Subcommand)]
@@ -90,6 +92,13 @@ enum Cmd {
         #[arg(long, default_value = "tree")]
         view: String,
     },
+    /// Shortest call path between two symbols: how does one reach the other.
+    Path {
+        from: String,
+        to: String,
+        #[arg(long, default_value_t = 8)]
+        max_depth: usize,
+    },
     /// Show a symbol in more detail.
     Expand {
         handle: String,
@@ -99,6 +108,18 @@ enum Cmd {
         /// Repo root, needed for `--detail body|doc`.
         #[arg(long)]
         repo: Option<PathBuf>,
+    },
+    /// Build the weak-link layer: string literals that name a symbol.
+    Weak {
+        /// Repo root; file paths in the index are relative to it.
+        #[arg(long)]
+        repo: PathBuf,
+    },
+    /// Sites whose string literals name this symbol - candidate dynamic references.
+    Weaklinks {
+        handle: String,
+        #[arg(long, default_value_t = 30)]
+        limit: usize,
     },
     /// What is indexed, and how stale it is.
     Status,
@@ -213,10 +234,27 @@ fn run() -> Result<u8> {
             let symbol_id = resolve(&store, &handle)?;
             let view = View::parse(&view)
                 .with_context(|| format!("unknown view '{view}' (list|tree)"))?;
+            // `tests` is a filtered reachability question rather than a plain walk,
+            // so it takes its own path through the store.
+            if matches!(aspect, Aspect::Tests) {
+                let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
+                let rows = store.tests_reaching(symbol_id, depth.max(3), 40)?;
+                let found = !rows.is_empty();
+                let mut env = cairn_fmt::tests(&sym, &rows, &mut budget);
+                if !found {
+                    env = env.unknown(
+                        "no test reaches this through static calls; a test may still \
+                         exercise it dynamically (fixtures, parametrisation, reflection)",
+                    );
+                }
+                print!("{}", env.render());
+                return Ok(if found { exit::FOUND } else { exit::NOT_FOUND });
+            }
             let (kind, dir, label) = match aspect {
                 Aspect::Callers => (EdgeKind::Calls, Direction::In, "callers of"),
                 Aspect::Calls => (EdgeKind::Calls, Direction::Out, "calls from"),
                 Aspect::Impls => (EdgeKind::Implements, Direction::In, "implementations of"),
+                Aspect::Tests => unreachable!("handled above"),
             };
             let w = store.walk(symbol_id, kind, dir, depth, fanout)?;
             let root = w
@@ -241,6 +279,31 @@ fn run() -> Result<u8> {
             }
             print!("{}", env.render());
             Ok(if w.nodes.len() > 1 { exit::FOUND } else { exit::NOT_FOUND })
+        }
+
+        Cmd::Path { from, to, max_depth } => {
+            let store = open(&db)?;
+            let src = resolve(&store, &from)?;
+            let dst = resolve(&store, &to)?;
+            match store.call_path(src, dst, max_depth)? {
+                Some(hops) => {
+                    print!("{}", cairn_fmt::path(&hops, &mut budget).render());
+                    Ok(exit::FOUND)
+                }
+                None => {
+                    // "Not within this bound" is a different statement from "never",
+                    // and the difference matters to whoever asked.
+                    let env = cairn_fmt::Envelope::new(format!(
+                        "no call path from [{from}] to [{to}] within {max_depth} hops\n"
+                    ))
+                    .unknown(
+                        "only static calls were followed; a dynamic dispatch on the way \
+                         would not appear here",
+                    );
+                    print!("{}", env.render());
+                    Ok(exit::NOT_FOUND)
+                }
+            }
         }
 
         Cmd::Expand {
@@ -298,6 +361,28 @@ fn run() -> Result<u8> {
             }
             print!("{}", env.render());
             Ok(exit::FOUND)
+        }
+
+        Cmd::Weak { repo } => {
+            let mut store = open(&db)?;
+            let stats = cairn_store::weak::derive_weak_links(&mut store, &repo)?;
+            println!(
+                "scanned {} files, {} literals, {} candidate weak links",
+                stats.files_scanned, stats.literals_seen, stats.candidates
+            );
+            println!("these are candidates, not facts - they are reported as [L1-W, unverified]");
+            Ok(exit::FOUND)
+        }
+
+        Cmd::Weaklinks { handle, limit } => {
+            let store = open(&db)?;
+            let symbol_id = resolve(&store, &handle)?;
+            let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
+            let sites = store.weak_sites(symbol_id, limit)?;
+            let found = !sites.is_empty();
+            let env = cairn_fmt::weak_links(&sym, &sites, &mut budget);
+            print!("{}", env.render());
+            Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
         Cmd::Status => {

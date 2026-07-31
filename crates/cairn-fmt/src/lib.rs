@@ -12,7 +12,7 @@
 //! * **`unknown:`, `suppressed:` and `stale:` are always printed.** A missing section
 //!   reads as "this is everything", and that is the silent error the design avoids.
 
-use cairn_store::{EdgeSource, Occurrence, SymbolRow, Walk};
+use cairn_store::{EdgeSource, Occurrence, PathHop, SymbolRow, Walk};
 use std::fmt::Write;
 
 pub mod budget;
@@ -192,6 +192,93 @@ pub fn walk(w: &Walk, title: &str, view: View, budget: &mut Budget) -> Envelope 
             "{} nodes reachable by more than one path, shown once",
             w.revisited
         ));
+    }
+    env
+}
+
+/// A resolved call chain, one hop per line with the call site that leads onward.
+pub fn path(hops: &[PathHop], budget: &mut Budget) -> Envelope {
+    let mut body = String::new();
+    let _ = writeln!(
+        body,
+        "call path, {} hops                              [L1, exact]",
+        hops.len().saturating_sub(1)
+    );
+    let mut shown = 0usize;
+    for (i, hop) in hops.iter().enumerate() {
+        let arrow = if i == 0 { "   " } else { "-> " };
+        let site = hop
+            .site
+            .as_deref()
+            .map(|s| format!("  @ {s}"))
+            .unwrap_or_default();
+        let line = format!("{arrow}{}{site}", symbol_line(&hop.symbol));
+        if !budget.push(&mut body, &line) {
+            break;
+        }
+        shown = i + 1;
+    }
+    let mut env = Envelope::new(body);
+    if shown < hops.len() {
+        env = env.suppressed(budget.cut_note(hops.len() - shown, "hops"));
+    }
+    env
+}
+
+/// Tests that reach a symbol through the call graph.
+pub fn tests(sym: &SymbolRow, rows: &[SymbolRow], budget: &mut Budget) -> Envelope {
+    let mut body = String::new();
+    let _ = writeln!(
+        body,
+        "tests reaching [{}] {}                          [L1, exact]",
+        sym.handle,
+        sym.qualified()
+    );
+    let mut shown = 0usize;
+    for (i, t) in rows.iter().enumerate() {
+        if !budget.push(&mut body, &format!("  {}", symbol_line(t))) {
+            break;
+        }
+        shown = i + 1;
+    }
+    if rows.is_empty() {
+        let _ = writeln!(body, "  (no test reaches this symbol through the call graph)");
+    }
+    let mut env = Envelope::new(body);
+    if shown < rows.len() {
+        env = env.suppressed(budget.cut_note(rows.len() - shown, "tests"));
+    }
+    env
+}
+
+/// Candidate dynamic references. Always labelled, never merged with exact results.
+pub fn weak_links(sym: &SymbolRow, sites: &[(String, f64)], budget: &mut Budget) -> Envelope {
+    let mut body = String::new();
+    let _ = writeln!(
+        body,
+        "string literals naming [{}] {}          [L1-W, unverified]",
+        sym.handle,
+        sym.qualified()
+    );
+    let mut shown = 0usize;
+    for (i, (site, conf)) in sites.iter().enumerate() {
+        if !budget.push(&mut body, &format!("  {site}   confidence {conf:.1}")) {
+            break;
+        }
+        shown = i + 1;
+    }
+    if sites.is_empty() {
+        let _ = writeln!(body, "  (no literal in the repo spells this name)");
+    }
+    let mut env = Envelope::new(body);
+    if shown < sites.len() {
+        env = env.suppressed(budget.cut_note(sites.len() - shown, "sites"));
+    }
+    if !sites.is_empty() {
+        env = env.unknown(
+            "these are lexical matches, not resolved references - read the site to \
+             confirm before relying on it",
+        );
     }
     env
 }

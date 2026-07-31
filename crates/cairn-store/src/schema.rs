@@ -15,7 +15,7 @@ use rusqlite::Connection;
 /// Bumped whenever the schema changes in a way that invalidates existing databases.
 /// The ingest path drops and rebuilds rather than migrating: the store is a projection,
 /// never a source of truth.
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 5;
 
 pub const SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -36,7 +36,10 @@ CREATE TABLE IF NOT EXISTS files (
     generated INTEGER NOT NULL DEFAULT 0,
     -- How `generated` was decided: 0 = not generated, 1 = header marker,
     -- 2 = .gitattributes, 3 = path pattern (weakest, see architecture 7.3).
-    gen_via   INTEGER NOT NULL DEFAULT 0
+    gen_via   INTEGER NOT NULL DEFAULT 0,
+    -- Test file. Unlike `generated` this really is a naming convention, because that
+    -- is what test runners themselves key on.
+    is_test   INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS symbols (
@@ -68,7 +71,10 @@ CREATE TABLE IF NOT EXISTS symbols (
 -- deployment (L0-D) and statistical (L3) edges share a shape and are separated in
 -- answers by `source` and `confidence`, never silently mixed (architecture 3, 5.4).
 CREATE TABLE IF NOT EXISTS edges (
-    src_symbol INTEGER NOT NULL REFERENCES symbols(id),
+    -- Null for edges that have a site but no known source symbol, which is the normal
+    -- case for weak lexical links: we know a literal in a file names this symbol, not
+    -- which function it sits in.
+    src_symbol INTEGER REFERENCES symbols(id),
     dst_symbol INTEGER NOT NULL REFERENCES symbols(id),
     kind       INTEGER NOT NULL,   -- see EdgeKind
     source     INTEGER NOT NULL,   -- see EdgeSource
@@ -109,6 +115,7 @@ CREATE INDEX IF NOT EXISTS sym_by_module ON symbols(module_id);
 CREATE INDEX IF NOT EXISTS sym_by_defspan ON symbols(def_file_id, def_line, def_end_line);
 CREATE INDEX IF NOT EXISTS edge_out       ON edges(src_symbol, kind);
 CREATE INDEX IF NOT EXISTS edge_in        ON edges(dst_symbol, kind);
+CREATE INDEX IF NOT EXISTS file_is_test   ON files(is_test);
 "#;
 
 pub fn apply(conn: &Connection) -> Result<()> {
