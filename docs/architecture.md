@@ -377,9 +377,30 @@ na čem pyright klopýtá. **První úkol po založení repa: pustit scip-python
 repo a změřit, kolik symbolů zůstane nevyřešených.** Pokud > ~15 %, plán se mění
 (fallback: LSP bulk crawl s omezením na exportované symboly, pomalejší studený start).
 
-Pro Django je levné řešení `django-types` / `django-stubs` stub balíčky
-nakonfigurované pro pyright — ne vlastní plugin. Když se ORM používá jen na ORM
-(což je náš případ), tohle pokryje 90 %.
+Pro Django byla domněnka, že to levně vyřeší stub balíčky `django-types` /
+`django-stubs` nakonfigurované pro pyright, a že to pokryje 90 %.
+
+**Změřeno a neplatí.** `django-types` se nainstaloval automaticky do indexační kopie
+a index vzrostl o 2,6 % výskytů — ale `LedgerEntry.ledger_category` se posunulo
+z 0 rozřešených míst užití na 5 ve dvou souborech, zatímco to jméno se vyskytuje
+ve **33 souborech**.
+
+Důvod: problém není typ pole, ale typ *držitele*. `for tx in transactions`, kde
+`transactions` přišlo z querysetu, není bez mypy pluginu (který pyright spustit neumí)
+typované jako `LedgerEntry`, takže `tx.ledger_category` se nemá k čemu rozřešit.
+Stuby popisují model, ne to, co z něj queryset vrací.
+
+**Důsledek pro návrh:** Python strana má na ORM-těžkém kódu **strukturální strop**, který
+konfigurace neodstraní. Zbývají tři cesty a všechny jsou dražší, než §4.4 předpokládala:
+
+| cesta | kdo to musí udělat |
+|---|---|
+| anotace v repu (`tx: LedgerEntry`) | vlastník repa — mění zdrojáky |
+| runtime trace (§9) — skutečné typy z běhu testů | cairn, ale je to celá vrstva L3 |
+| přiznat mez v odpovědi | **hotovo** — atribut na typu nese výhradu, že jde o dolní odhad |
+
+Do té doby platí to poslední: nerozřeší to ani jednu referenci navíc, ale mění tichou
+špatnou odpověď na přiznanou.
 
 ### 4.5 Třetí rychlost: komentáře a dokumentace
 

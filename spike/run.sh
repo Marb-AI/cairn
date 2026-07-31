@@ -65,6 +65,14 @@ py_index() {
 JSON
     note "wrote pyrightconfig.json (into the working COPY, not the repo)"
   fi
+  # django-types, not django-stubs: the latter needs a mypy plugin, which pyright
+  # cannot run. Without it, attribute access on a model instance is unresolved, and
+  # measurement showed the cost - LedgerEntry.ledger_category resolved to 4 sites
+  # while its name appears in 33 files (eval/RESULTS.md, task C).
+  if [[ "${DJANGO_TYPES:-1}" == "1" ]] && ! .venv/bin/python -c "import django_stubs_ext" 2>/dev/null; then
+    note "installing django-types for pyright"
+    uv pip install django-types >/dev/null 2>&1 || note "!! django-types install failed"
+  fi
   .venv/bin/python - > /tmp/pyenv.json <<'PYENV' || echo '[]' > /tmp/pyenv.json
 import json
 from importlib.metadata import distributions
