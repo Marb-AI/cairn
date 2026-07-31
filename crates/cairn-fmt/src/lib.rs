@@ -382,32 +382,6 @@ pub fn walk(
 }
 
 /// A resolved call chain, one hop per line with the call site that leads onward.
-
-/// The file holding a strict majority of a path's hops, when there is one.
-///
-/// Two hops in the same file is a coincidence; most of a chain in one file means the
-/// chain is really a sequence of local calls, and a navigator is the wrong instrument.
-fn dominant_file<'a>(paths: &[&'a str]) -> Option<&'a str> {
-    if paths.len() < 3 {
-        return None;
-    }
-    let mut best: Option<(&str, usize)> = None;
-    for p in paths {
-        let n = paths.iter().filter(|q| *q == p).count();
-        if best.map(|(_, bn)| n > bn).unwrap_or(true) {
-            best = Some((p, n));
-        }
-    }
-    let (path, n) = best?;
-    // Strict majority, and not the trivial case where every hop is the same symbol's file
-    // because the path never left it - that one is already obvious from the listing.
-    if n * 2 > paths.len() && n < paths.len() {
-        Some(path)
-    } else {
-        None
-    }
-}
-
 pub fn path(
     hops: &[PathHop],
     detail: Detail,
@@ -461,25 +435,7 @@ pub fn path(
     // `--detail body` would have delivered the chain and its source together. The option
     // existed and was in the guide; the guide is not where an agent is looking when it has
     // an answer in front of it.
-    // Where a path's substance sits in one file, reading it beats walking it. Measured
-    // (task F, three attempts, all ties): the chain crosses three files but every function
-    // that does anything is in `bank-connector.py`, so the baseline read that file once and an
-    // agent with a navigator browsed for thirty calls to reach the same place.
-    let hop_paths: Vec<&str> = hops
-        .iter()
-        .filter_map(|h| h.symbol.def.as_ref().map(|d| d.path.as_str()))
-        .collect();
-    let concentrated = dominant_file(&hop_paths);
-    if let Some(dominant) = concentrated {
-        env = env.unknown(format!(
-            "most of this path is inside one file: {dominant}. If the question is what the \
-             chain does rather than how it is wired, reading that file once is cheaper \
-             than walking it"
-        ));
-    }
-    // Not both: "read the file" and "re-run with bodies" are competing advice, and the
-    // first is the better of the two when it applies.
-    if concentrated.is_none() && detail == Detail::Skeleton && hops.len() > 1 {
+    if detail == Detail::Skeleton && hops.len() > 1 {
         env = env.unknown(
             "this is the shape of the path, not what it does. If the question is what              happens along it, re-run with `--detail body --repo <dir>`: same call, every              hop's source, and no need to open the files one at a time",
         );
