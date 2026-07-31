@@ -55,7 +55,10 @@ reports what it dropped. Better than guessing `--limit` and asking twice.
   THIS ONE** and give you the command. Take it: attribute access resolves only where the
   holder's type is known, and for ORM instances it usually is not. Do not treat the short
   list it still prints as a blast radius.
+- `ALL ... ARE IN ONE FILE: <path>` means stop querying and read that file.
 - `[L1-W, unverified]` is a lexical guess, not a fact.
+- A miss reports what *is* indexed. If your target is outside that, it is not covered
+  and grep is the tool — do not keep probing.
 - Exit codes: `0` found, `1` nothing, `2` bad query, `3` degraded index.
 
 ## Writing back

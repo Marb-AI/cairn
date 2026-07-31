@@ -153,6 +153,13 @@ pub fn symbols(
 ) -> Envelope {
     let mut body = String::new();
     let _ = writeln!(body, "{} matches for \"{}\"", rows.len(), query);
+    let defined_in: Vec<&str> = rows
+        .iter()
+        .filter_map(|r| r.def.as_ref().map(|d| d.path.as_str()))
+        .collect();
+    if let Some(note) = concentration_note(&defined_in, "matches") {
+        let _ = writeln!(body, "{note}");
+    }
     let mut shown = 0;
     for s in rows {
         if !budget.push(&mut body, &symbol_line(s)) {
@@ -214,6 +221,11 @@ pub fn references_with_context(
         let _ = writeln!(body, "  defined at {}", def.location());
     }
     let _ = writeln!(body, "{} references                    [L0, exact]", refs.len());
+
+    let paths: Vec<&str> = refs.iter().map(|r| r.path.as_str()).collect();
+    if let Some(note) = concentration_note(&paths, "references") {
+        let _ = writeln!(body, "{note}");
+    }
 
     let mut source = source;
     let mut shown = 0usize;
@@ -977,6 +989,30 @@ pub fn outline(prefix: &str, rows: &[cairn_store::OutlineEntry], budget: &mut Bu
 }
 
 /// Where a symbol is used, grouped by file rather than listed flat.
+/// When an answer turns out to be concentrated in one file, say so.
+///
+/// The measured losses were all tasks whose answer lived in a single file: the agent
+/// paid for the skill, then for a query, then read the file anyway. The tool can see
+/// this - it knows the paths - so it should say it rather than let the caller discover
+/// it after paying.
+///
+/// Deliberately advisory and cheap: one line, and the results still print. Refusing to
+/// answer would be worse than answering with a hint.
+pub fn concentration_note(paths: &[&str], noun: &str) -> Option<String> {
+    if paths.len() < 3 {
+        return None;
+    }
+    let first = paths.first()?;
+    if !paths.iter().all(|p| p == first) {
+        return None;
+    }
+    Some(format!(
+        "ALL {} {noun} ARE IN ONE FILE: {first}. Reading it is probably cheaper than \
+         further queries.",
+        paths.len()
+    ))
+}
+
 /// When the index cannot answer a question well, say so *first* and hand over the tool
 /// that can.
 ///
@@ -1028,6 +1064,14 @@ pub fn usage(sym: &SymbolRow, rows: &[(String, i64, bool)], budget: &mut Budget)
         sym.qualified(),
         rows.len()
     );
+    if rows.len() == 1 && !rows[0].1.eq(&0) {
+        let _ = writeln!(
+            body,
+            "ALL USES ARE IN ONE FILE: {}. Reading it is probably cheaper than further \
+             queries.",
+            rows[0].0
+        );
+    }
     for (path, n, is_test) in rows {
         let tag = if *is_test { "  [test]" } else { "" };
         if !budget.push(&mut body, &format!("  {n:>4}x  {path}{tag}")) {
