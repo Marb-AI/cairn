@@ -371,6 +371,40 @@ fn derive_call_edges(conn: &Connection) -> Result<()> {
              WHERE (o.role & 1) = 0
                AND s.id <> o.symbol_id
         ) WHERE rn = 1;
+
+        -- Second pass: references that sit at module level, where the binding itself is
+        -- the caller.
+        --
+        -- `arecalculate_plan = db_async(recalculate_plan)` is a real, compiler-resolved
+        -- reference, but it is in no function body, so the pass above drops it and the
+        -- async half of an entire repository layer becomes unreachable. Measured: the
+        -- gRPC handler calls `arecalculate_plan`, and `cairn path` reported no route from
+        -- the handler to code it plainly reaches (eval/RESULTS.md, task E).
+        --
+        -- The symbol *defined* on that line is the binding being built, so it is the
+        -- honest source of the edge. General beyond this idiom: `const x = memoize(y)`,
+        -- `var h = http.HandlerFunc(f)`, a class attribute built from a factory.
+        INSERT INTO edges(src_symbol, dst_symbol, kind, source, confidence, file_id, line)
+        SELECT binder, callee, 0, 0, 1.0, file_id, line FROM (
+            SELECT s.id AS binder, o.symbol_id AS callee, o.file_id, o.line,
+                   row_number() OVER (
+                       PARTITION BY o.file_id, o.line, o.col_start, o.symbol_id
+                       ORDER BY s.def_col_start ASC
+                   ) AS rn
+              FROM occurrences o
+              JOIN symbols s
+                ON s.def_file_id = o.file_id
+               AND s.def_line = o.line
+               AND s.id <> o.symbol_id
+             WHERE (o.role & 1) = 0
+               AND NOT EXISTS (
+                   SELECT 1 FROM symbols encl
+                    WHERE encl.def_file_id = o.file_id
+                      AND encl.def_end_line IS NOT NULL
+                      AND encl.def_line <= o.line
+                      AND encl.def_end_line >= o.line
+                      AND encl.id <> o.symbol_id)
+        ) WHERE rn = 1;
         "#,
     )?;
     Ok(())

@@ -1344,36 +1344,49 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
         let _ = writeln!(body, "  (no service entrypoint reaches it)");
     }
 
+    // Grouped by route and service rather than one line per RPC. Ungrouped, a real
+    // question produced 70 lines carrying maybe six distinct facts, and the whole reason
+    // this command exists is that the answer should cost less than assembling it.
     if !a.hops.is_empty() {
         let _ = writeln!(body, "\nover the network, by hop");
-    }
-    for h in &a.hops {
-        let from = if h.from.is_empty() {
-            "(starts nothing)".to_string()
-        } else if h.from_by_file {
-            format!("{} ~", h.from.join(", "))
-        } else {
-            h.from.join(", ")
-        };
-        let to = if h.to.is_empty() { "?".to_string() } else { h.to.join(", ") };
-        if !budget.push(
-            &mut body,
-            &format!(
-                "  {:<18} -> {:<18} {}.{}.{}\n    {:<16} {}",
-                from,
-                to,
-                h.pkg,
-                h.service,
-                h.rpc,
-                "",
-                h.call_site
-                    .def
-                    .as_ref()
-                    .map(|d| d.location())
-                    .unwrap_or_else(|| "<no definition>".into()),
-            ),
-        ) {
-            break;
+        let mut groups: std::collections::BTreeMap<(String, String, String), (Vec<String>, String)> =
+            std::collections::BTreeMap::new();
+        for h in &a.hops {
+            let from = if h.from.is_empty() {
+                "(starts nothing)".to_string()
+            } else if h.from_by_file {
+                format!("{} ~", h.from.join(", "))
+            } else {
+                h.from.join(", ")
+            };
+            let to = if h.to.is_empty() { "?".to_string() } else { h.to.join(", ") };
+            let site = h
+                .call_site
+                .def
+                .as_ref()
+                .map(|d| d.path.clone())
+                .unwrap_or_default();
+            let e = groups
+                .entry((from, to, format!("{}.{}", h.pkg, h.service)))
+                .or_insert_with(|| (Vec::new(), site));
+            e.0.push(h.rpc.clone());
+        }
+        for ((from, to, service), (mut rpcs, site)) in groups {
+            rpcs.sort();
+            if !budget.push(
+                &mut body,
+                &format!(
+                    "  {:<18} -> {:<16} {}  ({})\n    {} in {}",
+                    from,
+                    to,
+                    service,
+                    rpcs.len(),
+                    rpcs.join(", "),
+                    site
+                ),
+            ) {
+                break;
+            }
         }
     }
 
@@ -1404,9 +1417,10 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
          is not here",
     );
     env = env.unknown(
-        "the in-process side follows static calls only. A path that goes through a \
-         wrapper - `sync_to_async`, a task queue, a registry of callables - is not \
-         followed, so a handler can serve this code without appearing above",
+        "the in-process side follows static calls only. A module-level binding is \
+         followed, so `af = wrap(f)` does not break the chain, but a task queue, a \
+         registry of callables or a name resolved at run time does - `cairn weaklinks` \
+         is where those candidates live",
     );
     env
 }
