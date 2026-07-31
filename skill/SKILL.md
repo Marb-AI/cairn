@@ -34,9 +34,9 @@ cairn path <a> <b>               how one reaches the other
 cairn reaches <h> [--outgoing]   who reaches it ACROSS a gRPC boundary, in the other
                                  language. grep cannot answer this at all: the two
                                  sides share no identifier. Ask it about the handler
-                                 METHOD, not the class: you get callers of that one RPC,
-                                 exact, instead of everything the handler serves. Chains
-                                 of services need one call per hop
+                                 CLASS for every RPC it serves with the callers of each,
+                                 or a METHOD for just that one. Chains of services need
+                                 one call per hop
 cairn expand <h> --detail body --repo <dir>
 
 cairn affects <h>                EVERY deployed service a change here touches: in-process,
