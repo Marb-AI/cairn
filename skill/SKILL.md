@@ -51,9 +51,10 @@ reports what it dropped. Better than guessing `--limit` and asking twice.
 ## Trust
 
 - `stale: not tracked` means no daemon is watching; the index may be behind.
-- An attribute on a type (`Model.field`) is a **lower bound** — attribute access only
-  resolves where the holder's type is known, which for ORM instances it often is not.
-  The tool says so when it applies. Cross-check with grep.
+- Asked about an attribute on a type (`Model.field`), the tool will say **USE GREP FOR
+  THIS ONE** and give you the command. Take it: attribute access resolves only where the
+  holder's type is known, and for ORM instances it usually is not. Do not treat the short
+  list it still prints as a blast radius.
 - `[L1-W, unverified]` is a lexical guess, not a fact.
 - Exit codes: `0` found, `1` nothing, `2` bad query, `3` degraded index.
 

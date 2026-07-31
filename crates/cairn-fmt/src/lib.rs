@@ -180,6 +180,11 @@ pub fn references_with_context(
     budget: &mut Budget,
 ) -> Envelope {
     let mut body = String::new();
+    // Leading, not trailing: a recommendation the caller reads after paying for the
+    // whole answer has not saved them anything.
+    if let Some(note) = routing_note(sym) {
+        let _ = writeln!(body, "{note}\n");
+    }
     let _ = writeln!(body, "references to [{}] {}", sym.handle, sym.qualified());
     if let Some(def) = &sym.def {
         let _ = writeln!(body, "  defined at {}", def.location());
@@ -942,6 +947,31 @@ pub fn outline(prefix: &str, rows: &[cairn_store::OutlineEntry], budget: &mut Bu
 }
 
 /// Where a symbol is used, grouped by file rather than listed flat.
+/// When the index cannot answer a question well, say so *first* and hand over the tool
+/// that can.
+///
+/// Measured cost of not doing this: asked for the blast radius of a Django model field,
+/// an agent read the partial list, correctly distrusted it because of the caveat, and
+/// then did the full grep pass anyway - paying for both. Honesty buried at the bottom of
+/// a long partial answer is the worst of both worlds.
+///
+/// So for symbols the resolver is known to under-report, the answer leads with the
+/// recommendation and includes the command, and the partial list is kept short. One
+/// cheap call that routes correctly beats an expensive one that has to be redone.
+pub fn routing_note(sym: &SymbolRow) -> Option<String> {
+    if !cairn_store::query::is_under_resolved_attribute(sym.kind, sym.container.as_deref()) {
+        return None;
+    }
+    Some(format!(
+        "USE GREP FOR THIS ONE. `{}` is an attribute on a type, and attribute access \
+         resolves only where the holder's type is known - for ORM instances and \
+         dicts-as-records it usually is not, so the list below is a lower bound and \
+         not a blast radius. Run instead:  grep -rn '{}' <src> --include='*.py'",
+        sym.qualified(),
+        sym.name
+    ))
+}
+
 /// Note added when the index is likely to under-report a symbol's uses.
 fn attribute_caveat(sym: &SymbolRow) -> Option<String> {
     cairn_store::query::is_under_resolved_attribute(sym.kind, sym.container.as_deref()).then(|| {
@@ -957,6 +987,9 @@ fn attribute_caveat(sym: &SymbolRow) -> Option<String> {
 
 pub fn usage(sym: &SymbolRow, rows: &[(String, i64, bool)], budget: &mut Budget) -> Envelope {
     let mut body = String::new();
+    if let Some(note) = routing_note(sym) {
+        let _ = writeln!(body, "{note}\n");
+    }
     let total: i64 = rows.iter().map(|(_, n, _)| n).sum();
     let _ = writeln!(
         body,

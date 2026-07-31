@@ -422,7 +422,15 @@ fn run() -> Result<u8> {
             let sym = store
                 .symbol(symbol_id)?
                 .context("handle resolved to a missing symbol")?;
-            let (refs, suppressed) = store.references(symbol_id, include_generated, limit)?;
+            // A long partial list reads as authoritative. Where the resolver is known
+            // to under-report, keep it short: the point is the routing note, not the
+            // list.
+            let effective_limit = if cairn_fmt::routing_note(&sym).is_some() {
+                limit.min(8)
+            } else {
+                limit
+            };
+            let (refs, suppressed) = store.references(symbol_id, include_generated, effective_limit)?;
             let found = !refs.is_empty();
             let paths: Vec<String> = refs.iter().map(|r| r.path.clone()).collect();
             let ctx = if context == "auto" {
