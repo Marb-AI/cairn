@@ -185,6 +185,9 @@ pub fn references(sym: &SymbolRow, refs: &[Occurrence], suppressed_generated: i6
             "{suppressed_generated} references in generated code (rerun with --include-generated)"
         ));
     }
+    if let Some(note) = attribute_caveat(sym) {
+        env = env.unknown(note);
+    }
     env
 }
 
@@ -869,6 +872,19 @@ pub fn outline(prefix: &str, rows: &[cairn_store::OutlineEntry], budget: &mut Bu
 }
 
 /// Where a symbol is used, grouped by file rather than listed flat.
+/// Note added when the index is likely to under-report a symbol's uses.
+fn attribute_caveat(sym: &SymbolRow) -> Option<String> {
+    cairn_store::query::is_under_resolved_attribute(sym.kind, sym.container.as_deref()).then(|| {
+        format!(
+            "`{}` is an attribute on a type. Uses are only resolved where the holder's \
+             type is known, which for ORM models, dicts-as-records and dynamically built \
+             objects it often is not - so this list is a lower bound. Cross-check with \
+             grep before treating it as the blast radius.",
+            sym.qualified()
+        )
+    })
+}
+
 pub fn usage(sym: &SymbolRow, rows: &[(String, i64, bool)], budget: &mut Budget) -> Envelope {
     let mut body = String::new();
     let total: i64 = rows.iter().map(|(_, n, _)| n).sum();
@@ -888,5 +904,9 @@ pub fn usage(sym: &SymbolRow, rows: &[(String, i64, bool)], budget: &mut Budget)
     if rows.is_empty() {
         let _ = writeln!(body, "  (no uses outside its own definition)");
     }
-    Envelope::new(body)
+    let mut env = Envelope::new(body);
+    if let Some(note) = attribute_caveat(sym) {
+        env = env.unknown(note);
+    }
+    env
 }

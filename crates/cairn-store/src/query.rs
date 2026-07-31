@@ -76,6 +76,22 @@ fn container_is_type(container: &str) -> bool {
     container.ends_with('#')
 }
 
+/// Is this symbol one whose uses a static index is likely to under-report?
+///
+/// Attribute access on an instance (`tx.ledger_category`) resolves only when the type of
+/// `tx` is known, and for ORM instances, dicts-as-records and dynamically built objects
+/// it frequently is not. Measured on the target repo: `LedgerEntry.ledger_category` -
+/// a Django model field - has 4 resolved sites in the index while its name appears in
+/// 33 files. The tool reported that as `unknown: none`, which is exactly the confident
+/// silence D8 exists to prevent: an agent that trusts it stops looking.
+///
+/// This does not fix the resolution. It makes the gap visible, which is the difference
+/// between a wrong answer and an honest one.
+pub fn is_under_resolved_attribute(kind: SymbolKind, container: Option<&str>) -> bool {
+    matches!(kind, SymbolKind::Term)
+        && container.map(container_is_type).unwrap_or(false)
+}
+
 /// Trailing type/namespace segment of a container descriptor, for display.
 /// `` `a.b.c`/Outer#Inner# `` -> `Inner`
 fn last_container_segment(container: &str) -> &str {
