@@ -14,3 +14,4 @@ clap.workspace = true
 cairn-scip.workspace = true
 cairn-store.workspace = true
 cairn-fmt.workspace = true
+cairn-daemon.workspace = true

@@ -76,6 +76,28 @@ impl Report {
 }
 
 impl Store {
+    /// Path -> content hash for every indexed file, which is what the daemon compares
+    /// the working tree against.
+    pub fn file_hashes(&self) -> Result<std::collections::HashMap<String, [u8; 16]>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT p.s, f.content_hash FROM files f JOIN strings p ON p.id = f.path_id
+              WHERE f.content_hash IS NOT NULL",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, Vec<u8>>(1)?))
+        })?;
+        let mut out = std::collections::HashMap::new();
+        for row in rows {
+            let (path, hash) = row?;
+            if hash.len() == 16 {
+                let mut h = [0u8; 16];
+                h.copy_from_slice(&hash);
+                out.insert(path, h);
+            }
+        }
+        Ok(out)
+    }
+
     /// Measure the known-unknowns. With `repo_root`, also compares file contents
     /// against what was indexed and names every file that has drifted.
     pub fn verify(&self, repo_root: Option<&Path>) -> Result<Report> {

@@ -291,6 +291,28 @@ Výsledek se přemapuje do stejného SCIP schématu a **překryje** bázi.
 Latence: 10–100 ms na soubor. To je přesně ten dotaz, na kterém nejvíc záleží
 („právě jsem změnil signaturu, koho jsem rozbil").
 
+### 4.3b Daemon drží živý stav, ne dotazy
+
+Naivní varianta by nechala daemona proxovat všechny dotazy. **Zamítnuto po měření:**
+SQLite ve WAL zvládne souběžné čtenáře a start CLI je ~1 ms, takže proxy by přidala
+latenci a nekoupila nic.
+
+Daemon existuje kvůli tomu, co **jednorázový proces mít nemůže: živý stav.** Dnes watcher,
+který běží už předtím, než se někdo zeptal; zítra teplé language servery. Odpovídá proto
+na jedinou otázku — *co se změnilo od indexace* — a CLI si to složí do sekce `stale:`.
+Až přijde LSP pool, připojí se ze stejného důvodu a protokol přiroste o jeden požadavek,
+místo aby změnil tvar.
+
+Tři věci, které se ukázaly jako podstatné:
+
+- **Špinavost se měří proti indexu, ne proti poslední události.** Soubor je špinavý, když
+  se jeho obsah liší od zaindexovaného — takže úprava a její vrácení nezanechá nic.
+  Kdyby se počítaly události, `git checkout` by označil půl stromu bez jediné reálné změny.
+- **Prázdná a neznámá množina nejsou totéž.** Bez daemona se nehlásí „čisto", ale
+  `stale: not tracked`. Splynutí těch dvou je přesně ta tichá zastaralost, kterou D8 zakazuje.
+- **Označuje se odpověď, ne index.** Dotaz na symbol ze změněného souboru to přizná;
+  dotaz vedle zůstane čistý. Plošné „index je starý" by se naučilo ignorovat.
+
 ### 4.3 Overlay není zvláštní mechanismus
 
 Protože je všechno klíčované obsahem, „dirty soubor" je jen soubor s jiným `blob_id`.

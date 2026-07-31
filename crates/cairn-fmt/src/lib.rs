@@ -64,6 +64,41 @@ impl Envelope {
         self
     }
 
+    /// Mark the answer stale where it touches files that have changed since indexing.
+    ///
+    /// `dirty` is what the daemon has observed; `None` means no daemon was running, and
+    /// that is reported as *unknown* rather than as clean. An empty dirty set and an
+    /// unknown one look identical in an answer, and treating the second as the first is
+    /// exactly the silent staleness the contract forbids (D8).
+    pub fn mark_stale(mut self, dirty: Option<&[String]>, mentioned: &[String]) -> Self {
+        let Some(dirty) = dirty else {
+            self.stale.push(
+                "not tracked - no daemon running, so changes since indexing are invisible \
+                 (`cairn daemon --repo <dir>`)"
+                    .to_string(),
+            );
+            return self;
+        };
+        let mut hit: Vec<&String> = mentioned
+            .iter()
+            .filter(|p| dirty.iter().any(|d| d == *p))
+            .collect();
+        hit.sort();
+        hit.dedup();
+        if !hit.is_empty() {
+            self.stale.push(format!(
+                "{} of the files in this answer changed since indexing: {}",
+                hit.len(),
+                hit.iter()
+                    .take(5)
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        self
+    }
+
     pub fn render(&self) -> String {
         let mut out = self.body.clone();
         if !out.ends_with('\n') {

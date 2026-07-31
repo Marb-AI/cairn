@@ -1,6 +1,12 @@
 [workspace]
 resolver = "2"
-members = ["crates/cairn-cli", "crates/cairn-scip", "crates/cairn-store", "crates/cairn-fmt"]
+members = [
+    "crates/cairn-cli",
+    "crates/cairn-daemon",
+    "crates/cairn-fmt",
+    "crates/cairn-scip",
+    "crates/cairn-store",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -11,11 +17,14 @@ license = "MIT"
 cairn-scip = { path = "crates/cairn-scip" }
 cairn-store = { path = "crates/cairn-store" }
 cairn-fmt = { path = "crates/cairn-fmt" }
+cairn-daemon = { path = "crates/cairn-daemon" }
 
 anyhow = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 clap = { version = "4", features = ["derive"] }
 blake3 = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [profile.release]
 opt-level = 3

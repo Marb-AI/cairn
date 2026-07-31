@@ -196,6 +196,14 @@ enum Cmd {
     /// Named nodes that are not symbols, and their links to code.
     #[command(subcommand)]
     Concept(ConceptCmd),
+    /// Run the live-state daemon: watches the repo and reports what has changed.
+    Daemon {
+        #[arg(long)]
+        repo: PathBuf,
+        /// Stop a running daemon instead of starting one.
+        #[arg(long)]
+        stop: bool,
+    },
     /// What is indexed, and how stale it is.
     Status,
 }
@@ -210,6 +218,13 @@ fn main() -> ExitCode {
     }
 }
 
+/// Repo-relative paths mentioned by an answer, for staleness marking.
+fn paths_of<'a>(
+    defs: impl Iterator<Item = Option<&'a cairn_store::Occurrence>>,
+) -> Vec<String> {
+    defs.flatten().map(|d| d.path.clone()).collect()
+}
+
 fn default_db() -> PathBuf {
     PathBuf::from(".cairn/index.sqlite")
 }
@@ -218,6 +233,15 @@ fn run() -> Result<u8> {
     let cli = Cli::parse();
     let db = cli.db.unwrap_or_else(default_db);
     let mut budget = Budget::from_opt(cli.budget);
+    // Asked once per invocation, best-effort: a missing daemon is a normal state and
+    // must never fail a query, only change what the answer can claim about freshness.
+    let dirty: Option<Vec<String>> =
+        cairn_daemon::client::dirty_if_running(&cairn_daemon::socket_path(&db)).map(|d| {
+            d.modified
+                .into_iter()
+                .chain(d.removed)
+                .collect::<Vec<String>>()
+        });
 
     match cli.cmd {
         Cmd::Index { indexes, repo } => {
@@ -277,7 +301,13 @@ fn run() -> Result<u8> {
             let store = open(&db)?;
             let rows = store.find_symbols(&query, limit)?;
             let found = !rows.is_empty();
-            print!("{}", cairn_fmt::symbols(&rows, &query, &mut budget).render());
+            let paths = paths_of(rows.iter().map(|r| r.def.as_ref()));
+            print!(
+                "{}",
+                cairn_fmt::symbols(&rows, &query, &mut budget)
+                    .mark_stale(dirty.as_deref(), &paths)
+                    .render()
+            );
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
@@ -298,9 +328,12 @@ fn run() -> Result<u8> {
                 .context("handle resolved to a missing symbol")?;
             let (refs, suppressed) = store.references(symbol_id, include_generated, limit)?;
             let found = !refs.is_empty();
+            let paths: Vec<String> = refs.iter().map(|r| r.path.clone()).collect();
             print!(
                 "{}",
-                cairn_fmt::references(&sym, &refs, suppressed).render()
+                cairn_fmt::references(&sym, &refs, suppressed)
+                    .mark_stale(dirty.as_deref(), &paths)
+                    .render()
             );
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
@@ -352,7 +385,9 @@ fn run() -> Result<u8> {
             let title = format!(
                 "{label} [{handle}] {root}   depth={depth} fanout={fanout}   [L1, exact]"
             );
-            let mut env = cairn_fmt::walk(&w, &title, view, detail, source.as_mut(), &mut budget);
+            let paths = paths_of(w.nodes.iter().map(|n| n.symbol.def.as_ref()));
+            let mut env = cairn_fmt::walk(&w, &title, view, detail, source.as_mut(), &mut budget)
+                .mark_stale(dirty.as_deref(), &paths);
             // References with no enclosing body are module-level, not missing. Say so
             // rather than letting the count look like a gap.
             if matches!(aspect, Aspect::Callers) {
@@ -537,6 +572,36 @@ fn run() -> Result<u8> {
 
         Cmd::Concept(sub) => run_concept(sub, &db, &mut budget),
 
+        Cmd::Daemon { repo, stop } => {
+            let socket = cairn_daemon::socket_path(&db);
+            if stop {
+                match cairn_daemon::Client::connect(&socket) {
+                    Some(mut c) => {
+                        c.shutdown()?;
+                        println!("daemon stopped");
+                        return Ok(exit::FOUND);
+                    }
+                    None => {
+                        println!("no daemon running on {}", socket.display());
+                        return Ok(exit::NOT_FOUND);
+                    }
+                }
+            }
+            if cairn_daemon::Client::connect(&socket).is_some() {
+                anyhow::bail!("a daemon is already listening on {}", socket.display());
+            }
+            let store = open(&db)?;
+            let indexed = store.file_hashes()?;
+            drop(store);
+            println!(
+                "starting daemon for {} ({} indexed files)",
+                repo.display(),
+                indexed.len()
+            );
+            cairn_daemon::Daemon::new(&repo, &socket, indexed).run()?;
+            Ok(exit::FOUND)
+        }
+
         Cmd::Status => {
             if !db.exists() {
                 println!("no index at {}", db.display());
@@ -550,8 +615,46 @@ fn run() -> Result<u8> {
             println!("symbols    {}", c.symbols);
             println!("occurrence {}", c.occurrences);
             println!("generated  {} files", c.generated_files);
-            println!("stale: unknown (no snapshot tracking yet)");
-            Ok(exit::FOUND)
+
+            let socket = cairn_daemon::socket_path(&db);
+            match cairn_daemon::Client::connect(&socket) {
+                Some(mut client) => {
+                    let st = client.status()?;
+                    let d = client.dirty()?;
+                    println!(
+                        "daemon     watching {} ({} files, up {}s)",
+                        st.repo, st.files_tracked, st.uptime_secs
+                    );
+                    if !d.complete {
+                        println!("stale: initial scan still running - the set below is partial");
+                    }
+                    if d.is_empty() && d.complete {
+                        println!("stale: none");
+                    } else {
+                        println!(
+                            "stale: {} modified, {} created, {} removed (generation {})",
+                            d.modified.len(),
+                            d.created.len(),
+                            d.removed.len(),
+                            d.generation
+                        );
+                        for p in d.modified.iter().chain(&d.removed).take(8) {
+                            println!("       {p}");
+                        }
+                    }
+                    Ok(if d.is_empty() { exit::FOUND } else { exit::DEGRADED })
+                }
+                None => {
+                    // An unknown dirty set and an empty one look the same in an answer.
+                    // Conflating them is the silent staleness this design forbids.
+                    println!("daemon     not running");
+                    println!(
+                        "stale: NOT TRACKED - start `cairn daemon --repo <dir>` for live \
+                         staleness, or run `cairn verify --repo <dir>` for a one-off check"
+                    );
+                    Ok(exit::DEGRADED)
+                }
+            }
         }
     }
 }
