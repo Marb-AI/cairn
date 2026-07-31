@@ -36,6 +36,9 @@ cairn reaches <h> [--outgoing]   who reaches it ACROSS a gRPC boundary, in the o
                                  sides share no identifier
 cairn expand <h> --detail body --repo <dir>
 
+cairn topology                   deployed services and what starts each one
+cairn runs <h>                   which services actually run this code. The filesystem
+                                 cannot say: many services share one source tree
 cairn outline <path>             what a module holds, and what is actually used
 cairn unreached <path>           what production never calls (one call, not one per symbol)
 cairn usage <h>                  use sites grouped by file

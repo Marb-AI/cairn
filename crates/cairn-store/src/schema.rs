@@ -15,7 +15,7 @@ use rusqlite::Connection;
 /// Bumped whenever the schema changes in a way that invalidates existing databases.
 /// The ingest path drops and rebuilds rather than migrating: the store is a projection,
 /// never a source of truth.
-pub const SCHEMA_VERSION: i64 = 10;
+pub const SCHEMA_VERSION: i64 = 12;
 
 pub const SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -127,6 +127,24 @@ CREATE TABLE IF NOT EXISTS service_links (
     -- Generated artefact the link was recovered through, so an answer can show its work.
     via_symbol INTEGER REFERENCES symbols(id),
     UNIQUE(service_id, symbol_id, role)
+);
+
+-- Deployable units from the compose file, each resolved to the symbol its start
+-- command runs. Fifteen services in the target repo are built from two source trees,
+-- so only reachability from these entry symbols says which service runs a given module
+-- (deploy.rs).
+CREATE TABLE IF NOT EXISTS deploy_services (
+    name          TEXT PRIMARY KEY,
+    command       TEXT,
+    build_context TEXT,
+    image         TEXT,
+    ports         TEXT NOT NULL DEFAULT '',
+    aliases       TEXT NOT NULL DEFAULT '',
+    -- The file the start command lands in, not a single symbol in it. `python -m mod`
+    -- executes the whole module, and picking one symbol picked the wrong one: the first
+    -- definition in a server module is usually a type alias that calls nothing, so
+    -- reachability from it found no handlers at all.
+    entry_file    INTEGER REFERENCES files(id)
 );
 
 -- Short, stable, deterministic codes for progressive disclosure (architecture 6.5).

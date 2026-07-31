@@ -11,6 +11,7 @@ use std::path::Path;
 
 pub mod batch;
 pub mod concepts;
+pub mod deploy;
 pub mod context;
 pub mod conventions;
 pub mod graph;
@@ -26,6 +27,7 @@ pub use batch::{BatchStats, BatchWriter};
 pub use graph::{Direction, PathHop, Walk, WalkNode};
 pub use concepts::{Concept, ConceptLink};
 pub use context::{ContextResult, Seed, SeedSource};
+pub use deploy::{DeployStats, Service, Topology};
 pub use protolink::{CrossLink, ServiceRole};
 pub use survey::{OutlineEntry, Unreached, UnreachedSymbol};
 pub use verify::Report;

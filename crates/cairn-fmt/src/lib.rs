@@ -1145,3 +1145,77 @@ pub fn cross_language(
     );
     env
 }
+
+/// The deployment map: services, what starts each one, and where that lands in the code.
+pub fn topology(
+    rows: &[(String, Option<String>, Option<String>, String, bool)],
+    budget: &mut Budget,
+) -> Envelope {
+    let mut body = String::new();
+    let resolved = rows.iter().filter(|r| r.4).count();
+    let _ = writeln!(
+        body,
+        "{} services, {resolved} with a resolved entrypoint        [L0-D, exact]",
+        rows.len()
+    );
+    let mut unresolved = Vec::new();
+    for (name, command, entry_path, ports, ok) in rows {
+        let where_ = entry_path
+            .clone()
+            .unwrap_or_else(|| if *ok { String::new() } else { "—".into() });
+        let p = if ports.is_empty() { String::new() } else { format!("  :{ports}") };
+        if !*ok && command.is_some() {
+            unresolved.push(name.clone());
+        }
+        if !budget.push(
+            &mut body,
+            &format!(
+                "  {:<24} {:<44} {}{p}",
+                name,
+                truncate(command.as_deref().unwrap_or("(image default)"), 44),
+                where_
+            ),
+        ) {
+            break;
+        }
+    }
+    let mut env = Envelope::new(body);
+    if !unresolved.is_empty() {
+        // An unresolved entrypoint makes everything that service runs look unreachable.
+        // That silently reclassifies live code as dead, so it is stated, not counted.
+        env = env.unknown(format!(
+            "{} services have a start command that could not be resolved to code ({}). \
+             Anything only those run will look unreachable",
+            unresolved.len(),
+            unresolved.join(", ")
+        ));
+    }
+    env
+}
+
+/// Which deployed services can reach a symbol.
+pub fn runs_in(sym: &SymbolRow, services: &[String], depth: usize) -> Envelope {
+    let mut body = String::new();
+    let _ = writeln!(
+        body,
+        "[{}] {} runs in {} service(s)        [L1 + L0-D, exact]",
+        sym.handle,
+        sym.qualified(),
+        services.len()
+    );
+    for s in services {
+        let _ = writeln!(body, "  {s}");
+    }
+    if services.is_empty() {
+        let _ = writeln!(body, "  (no service entrypoint reaches it)");
+    }
+    let mut env = Envelope::new(body);
+    if services.is_empty() {
+        env = env.unknown(format!(
+            "no service reaches this within {depth} call hops. That can mean dead code, \
+             a deeper path, or an entrypoint the topology could not resolve - check \
+             `cairn topology` before concluding it is unused"
+        ));
+    }
+    env
+}

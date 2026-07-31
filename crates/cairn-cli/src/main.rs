@@ -176,6 +176,14 @@ enum Cmd {
         #[arg(long)]
         repo: Option<PathBuf>,
     },
+    /// Deployed services and what each one runs.
+    Topology,
+    /// Which deployed services can run this code - the filesystem cannot say.
+    Runs {
+        handle: String,
+        #[arg(long, default_value_t = 12)]
+        depth: usize,
+    },
     /// Who reaches this across a gRPC boundary - the query no name search can answer.
     Reaches {
         handle: String,
@@ -341,6 +349,31 @@ fn run() -> Result<u8> {
                 "services: {} gRPC services, {} serve links, {} call links",
                 links.services, links.serves, links.calls
             );
+            if let Some(root) = repo.as_deref() {
+                let topo = cairn_store::deploy::parse_compose(
+                    root,
+                    &["compose.yaml", "compose.yml", "docker-compose.yml",
+                      "compose.local.yaml", "compose.override.yaml"],
+                )?;
+                if !topo.services.is_empty() {
+                    let d = store.link_deployment(root, &topo)?;
+                    println!(
+                        "deploy:   {} services from {}, {} with a resolved entrypoint",
+                        d.services,
+                        topo.sources.join(" + "),
+                        d.with_entrypoint
+                    );
+                    // Naming them rather than counting: an unresolved entrypoint makes
+                    // live code look unreachable, which is the failure mode 8.4 warns
+                    // about.
+                    if !d.unresolved.is_empty() {
+                        println!(
+                            "          unresolved: {}",
+                            d.unresolved.join(", ")
+                        );
+                    }
+                }
+            }
             let c = store.counts()?;
             println!(
                 "store: {} files, {} symbols, {} occurrences in {:.1}s -> {}",
@@ -540,6 +573,24 @@ fn run() -> Result<u8> {
             }
             print!("{}", env.render());
             Ok(if w.nodes.len() > 1 { exit::FOUND } else { exit::NOT_FOUND })
+        }
+
+        Cmd::Topology => {
+            let store = open(&db)?;
+            let rows = store.deploy_services()?;
+            let found = !rows.is_empty();
+            print!("{}", cairn_fmt::topology(&rows, &mut budget).render());
+            Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+        }
+
+        Cmd::Runs { handle, depth } => {
+            let store = open(&db)?;
+            let symbol_id = resolve(&store, &handle)?;
+            let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
+            let services = store.services_running(symbol_id, depth)?;
+            let found = !services.is_empty();
+            print!("{}", cairn_fmt::runs_in(&sym, &services, depth).render());
+            Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
         Cmd::Reaches { handle, outgoing } => {
