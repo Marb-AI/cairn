@@ -58,6 +58,12 @@ pub struct Occurrence {
     pub role: i32,
     pub generated: bool,
     pub gen_via: GeneratedVia,
+    /// Symbol whose body contains this occurrence, when one is known.
+    ///
+    /// A bare `path:line` makes the caller open the file to learn anything, and every
+    /// measured task spent most of its budget doing exactly that. Naming the enclosing
+    /// function is usually enough to decide whether a site matters.
+    pub enclosing: Option<String>,
 }
 
 impl Occurrence {
@@ -254,6 +260,7 @@ impl Store {
             |r| {
                 let def = match r.get::<_, Option<String>>(8)? {
                     Some(path) => Some(Occurrence {
+                        enclosing: None,
                         path,
                         line: r.get::<_, Option<i64>>(9)?.unwrap_or(0),
                         col_start: r.get::<_, Option<i64>>(10)?.unwrap_or(0),
@@ -340,6 +347,7 @@ impl Store {
         let mut rows = stmt.query(params![symbol_id])?;
         Ok(match rows.next()? {
             Some(r) => Some(Occurrence {
+                enclosing: None,
                 path: r.get(0)?,
                 line: r.get::<_, Option<i64>>(1)?.unwrap_or(0),
                 col_start: r.get::<_, Option<i64>>(2)?.unwrap_or(0),
@@ -365,7 +373,17 @@ impl Store {
     ) -> Result<(Vec<Occurrence>, i64)> {
         let mut stmt = self.conn.prepare_cached(
             r#"
-            SELECT p.s, o.line, o.col_start, o.col_end, o.role, f.generated, f.gen_via
+            SELECT p.s, o.line, o.col_start, o.col_end, o.role, f.generated, f.gen_via,
+                   -- Innermost definition whose body spans this line: the function the
+                   -- reference sits in. Null for a module-level reference, which is a
+                   -- real answer rather than a gap.
+                   (SELECT en.s FROM symbols encl
+                      JOIN strings en ON en.id = encl.name_id
+                     WHERE encl.def_file_id = o.file_id
+                       AND encl.def_end_line IS NOT NULL
+                       AND encl.def_line <= o.line AND encl.def_end_line >= o.line
+                     ORDER BY (encl.def_end_line - encl.def_line) ASC
+                     LIMIT 1) AS enclosing
               FROM occurrences o
               JOIN files f   ON f.id = o.file_id
               JOIN strings p ON p.id = f.path_id
@@ -377,7 +395,11 @@ impl Store {
         )?;
         let rows = stmt.query_map(
             params![symbol_id, include_generated as i64, limit as i64],
-            |r| occ_from_row(r).map_err(|_| rusqlite::Error::InvalidQuery),
+            |r| {
+                let mut occ = occ_from_row(r).map_err(|_| rusqlite::Error::InvalidQuery)?;
+                occ.enclosing = r.get::<_, Option<String>>(7)?;
+                Ok(occ)
+            },
         )?;
         let mut out = Vec::new();
         for r in rows {
@@ -401,6 +423,7 @@ impl Store {
 
 fn occ_from_row(r: &rusqlite::Row) -> Result<Occurrence> {
     Ok(Occurrence {
+        enclosing: None,
         path: r.get(0)?,
         line: r.get(1)?,
         col_start: r.get(2)?,
@@ -490,6 +513,7 @@ mod tests {
     #[test]
     fn line_numbers_are_one_based_on_output() {
         let occ = Occurrence {
+            enclosing: None,
             path: "a/b.py".into(),
             line: 41,
             col_start: 0,

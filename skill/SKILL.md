@@ -1,114 +1,67 @@
 ---
 name: cairn
-description: Navigate an indexed codebase - find symbols, callers, call paths, tests and endpoints without grepping. Use when you need to know who calls something, what a change breaks, where a feature lives, or which tests cover code. Works across languages (a Go caller of a Python handler is one query).
+description: Indexed code navigation - callers, references, call paths, dead code, blast radius, across Python and Go. Use for questions about how code connects; not for prose, config or string literals.
 ---
 
 # cairn
 
-A local index of this codebase. It answers structural questions exactly, in far fewer
-tokens than reading files, and **tells you what it does not know** instead of guessing.
+## Reach for it when
 
-Start here when you land in unfamiliar code. Every answer ends with `unknown:`,
-`suppressed:` and `stale:` — read them; they are the difference between a fact and a
-guess.
+The question is about **how code connects** — who calls this, what breaks if I change
+it, what does production never reach, which tests cover it, how does A get to B.
 
-## The first move
+## Do not, and save the round trip
 
-```
-cairn context "<what you are looking for>"     # a feature, a domain, a concept
-cairn symbol <name>                            # you already know the name
-cairn status                                   # what is indexed, how stale
-```
+- the answer is in one file you already know → just read it
+- prose, comments, config, string literals, docs → grep
+- the code is not in this repo → nothing is indexed for it
 
-Both return `[handles]` — two to four characters. Everything else takes a handle.
+`cairn status` says what is indexed. Answers end with `unknown:` / `suppressed:` /
+`stale:` — read them, they are where the honesty lives.
 
-## Answering questions
-
-| question | command |
-|---|---|
-| who calls this? | `cairn graph <h> --aspect callers` |
-| what does it call? | `cairn graph <h> --aspect calls` |
-| what implements this interface? | `cairn graph <h> --aspect impls` |
-| which tests cover it? | `cairn graph <h> --aspect tests` |
-| how does A reach B? | `cairn path <a> <b>` |
-| where is it used? | `cairn refs <h>` |
-| show me the code | `cairn expand <h> --detail body --repo <dir>` |
-| is anything referring to it dynamically? | `cairn weaklinks <h>` |
-
-## Questions about a whole area, not one symbol
-
-These answer in a single call what would otherwise be one call per symbol. Reach for
-them first when the question is about a package, a directory or a change's blast radius.
-
-| question | command |
-|---|---|
-| what is in this module, and what is actually used? | `cairn outline <path>` |
-| what here does production never call? | `cairn unreached <path>` |
-| where is this used, grouped by file? | `cairn usage <h>` |
-
-`cairn unreached` distinguishes "called only from tests" from "called by nothing at
-all". It is static reachability, so check `cairn weaklinks` before concluding anything
-is safe to delete.
-
-## Use this instead of grep when
-
-- **finding usages of a symbol.** grep matches comments, strings and same-named symbols
-  in unrelated modules, and misses calls through an import alias or across the gRPC
-  boundary between languages. `cairn refs` does not.
-- **judging the blast radius of a change.** `cairn graph <h> --aspect callers --depth 2`
-  answers in one call what grep answers in ten.
-- **finding where a feature lives.** `cairn context` searches names, module paths and
-  documentation at once, so it finds terms that appear in no identifier.
-
-Keep using grep for: string literals, config values, comments, and anything in a file
-the index does not cover. `cairn verify` says what that is.
-
-## Controlling how much you get back
-
-Four independent knobs. Default is a skeleton — names and locations, no code.
+## Commands
 
 ```
---detail skeleton|signature|doc|body    how much of each symbol   (body needs --repo)
---depth N --fanout N                    how far the walk goes
---aspect ...                            which relation is followed
---budget <tokens>                       hard ceiling; the tool picks the best rows
-                                        and reports what it dropped
---view tree|list                        tree shows how each node was reached
+cairn context "<feature>"        entry point when you have no symbol name
+cairn symbol <name>              -> [handles]; everything else takes one
+
+cairn refs <h> --context auto --repo <dir> --budget N
+                                 use sites, each with the enclosing function and its
+                                 source. `auto` spends the budget per site: few sites
+                                 get a block, many get one line
+cairn graph <h> --aspect callers|calls|impls|tests [--depth N] [--exclude-tests]
+cairn path <a> <b>               how one reaches the other
+cairn expand <h> --detail body --repo <dir>
+
+cairn outline <path>             what a module holds, and what is actually used
+cairn unreached <path>           what production never calls (one call, not one per symbol)
+cairn usage <h>                  use sites grouped by file
+cairn weaklinks <h>              string literals naming it - candidate dynamic calls
 ```
 
-`--budget` is usually better than guessing a limit: say what you can afford and the
-tool fills it with the highest-ranked rows.
+Prefer the three set-shaped commands (`outline`, `unreached`, `usage`) when the question
+is about a package or a change's blast radius. They answer in one call what the
+per-symbol commands answer in dozens.
 
-**For audit or review passes**, walk with bodies and a ceiling:
+## Budget
 
-```
-cairn graph <h> --aspect callers --detail body --repo <dir> --budget 3000
-```
+`--budget <tokens>` is a ceiling: the tool fills it with the highest-ranked rows and
+reports what it dropped. Better than guessing `--limit` and asking twice.
 
-## Trust and staleness
+## Trust
 
-- `stale: none` means the files in that answer match what was indexed.
-- `stale: not tracked` means no daemon is running and changes are invisible. Start one
-  with `cairn daemon --repo <dir>`, or check once with `cairn verify --repo <dir>`.
-- `cairn live <path>` shows what a changed file contains *now*, from the language
-  server, against what the index recorded. Use it after editing.
-- Exit codes: `0` found, `1` nothing found, `2` bad query, `3` degraded index.
+- `stale: not tracked` means no daemon is watching; the index may be behind.
+- An attribute on a type (`Model.field`) is a **lower bound** — attribute access only
+  resolves where the holder's type is known, which for ORM instances it often is not.
+  The tool says so when it applies. Cross-check with grep.
+- `[L1-W, unverified]` is a lexical guess, not a fact.
+- Exit codes: `0` found, `1` nothing, `2` bad query, `3` degraded index.
 
-Anything labelled `[L1-W, unverified]` or `weak links` is a lexical guess — a string
-literal that happens to spell a symbol name. Read the site before relying on it.
+## Writing back
 
-## Writing back what you learn
-
-The index is deterministic and never invents anything, so what you work out yourself is
-worth recording. It survives reindexing.
+Findings survive reindexing and are re-checked when the code moves:
 
 ```
-cairn note <h> --summary "..."                     what this does
-cairn link <a> <b> --note "why"                    a connection the static pass misses
-cairn concept add <name> --note "..."              a name for a part of the system
-cairn concept link <name> <h> --rel entry-point    attach code to it
+cairn note <h> --summary "..."          cairn link <a> <b> --note "why"
+cairn concept add <name> --note "..."   cairn concept link <name> <h> --rel entry-point
 ```
-
-Claims are anchored to the code they describe. When that code changes they are flagged
-for review rather than silently trusted — so recording something is safe, and reading
-something back always tells you whether it still holds.

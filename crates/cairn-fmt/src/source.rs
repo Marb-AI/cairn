@@ -243,3 +243,109 @@ mod tests {
         }
     }
 }
+
+/// How much source to show at a reference site.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SiteContext {
+    /// Location only.
+    None,
+    /// The line the reference is on.
+    Line,
+    /// The line plus `n` lines either side.
+    Block(usize),
+}
+
+impl SiteContext {
+    pub fn parse(s: &str) -> Option<SiteContext> {
+        match s {
+            "none" => Some(SiteContext::None),
+            "line" => Some(SiteContext::Line),
+            "block" => Some(SiteContext::Block(3)),
+            _ => s.parse::<usize>().ok().map(SiteContext::Block),
+        }
+    }
+
+    /// Choose the level from what the caller can afford.
+    ///
+    /// Deterministic rather than guessed: the budget and the number of sites are both
+    /// known, so the share per site is arithmetic. Few sites can each afford a block;
+    /// many sites get a line; a very large result gets locations only, because a
+    /// truncated list of rich entries is worse than a complete list of thin ones —
+    /// the caller asked "where is this used", and dropping half the answer to decorate
+    /// the rest answers a different question.
+    ///
+    /// With no budget set there is nothing to divide, so one line each is the default:
+    /// enough to judge a site, cheap enough not to need permission.
+    pub fn auto(budget_tokens: Option<usize>, sites: usize) -> SiteContext {
+        let Some(budget) = budget_tokens else {
+            return SiteContext::Line;
+        };
+        if sites == 0 {
+            return SiteContext::Line;
+        }
+        // Roughly: a location line costs ~25 tokens, each extra source line ~15.
+        let per_site = budget / sites;
+        match per_site {
+            0..=24 => SiteContext::None,
+            25..=70 => SiteContext::Line,
+            _ => SiteContext::Block(((per_site - 40) / 30).clamp(1, 6)),
+        }
+    }
+
+    pub fn lines_around(self) -> Option<usize> {
+        match self {
+            SiteContext::None => None,
+            SiteContext::Line => Some(0),
+            SiteContext::Block(n) => Some(n),
+        }
+    }
+}
+
+impl Source {
+    /// Source around a reference site, at the chosen level.
+    pub fn site(&mut self, rel_path: &str, line: i64, ctx: SiteContext) -> Vec<(usize, String)> {
+        let Some(around) = ctx.lines_around() else {
+            return Vec::new();
+        };
+        let Some(lines) = self.lines(rel_path) else {
+            return Vec::new();
+        };
+        let centre = line.max(0) as usize;
+        if centre >= lines.len() {
+            return Vec::new();
+        }
+        let start = centre.saturating_sub(around);
+        let end = (centre + around).min(lines.len() - 1);
+        (start..=end).map(|i| (i + 1, lines[i].clone())).collect()
+    }
+}
+
+#[cfg(test)]
+mod context_tests {
+    use super::*;
+
+    #[test]
+    fn a_big_budget_over_few_sites_buys_a_block() {
+        assert!(matches!(
+            SiteContext::auto(Some(2000), 5),
+            SiteContext::Block(_)
+        ));
+    }
+
+    #[test]
+    fn the_same_budget_over_many_sites_falls_back_to_one_line() {
+        assert_eq!(SiteContext::auto(Some(2000), 40), SiteContext::Line);
+    }
+
+    #[test]
+    fn a_budget_too_small_to_decorate_returns_locations_only() {
+        // Better a complete list of thin entries than half a list of rich ones: the
+        // question was "where is this used".
+        assert_eq!(SiteContext::auto(Some(300), 40), SiteContext::None);
+    }
+
+    #[test]
+    fn no_budget_means_one_line_each() {
+        assert_eq!(SiteContext::auto(None, 500), SiteContext::Line);
+    }
+}

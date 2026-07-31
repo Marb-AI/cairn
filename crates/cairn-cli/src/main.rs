@@ -142,6 +142,13 @@ enum Cmd {
         include_generated: bool,
         #[arg(long, default_value_t = 40)]
         limit: usize,
+        /// How much source to show at each site: none | line | block | <n> | auto.
+        /// `auto` divides --budget by the number of sites, so few sites get a block and
+        /// many get a line. Needs --repo. Far cheaper than opening the files.
+        #[arg(long, default_value = "none")]
+        context: String,
+        #[arg(long)]
+        repo: Option<PathBuf>,
     },
     /// Walk the call graph or implementation relations.
     Graph {
@@ -266,6 +273,7 @@ fn default_db() -> PathBuf {
 fn run() -> Result<u8> {
     let cli = Cli::parse();
     let db = cli.db.unwrap_or_else(default_db);
+    let cli_budget = cli.budget;
     let mut budget = Budget::from_opt(cli.budget);
     // Asked once per invocation, best-effort: a missing daemon is a normal state and
     // must never fail a query, only change what the answer can claim about freshness.
@@ -401,6 +409,8 @@ fn run() -> Result<u8> {
             handle,
             include_generated,
             limit,
+            context,
+            repo,
         } => {
             let store = open(&db)?;
             let Some(symbol_id) = store.resolve_handle(&handle)? else {
@@ -415,11 +425,29 @@ fn run() -> Result<u8> {
             let (refs, suppressed) = store.references(symbol_id, include_generated, limit)?;
             let found = !refs.is_empty();
             let paths: Vec<String> = refs.iter().map(|r| r.path.clone()).collect();
+            let ctx = if context == "auto" {
+                cairn_fmt::SiteContext::auto(cli_budget, refs.len())
+            } else {
+                cairn_fmt::SiteContext::parse(&context)
+                    .with_context(|| format!("unknown --context '{context}' (none|line|block|<n>|auto)"))?
+            };
+            let mut source = match (ctx, repo) {
+                (cairn_fmt::SiteContext::None, _) => None,
+                (_, Some(root)) => Some(Source::new(root)),
+                (_, None) => anyhow::bail!("--context prints source, so it needs --repo <dir>"),
+            };
             print!(
                 "{}",
-                cairn_fmt::references(&sym, &refs, suppressed)
-                    .mark_stale(dirty.as_deref(), &paths)
-                    .render()
+                cairn_fmt::references_with_context(
+                    &sym,
+                    &refs,
+                    suppressed,
+                    source.as_mut(),
+                    ctx,
+                    &mut budget
+                )
+                .mark_stale(dirty.as_deref(), &paths)
+                .render()
             );
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }

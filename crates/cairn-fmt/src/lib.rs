@@ -18,7 +18,7 @@ use std::fmt::Write;
 pub mod budget;
 pub mod source;
 pub use budget::Budget;
-pub use source::{Detail, Excerpt, Source};
+pub use source::{Detail, Excerpt, SiteContext, Source};
 
 /// How a result set is laid out. Orthogonal to *what* was selected, so any view can
 /// render any walk (architecture 18.1 — this is the fifth axis alongside detail,
@@ -161,6 +161,76 @@ pub fn symbols(rows: &[SymbolRow], query: &str, budget: &mut Budget) -> Envelope
     let mut env = Envelope::new(body);
     if shown < rows.len() {
         env = env.suppressed(budget.cut_note(rows.len() - shown, "matches"));
+    }
+    env
+}
+
+/// Reference list, optionally with the source line at each site.
+///
+/// A bare `path:line` is a location, not information: every measured task spent most of
+/// its budget turning locations into understanding by opening files. Naming the
+/// enclosing function and showing the line itself usually settles whether a site
+/// matters, at a fraction of the cost of reading the file.
+pub fn references_with_context(
+    sym: &SymbolRow,
+    refs: &[Occurrence],
+    suppressed_generated: i64,
+    source: Option<&mut Source>,
+    ctx: SiteContext,
+    budget: &mut Budget,
+) -> Envelope {
+    let mut body = String::new();
+    let _ = writeln!(body, "references to [{}] {}", sym.handle, sym.qualified());
+    if let Some(def) = &sym.def {
+        let _ = writeln!(body, "  defined at {}", def.location());
+    }
+    let _ = writeln!(body, "{} references                    [L0, exact]", refs.len());
+
+    let mut source = source;
+    let mut shown = 0usize;
+    for (i, r) in refs.iter().enumerate() {
+        let inside = r
+            .enclosing
+            .as_deref()
+            .map(|e| format!("  in {e}"))
+            .unwrap_or_else(|| "  (module level)".to_string());
+        let lines = source
+            .as_deref_mut()
+            .map(|src| src.site(&r.path, r.line, ctx))
+            .unwrap_or_default();
+        let inline = if lines.len() == 1 {
+            format!("   |  {}", lines[0].1.trim())
+        } else {
+            String::new()
+        };
+        if !budget.push(&mut body, &format!("  {:<46}{inside}{inline}", r.location())) {
+            break;
+        }
+        if lines.len() > 1 {
+            for (n, text) in &lines {
+                let marker = if *n as i64 == r.line + 1 { ">" } else { " " };
+                if !budget.push(&mut body, &format!("      {marker}{n:>5} | {text}")) {
+                    break;
+                }
+            }
+        }
+        shown = i + 1;
+    }
+    if refs.is_empty() {
+        let _ = writeln!(body, "  (none outside generated code)");
+    }
+
+    let mut env = Envelope::new(body);
+    if shown < refs.len() {
+        env = env.suppressed(budget.cut_note(refs.len() - shown, "references"));
+    }
+    if suppressed_generated > 0 {
+        env = env.suppressed(format!(
+            "{suppressed_generated} references in generated code (rerun with --include-generated)"
+        ));
+    }
+    if let Some(note) = attribute_caveat(sym) {
+        env = env.unknown(note);
     }
     env
 }
