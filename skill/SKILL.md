@@ -30,7 +30,11 @@ cairn refs <h> --context auto --repo <dir> --budget N
                                  source. `auto` spends the budget per site: few sites
                                  get a block, many get one line
 cairn graph <h> --aspect callers|calls|impls|tests [--depth N] [--exclude-tests]
-cairn path <a> <b>               how one reaches the other
+cairn path <a> <b> [--detail body --repo <dir>]
+                                 how one reaches the other. With `--detail body` you get
+                                 the whole chain AND every hop's source in one call - use
+                                 it to answer "trace X to Y and say what happens\" without
+                                 opening a single file
 cairn reaches <h> [--outgoing]   who reaches it ACROSS a gRPC boundary, in the other
                                  language. grep cannot answer this at all: the two
                                  sides share no identifier. Ask it about the handler

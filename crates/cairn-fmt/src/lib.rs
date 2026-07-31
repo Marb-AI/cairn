@@ -430,6 +430,16 @@ pub fn path(
     if shown < hops.len() {
         env = env.suppressed(budget.cut_note(hops.len() - shown, "hops"));
     }
+    // Measured (task F): a correct three-hop path was returned as skeletons, and the agent
+    // then opened every hop by hand — 37 tool calls where the same command with
+    // `--detail body` would have delivered the chain and its source together. The option
+    // existed and was in the guide; the guide is not where an agent is looking when it has
+    // an answer in front of it.
+    if detail == Detail::Skeleton && hops.len() > 1 {
+        env = env.unknown(
+            "this is the shape of the path, not what it does. If the question is what              happens along it, re-run with `--detail body --repo <dir>`: same call, every              hop's source, and no need to open the files one at a time",
+        );
+    }
     env
 }
 
