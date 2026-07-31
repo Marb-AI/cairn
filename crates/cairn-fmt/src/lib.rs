@@ -89,13 +89,17 @@ impl Envelope {
     }
 }
 
-/// One result line: `[handle] Qualified.name  kind  lang  path:line`
+/// One result line: `[handle] Qualified.name  kind  lang  path:start-end`
+///
+/// The line range, not just the start, is deliberate: an agent that wants to audit on
+/// its own terms - or build its own graph rather than trusting ours - needs to know
+/// where the symbol ends without opening the file to find out.
 pub fn symbol_line(s: &SymbolRow) -> String {
-    let loc = s
-        .def
-        .as_ref()
-        .map(|d| d.location())
-        .unwrap_or_else(|| "<no definition indexed>".to_string());
+    let loc = match (s.def.as_ref(), s.def_end_line) {
+        (Some(d), Some(end)) if end > d.line => format!("{}-{}", d.location(), end + 1),
+        (Some(d), _) => d.location(),
+        (None, _) => "<no definition indexed>".to_string(),
+    };
     format!(
         "[{}] {:<40} {:<6} {}  {}",
         s.handle,
@@ -391,4 +395,154 @@ mod tests {
         assert_eq!(truncate("abcdef", 4), "abc~");
         assert_eq!(truncate("abc", 4), "abc");
     }
+}
+/// The known-unknowns report.
+///
+/// Written to be read by an agent deciding whether to trust the rest: the shape is
+/// "here is what is solid, here is what is not, here is what to do about it".
+pub fn verify(r: &cairn_store::Report) -> Envelope {
+    let mut body = String::new();
+    let _ = writeln!(body, "index coverage");
+    let _ = writeln!(body, "  files                    {:>8}", r.files);
+    let _ = writeln!(body, "  symbols                  {:>8}", r.symbols);
+    let _ = writeln!(
+        body,
+        "  references               {:>8}   {} with a caller",
+        r.references,
+        r.references - r.references_without_caller
+    );
+
+    let mut env = Envelope::new(body);
+
+    // Everything below is a limit on what answers can mean. It is stated even when
+    // benign, because an agent cannot infer a gap it was never told about.
+    if r.symbols_without_definition > 0 {
+        env = env.unknown(format!(
+            "{} symbols are referenced but defined nowhere in the index (third-party \
+             or unresolved); `expand` cannot show their source",
+            r.symbols_without_definition
+        ));
+    }
+    if r.definitions_without_body_span > 0 {
+        env = env.unknown(format!(
+            "{} definitions have no body extent from the indexer; `--detail body` \
+             shows only their definition line",
+            r.definitions_without_body_span
+        ));
+    }
+    if r.references_without_caller > 0 {
+        env = env.unknown(format!(
+            "{} references sit outside any function body (imports, module-level use) \
+             and therefore have no caller in the call graph",
+            r.references_without_caller
+        ));
+    }
+    if r.ambiguous_definitions > 0 {
+        env = env.unknown(format!(
+            "{} symbols are defined in more than one file; ranking shows one",
+            r.ambiguous_definitions
+        ));
+    }
+    if r.generated_by_path_only > 0 {
+        env = env.unknown(format!(
+            "{} files were called generated on a filename pattern alone, which is the \
+             unreliable signal - reindex with --repo so headers can be read",
+            r.generated_by_path_only
+        ));
+    }
+    if r.files_without_content_hash > 0 {
+        env = env.unknown(format!(
+            "{} files have no recorded content hash, so their staleness cannot be checked",
+            r.files_without_content_hash
+        ));
+    }
+    if r.weak_edges > 0 {
+        env = env.unknown(format!(
+            "{} weak links are candidates, not facts; confirm before relying on one",
+            r.weak_edges
+        ));
+    }
+
+    if !r.staleness_checked {
+        env = env.unknown(
+            "staleness was not checked: pass --repo to compare the index against the \
+             working tree",
+        );
+    } else {
+        if !r.stale_files.is_empty() {
+            let sample: Vec<&str> = r.stale_files.iter().take(5).map(|s| s.as_str()).collect();
+            env.stale.push(format!(
+                "{} files changed since indexing: {}{}",
+                r.stale_files.len(),
+                sample.join(", "),
+                if r.stale_files.len() > 5 { ", ..." } else { "" }
+            ));
+        }
+        if !r.missing_files.is_empty() {
+            env.stale.push(format!(
+                "{} indexed files no longer exist on disk",
+                r.missing_files.len()
+            ));
+        }
+    }
+    if r.manual_edges_stale > 0 {
+        env = env.unknown(format!(
+            "{} hand-authored links are anchored in code that has since changed. The \
+             static pass cannot re-derive them - they need a fresh judgement (rerun \
+             `cairn verify --flag-stale`, then review with `cairn links`)",
+            r.manual_edges_stale
+        ));
+    }
+    env
+}
+
+/// Hand-authored links touching a symbol.
+pub fn asserted(
+    store: &cairn_store::Store,
+    sym: &SymbolRow,
+    links: &[cairn_store::verify::AssertedLink],
+    budget: &mut Budget,
+) -> anyhow::Result<Envelope> {
+    let mut body = String::new();
+    let _ = writeln!(
+        body,
+        "asserted links for [{}] {}",
+        sym.handle,
+        sym.qualified()
+    );
+    let mut needs_review = 0;
+    for l in links {
+        let other = if l.src == sym.id { l.dst } else { l.src };
+        let other_name = store
+            .symbol(other)?
+            .map(|s| format!("[{}] {}", s.handle, s.qualified()))
+            .unwrap_or_else(|| format!("symbol {other}"));
+        let arrow = if l.src == sym.id { "->" } else { "<-" };
+        let flag = if l.needs_review {
+            needs_review += 1;
+            "  !! anchor changed, needs review"
+        } else {
+            ""
+        };
+        let anchor = l.anchor.as_deref().unwrap_or("<no anchor>");
+        let line = format!(
+            "  {arrow} {other_name}   [{}]  {anchor}{flag}\n     why: {}",
+            l.source.label(),
+            l.note
+        );
+        if !budget.push(&mut body, &line) {
+            break;
+        }
+    }
+    if links.is_empty() {
+        let _ = writeln!(body, "  (none)");
+    }
+    let mut env = Envelope::new(body);
+    if needs_review > 0 {
+        env = env.unknown(format!(
+            "{needs_review} of these are anchored in code that changed after they were \
+             recorded; treat them as claims to re-check, not as facts"
+        ));
+    }
+    Ok(env)
 }

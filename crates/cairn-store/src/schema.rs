@@ -15,7 +15,7 @@ use rusqlite::Connection;
 /// Bumped whenever the schema changes in a way that invalidates existing databases.
 /// The ingest path drops and rebuilds rather than migrating: the store is a projection,
 /// never a source of truth.
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 7;
 
 pub const SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -39,7 +39,11 @@ CREATE TABLE IF NOT EXISTS files (
     gen_via   INTEGER NOT NULL DEFAULT 0,
     -- Test file. Unlike `generated` this really is a naming convention, because that
     -- is what test runners themselves key on.
-    is_test   INTEGER NOT NULL DEFAULT 0
+    is_test   INTEGER NOT NULL DEFAULT 0,
+    -- blake3-128 of the file contents at index time. Lets `cairn verify` state
+    -- exactly which files have changed since, instead of guessing at staleness -
+    -- and it is the foundation the dirty overlay builds on (architecture 4.3).
+    content_hash BLOB
 );
 
 CREATE TABLE IF NOT EXISTS symbols (
@@ -81,7 +85,12 @@ CREATE TABLE IF NOT EXISTS edges (
     confidence REAL    NOT NULL DEFAULT 1.0,
     -- Where the edge was observed, for `calls`: lets an answer cite the call site.
     file_id    INTEGER REFERENCES files(id),
-    line       INTEGER
+    line       INTEGER,
+    -- Free text for hand-authored edges: why this link exists at all.
+    note       TEXT,
+    -- Set when the anchor file changed after a manual edge was recorded, so the edge
+    -- may no longer hold. Never auto-cleared: only a fresh judgement clears it.
+    needs_review INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS occurrences (

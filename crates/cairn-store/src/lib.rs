@@ -15,10 +15,12 @@ pub mod graph;
 pub mod ingest;
 pub mod query;
 pub mod schema;
+pub mod verify;
 pub mod weak;
 
 pub use batch::{BatchStats, BatchWriter};
 pub use graph::{Direction, PathHop, Walk, WalkNode};
+pub use verify::Report;
 pub use query::{Occurrence, SymbolRow};
 
 /// Language tag. Stored as an integer; the set is closed on purpose (D16 puts
@@ -83,6 +85,8 @@ pub enum EdgeKind {
     Implements = 1,
     /// Lexical candidate: a string literal naming this symbol (architecture 18.4).
     WeakRef = 2,
+    /// A link the static pass cannot see, asserted by whoever read the code.
+    Asserted = 3,
 }
 
 /// Where an edge came from. Answers group by this so an exact edge is never presented
@@ -94,6 +98,11 @@ pub enum EdgeSource {
     Scip = 0,
     /// Weak, lexical: a candidate, not a fact (L1-W, architecture 18.4).
     Weak = 1,
+    /// Recorded by an agent that read the code and concluded the link exists.
+    /// Everything at 2 and above is hand-authored and survives reindexing.
+    Agent = 2,
+    /// Recorded by a human.
+    Human = 3,
 }
 
 impl EdgeSource {
@@ -101,6 +110,8 @@ impl EdgeSource {
         match self {
             EdgeSource::Scip => "L1, exact",
             EdgeSource::Weak => "L1-W, unverified",
+            EdgeSource::Agent => "L2, agent-asserted",
+            EdgeSource::Human => "L2, human-asserted",
         }
     }
 }

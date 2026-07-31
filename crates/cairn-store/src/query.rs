@@ -139,6 +139,17 @@ impl Store {
         })
     }
 
+    pub fn file_id_for_path(&self, path: &str) -> Result<Option<i64>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT f.id FROM files f JOIN strings p ON p.id = f.path_id WHERE p.s = ?1",
+        )?;
+        let mut rows = stmt.query(params![path])?;
+        Ok(match rows.next()? {
+            Some(r) => Some(r.get(0)?),
+            None => None,
+        })
+    }
+
     pub fn resolve_handle(&self, handle: &str) -> Result<Option<i64>> {
         let mut stmt = self
             .conn

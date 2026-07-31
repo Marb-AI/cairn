@@ -1721,6 +1721,29 @@ weak links (2)                                    [L1-W, unverified]
 Agent to buď potvrdí přečtením kódu, nebo zamítne — a přes §18.3 to může zapsat zpátky,
 takže se příště neptá.
 
+### 18.4b Ručně dopsané vazby a jejich zastarání
+
+Slabé hrany z §18.4 jsou strojové kandidáty. Vedle nich musí jít **vazbu prostě
+napsat**: agent nebo člověk kód přečetl a ví, že spojení existuje, i když ho statika
+nikdy neuvidí — dispatch přes konfiguraci, kontrakt držený konvencí, runtime závislost.
+
+```
+cairn link <od> <do> --note "proč" --by agent|human
+```
+
+Zásadní je, co se s takovou vazbou stane při reindexu. **Je ukotvená v místě v kódu**
+(soubor + řádek definice zdrojového symbolu) a to místo se hashuje. Když se změní:
+
+- **nesmí se tiše zahodit** — byla by to ztráta práce, kterou statika neumí zopakovat
+- **nesmí se tiše ponechat** — zastaralé tvrzení by se vydávalo za fakt
+
+Takže se **označí `needs_review` a poctivě se to reportuje**: tady vznikla díra,
+kterou statický průchod neumí zacelit, a je potřeba na ni znovu pustit model.
+Příznak se nikdy nemaže automaticky — smaže ho jedině nový úsudek.
+
+Provenience je součástí typu hrany (`L2, agent-asserted` / `L2, human-asserted`),
+takže se ručně psaná vazba nikdy nesmíchá s exaktní.
+
 ### 18.5 Co tím nechceme
 
 Ne agenta uvnitř nástroje. Osy z §18.1 jsou parametry deterministického výběru, ne
