@@ -1348,7 +1348,13 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
     // question produced 70 lines carrying maybe six distinct facts, and the whole reason
     // this command exists is that the answer should cost less than assembling it.
     if !a.hops.is_empty() {
-        let _ = writeln!(body, "\nover the network, by hop");
+        // Spelled out because an agent read the grouped list as "calls into that service"
+        // and discarded two thirds of it as unrelated. Every row is a route to the symbol
+        // that was asked about; nothing is listed for context.
+        let _ = writeln!(
+            body,
+            "\nover the network, by hop - every route below reaches this symbol"
+        );
         let mut groups: std::collections::BTreeMap<(String, String, String), (Vec<String>, String)> =
             std::collections::BTreeMap::new();
         for h in &a.hops {
