@@ -894,6 +894,53 @@ impl LiveSymbolView {
 }
 
 /// Entry point by concept: seeds, why each one is here, and how far to trust it.
+
+/// Say so when the seeds carry no navigational signal.
+///
+/// Measured (task A, lost three times): asked to list the MCP tools and their required
+/// scopes, an agent opened with `context` and got back two test files and a module
+/// `__init__` — no symbol that answers anything, and no indication that this was the
+/// tool's way of saying "I have nothing for this question". It kept querying. The answer
+/// was a dictionary literal in one file the whole time.
+///
+/// A seed that is a module `__init__` says only "this module exists", and a seed in a test
+/// file says only "something here mentions your words". When that is all there is, the
+/// question is about what a file *contains* rather than how code connects, and the honest
+/// move is to name the file and stop.
+fn weak_seeds_note(seeds: &[cairn_store::Seed]) -> Option<String> {
+    if seeds.is_empty() {
+        return None;
+    }
+    let useless = |s: &cairn_store::Seed| -> bool {
+        let is_init = s.symbol.name == "__init__";
+        let is_test = s
+            .symbol
+            .def
+            .as_ref()
+            .map(|d| d.path.contains("/tests/") || d.path.contains("test_"))
+            .unwrap_or(false);
+        is_init || is_test
+    };
+    if !seeds.iter().all(useless) {
+        return None;
+    }
+    // The best file to point at: a non-test seed if there is one, else the first.
+    let best = seeds
+        .iter()
+        .find(|s| {
+            s.symbol
+                .def
+                .as_ref()
+                .map(|d| !d.path.contains("/tests/") && !d.path.contains("test_"))
+                .unwrap_or(false)
+        })
+        .or_else(|| seeds.first())?;
+    let path = best.symbol.def.as_ref()?.path.clone();
+    Some(format!(
+        "  STOP - every seed is a module __init__ or a test file, which means nothing here \n         \x20 answers your question. This looks like a question about what a file contains, \n         \x20 not about how code connects. Read {path} and do not keep querying."
+    ))
+}
+
 pub fn context(
     query: &str,
     r: &cairn_store::ContextResult,
@@ -919,6 +966,9 @@ pub fn context(
     if r.seeds.is_empty() {
         let _ = writeln!(body, "  (nothing matched)");
     }
+    if let Some(note) = weak_seeds_note(&r.seeds) {
+        let _ = writeln!(body, "{note}");
+    }
 
     let mut env = Envelope::new(body);
     if r.low_confidence {
@@ -930,9 +980,13 @@ pub fn context(
              - if what you want is outside that, it is not indexed and grep is the tool"
         ));
     }
-    env = env.unknown(
-        "seeds are a starting point, not an answer - expand with `cairn graph <handle>`",
-    );
+    // Not when the seeds were already declared useless: telling the caller to expand a
+    // seed set that answers nothing is the advice that cost task A three losses.
+    if weak_seeds_note(&r.seeds).is_none() {
+        env = env.unknown(
+            "seeds are a starting point, not an answer - expand with `cairn graph <handle>`",
+        );
+    }
     env
 }
 
@@ -999,7 +1053,11 @@ pub fn outline(prefix: &str, rows: &[cairn_store::OutlineEntry], budget: &mut Bu
 /// Deliberately advisory and cheap: one line, and the results still print. Refusing to
 /// answer would be worse than answering with a hint.
 pub fn concentration_note(paths: &[&str], noun: &str) -> Option<String> {
-    if paths.len() < 3 {
+    // Was three. Measured (task A, three losses): a symbol whose one or two use sites sit
+    // in the file that defines it is the exact case SKILL.md's "the answer is in one file
+    // you already know" describes, and the threshold meant the tool never said so for the
+    // smallest and clearest instances of it.
+    if paths.is_empty() {
         return None;
     }
     let first = paths.first()?;
