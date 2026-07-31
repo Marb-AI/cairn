@@ -1473,6 +1473,26 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
         }
     }
 
+    if !a.outgoing.is_empty() {
+        let _ = writeln!(
+            body,
+            "\ncalls out over the network - a change here changes what these receive"
+        );
+        for o in &a.outgoing {
+            let who = if o.served_by.is_empty() {
+                "(no deployed server resolved)".to_string()
+            } else {
+                o.served_by.join(", ")
+            };
+            if !budget.push(
+                &mut body,
+                &format!("  -> {:<22} {}.{}", who, o.pkg, o.service),
+            ) {
+                break;
+            }
+        }
+    }
+
     let mut env = Envelope::new(body);
     if !a.blind.is_empty() {
         env = env.unknown(format!(

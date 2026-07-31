@@ -591,6 +591,21 @@ impl Store {
         let mut stmt = self
             .conn
             .prepare_cached("SELECT dst_symbol FROM edges WHERE src_symbol = ?1 AND kind = 0")?;
+        // Registering a handler class puts all of its methods on the live path, but there
+        // is no call edge from a class to the methods it owns, so the walk arrived at the
+        // class and stopped. Measured (task K): a mechanically chosen catalog
+        // function sat four hops below a registered gRPC handler and `affects` reported
+        // zero services for it, in-process and over the network both. The mirror image of
+        // the method-to-enclosing-type fallback, missed because every task before K
+        // started from a method rather than ending at one.
+        let mut members = self.conn.prepare_cached(
+            "SELECT m.id FROM symbols t
+               JOIN strings tn ON tn.id = t.name_id
+               JOIN symbols m ON m.def_file_id = t.def_file_id AND m.id <> t.id
+               JOIN strings c ON c.id = m.container_id
+                AND (c.s = tn.s OR c.s LIKE '%/' || tn.s || '#')
+              WHERE t.id = ?1 AND t.kind = 1",
+        )?;
         for (name, seeds) in entries {
             let mut seen: HashSet<i64> = seeds.iter().copied().collect();
             let mut queue: VecDeque<(i64, usize)> =
@@ -605,6 +620,13 @@ impl Store {
                     continue;
                 }
                 let rows = stmt.query_map(params![node], |r| r.get::<_, i64>(0))?;
+                for r in rows {
+                    let next = r?;
+                    if seen.insert(next) {
+                        queue.push_back((next, d + 1));
+                    }
+                }
+                let rows = members.query_map(params![node], |r| r.get::<_, i64>(0))?;
                 for r in rows {
                     let next = r?;
                     if seen.insert(next) {

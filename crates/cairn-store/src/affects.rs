@@ -16,6 +16,7 @@
 
 use crate::{Direction, EdgeKind, Store, SymbolRow};
 use anyhow::Result;
+use rusqlite::params;
 use std::collections::{HashMap, HashSet};
 
 /// A service that executes the symbol in its own process.
@@ -45,10 +46,24 @@ pub struct Hop {
     pub handler: SymbolRow,
 }
 
+/// A service this code calls out to over the network.
+#[derive(Debug, Clone)]
+pub struct Outgoing {
+    pub pkg: String,
+    pub service: String,
+    /// Deployed services that serve it, where the topology can name them.
+    pub served_by: Vec<String>,
+    /// The symbol on this side that holds the client.
+    pub via: SymbolRow,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Affects {
     pub in_process: Vec<InProcess>,
     pub hops: Vec<Hop>,
+    /// What this code calls over the network. A change here changes what those services
+    /// receive, which is part of a blast radius even though their own code is untouched.
+    pub outgoing: Vec<Outgoing>,
     /// Services that start nothing, so reachability can never attribute anything to them.
     pub blind: Vec<String>,
     /// Hops beyond the limit, if the chain kept going.
@@ -85,6 +100,13 @@ impl Store {
             let command = self.service_command(&service)?;
             out.in_process.push(InProcess { service, command });
         }
+
+        // What this code calls out to. Measured (task K): every baseline arm named the
+        // downstream prompt service as affected - a change to the request this function
+        // builds changes what that service receives - and every cairn arm missed it,
+        // because `affects` only ever looked at who reaches the symbol, never at what the
+        // symbol reaches.
+        out.outgoing = self.outgoing_services(symbol_id)?;
 
         // Only symbols that implement an RPC can start a hop, and there are far fewer of
         // them than there are callers of a repository function. Testing membership in a
@@ -139,6 +161,49 @@ impl Store {
                 }
             }
             frontier = next;
+        }
+        Ok(out)
+    }
+
+    /// Services this symbol calls over the network, and who serves them.
+    fn outgoing_services(&self, symbol_id: i64) -> Result<Vec<Outgoing>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT DISTINCT ps.pkg, ps.name, mine.symbol_id
+              FROM service_links mine
+              JOIN proto_services ps ON ps.id = mine.service_id
+             WHERE mine.symbol_id = ?1 AND mine.role = 1
+            "#,
+        )?;
+        let rows = stmt.query_map(params![symbol_id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (pkg, service, via_id) = row?;
+            let Some(via) = self.symbol(via_id)? else { continue };
+            // Who serves it: the non-generated implementors, then which deployment runs
+            // them. Named where the topology can say, left empty rather than guessed.
+            let mut servers = self.conn.prepare(
+                r#"
+                SELECT DISTINCT l.symbol_id
+                  FROM service_links l
+                  JOIN proto_services ps ON ps.id = l.service_id
+                  JOIN symbols s ON s.id = l.symbol_id
+                  JOIN files f ON f.id = s.def_file_id AND f.generated = 0
+                 WHERE ps.pkg = ?1 AND ps.name = ?2 AND l.role = 0
+                "#,
+            )?;
+            let ids = servers.query_map(params![pkg, service], |r| r.get::<_, i64>(0))?;
+            let mut served_by: Vec<String> = Vec::new();
+            for id in ids {
+                for svc in self.services_running(id?, 12)? {
+                    if !served_by.contains(&svc) {
+                        served_by.push(svc);
+                    }
+                }
+            }
+            out.push(Outgoing { pkg, service, served_by, via });
         }
         Ok(out)
     }
