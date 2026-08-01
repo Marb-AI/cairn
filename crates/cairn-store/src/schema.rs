@@ -15,7 +15,7 @@ use rusqlite::Connection;
 /// Bumped whenever the schema changes in a way that invalidates existing databases.
 /// The ingest path drops and rebuilds rather than migrating: the store is a projection,
 /// never a source of truth.
-pub const SCHEMA_VERSION: i64 = 15;
+pub const SCHEMA_VERSION: i64 = 16;
 
 pub const SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -192,6 +192,10 @@ CREATE TABLE IF NOT EXISTS handles (
 /// Indexes are created after bulk ingest — building them incrementally during a
 /// 350k-row insert is several times slower.
 pub const SQL_INDEXES: &str = r#"
+-- One row per symbol per position: the same occurrence seen twice is the same fact, and
+-- indexing a SCIP file twice must not change any count.
+CREATE UNIQUE INDEX IF NOT EXISTS occ_unique
+    ON occurrences(symbol_id, file_id, line, col_start, role);
 CREATE INDEX IF NOT EXISTS occ_by_symbol ON occurrences(symbol_id, role);
 CREATE INDEX IF NOT EXISTS occ_by_file   ON occurrences(file_id, line);
 CREATE INDEX IF NOT EXISTS sym_by_name   ON symbols(name_id);

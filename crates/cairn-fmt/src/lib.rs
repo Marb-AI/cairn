@@ -1082,7 +1082,14 @@ pub fn outline(
         }
     }
     if rows.is_empty() {
-        let _ = writeln!(body, "  (nothing indexed under that path)");
+        // "Nothing indexed" and "everything here is generated, and I exclude that" are
+        // different facts, and the first is a lie when the second is true — a caller
+        // reasonably concludes the path is outside the index and stops looking.
+        let _ = writeln!(
+            body,
+            "  (nothing here, or everything here is generated code, which this view \
+             excludes - `cairn symbol <name>` still finds generated definitions)"
+        );
     }
     {
         let mut env = Envelope::new(body);

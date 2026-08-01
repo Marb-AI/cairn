@@ -126,7 +126,12 @@ impl BatchWriter {
     fn build_sql(&self, rows: usize) -> String {
         let ncols = self.columns.len();
         let mut sql = String::with_capacity(64 + rows * (ncols * 3 + 4));
-        sql.push_str("INSERT INTO ");
+        // OR IGNORE, so a row that violates a uniqueness constraint is skipped rather
+        // than aborting the batch. Passing the same SCIP file to `cairn index` twice used
+        // to double every occurrence — files and symbols deduplicated, occurrences did
+        // not — which silently doubled `ref_count` and every "N references" the tool
+        // reported.
+        sql.push_str("INSERT OR IGNORE INTO ");
         sql.push_str(&self.table);
         sql.push_str(" (");
         sql.push_str(&self.columns.join(", "));
