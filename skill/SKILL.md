@@ -5,6 +5,9 @@ description: Indexed code navigation - callers, references, call paths, dead cod
 
 # cairn
 
+Pre-alpha. Indexes Python and Go only — for anything else, nothing is indexed and grep is
+the tool. Expect the command surface to change.
+
 ## Reach for it when
 
 The question is about **how code connects** — who calls this, what breaks if I change
