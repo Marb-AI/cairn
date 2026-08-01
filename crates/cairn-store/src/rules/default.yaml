@@ -1,3 +1,16 @@
+# Operator settings. Conventions are below; these change what cairn does rather than what
+# it understands.
+config:
+  # Append one line per command to .cairn/sessions/<id>.jsonl: what was asked, how it went,
+  # how long it took. Never the answer itself - names, counts and timings only, so the log
+  # stays small and carries nothing you would not want to keep.
+  #
+  # Off by default. A tool that starts recording what you searched for without being asked
+  # is one people stop trusting.
+  tracking: false
+  # Print peak resident memory to stderr when a command finishes.
+  memory_peak: false
+
 # cairn's built-in conventions.
 #
 # Everything here was once an `if` chain in the crate. It is data so that a repository that

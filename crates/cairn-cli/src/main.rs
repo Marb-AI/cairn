@@ -15,6 +15,8 @@ use std::time::Instant;
 
 /// Exit codes are part of the contract: an agent must be able to tell "nothing is
 /// there" from "I cannot see" (architecture 6.1.1).
+mod track;
+
 mod exit {
     pub const FOUND: u8 = 0;
     pub const NOT_FOUND: u8 = 1;
@@ -283,8 +285,10 @@ enum Cmd {
 }
 
 fn main() -> ExitCode {
-    match run() {
-        Ok(code) => ExitCode::from(code),
+    let started = Instant::now();
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    let code = match run() {
+        Ok(code) => code,
         Err(e) => {
             eprintln!("cairn: {e:#}");
             // An unreadable or half-built index is *degraded* — "I cannot see" — not a bad
@@ -299,9 +303,75 @@ fn main() -> ExitCode {
                 || msg.contains("schema v")
                 || msg.contains("no such table")
                 || msg.contains("file is encrypted or is not a database");
-            ExitCode::from(if degraded { exit::DEGRADED } else { exit::ERROR })
+            if degraded { exit::DEGRADED } else { exit::ERROR }
+        }
+    };
+
+    // Recorded after the fact so nothing here can change the answer or its exit code.
+    report(&argv, code, started.elapsed());
+    ExitCode::from(code)
+}
+
+/// Log the command, and report peak memory, when the pack asks for either.
+///
+/// Both are read from the pack rather than a flag: they are deployment decisions, and a
+/// flag would mean every caller had to remember to pass it.
+fn report(argv: &[String], code: u8, elapsed: std::time::Duration) {
+    let db = std::env::args()
+        .skip_while(|a| a != "--db")
+        .nth(1)
+        .map(PathBuf::from)
+        .unwrap_or_else(default_db);
+    let rules_path = db.parent().map(|d| d.join("rules.yaml"));
+    let Ok(rules) = cairn_store::Rules::load(rules_path.as_deref()) else { return };
+
+    if rules.config.memory_peak {
+        if let Some(kb) = track::peak_rss_kb() {
+            eprintln!("cairn: peak memory {:.1} MB", kb as f64 / 1024.0);
         }
     }
+    if !rules.config.tracking {
+        return;
+    }
+    // The first non-flag argument is the command; the second, when there is one, is the
+    // handle or query. Flags are recorded by name only — a value could carry content, and
+    // this file is not the place for content.
+    // Skipping a flag is not enough: most of cairn's flags take a value, and treating that
+    // value as positional made `--db <path>` look like the command being run.
+    let mut positional: Vec<&String> = Vec::new();
+    let mut skip_next = false;
+    for a in argv {
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if a.starts_with('-') {
+            // A value follows unless the next token is itself a flag.
+            skip_next = true;
+            continue;
+        }
+        positional.push(a);
+    }
+    let mut positional = positional.into_iter();
+    let Some(command) = positional.next() else { return };
+    let subject = positional.next();
+    let flags: Vec<String> = argv
+        .iter()
+        .filter(|a| a.starts_with("--"))
+        .cloned()
+        .collect();
+    track::append(
+        &db,
+        &track::Record {
+            command,
+            subject: subject.map(|s| s.as_str()),
+            flags,
+            exit: code,
+            rows: None,
+            truncated: false,
+            elapsed,
+        },
+    );
 }
 
 /// Repo-relative paths mentioned by an answer, for staleness marking.
