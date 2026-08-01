@@ -80,7 +80,8 @@ reports what it dropped. Better than guessing `--limit` and asking twice.
 
 ## Trust
 
-- `stale: not tracked` means no daemon is watching; the index may be behind.
+- `stale: not tracked yet` means the file watcher is still coming up — it starts itself on
+  first use, so this clears on its own. Until it does, the index may be behind the tree.
 - Asked about an attribute on a type (`Model.field`), the tool will say **USE GREP FOR
   THIS ONE** and give you the command. Take it: attribute access resolves only where the
   holder's type is known, and for ORM instances it usually is not. Do not treat the short

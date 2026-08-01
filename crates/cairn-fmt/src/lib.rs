@@ -77,9 +77,13 @@ impl Envelope {
     /// exactly the silent staleness the contract forbids (D8).
     pub fn mark_stale(mut self, dirty: Option<&[String]>, mentioned: &[String]) -> Self {
         let Some(dirty) = dirty else {
+            // Deliberately not an instruction any more: the watcher starts itself on the
+            // first command in a repository, so being told to run one would be telling
+            // someone to do a thing that is already happening. What has to be said is
+            // only that this answer cannot see edits made since the index was built.
             self.stale.push(
-                "not tracked - no daemon running, so changes since indexing are invisible \
-                 (`cairn daemon --repo <dir>`)"
+                "not tracked yet - the file watcher is still starting, so edits made \
+                 since the index was built are not visible in this answer"
                     .to_string(),
             );
             return self;

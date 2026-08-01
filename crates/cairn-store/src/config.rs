@@ -54,7 +54,107 @@ pub fn config_path() -> Option<PathBuf> {
     Some(exe.parent()?.join("cairn.yaml"))
 }
 
+/// One setting, as the CLI sees it: a name, what it means, and how to render it.
+///
+/// A table rather than a match in the command handler, so `cairn config` can list what
+/// exists without a second list to keep in step with this one.
+pub const SETTINGS: &[(&str, &str)] = &[
+    (
+        "tracking",
+        "record one line per command, for reading a session back afterwards",
+    ),
+    (
+        "memory_peak",
+        "print peak memory use on stderr when a command finishes",
+    ),
+    (
+        "memory_limit_mb",
+        "abort an index build above this; default is a quarter of RAM",
+    ),
+    (
+        "default_budget",
+        "ceiling on an answer in tokens when --budget is not given",
+    ),
+    ("max_budget", "refuse to exceed this whatever --budget says"),
+];
+
 impl Config {
+    /// Render as the YAML that `save` writes, so `config show` and the file agree.
+    pub fn get(&self, key: &str) -> Option<String> {
+        let unset = "(unset)".to_string();
+        Some(match key {
+            "tracking" => self.tracking.to_string(),
+            "memory_peak" => self.memory_peak.to_string(),
+            "memory_limit_mb" => self.memory_limit_mb.map_or(unset, |v| v.to_string()),
+            "default_budget" => self.default_budget.map_or(unset, |v| v.to_string()),
+            "max_budget" => self.max_budget.map_or(unset, |v| v.to_string()),
+            _ => return None,
+        })
+    }
+
+    /// Apply one `key=value` edit, parsing per the field's type.
+    ///
+    /// `unset` restores the default rather than requiring someone to know that deleting
+    /// the line is how you do it — the file is an implementation detail now.
+    pub fn set(&mut self, key: &str, value: &str) -> Result<()> {
+        let as_bool = || match value {
+            "true" | "on" | "yes" | "1" => Ok(true),
+            "false" | "off" | "no" | "0" => Ok(false),
+            other => Err(anyhow::anyhow!("{key} is on or off, not {other:?}")),
+        };
+        let as_num = || -> Result<Option<u64>> {
+            if value == "unset" || value == "default" {
+                return Ok(None);
+            }
+            value.parse::<u64>().map(Some).map_err(|_| {
+                anyhow::anyhow!("{key} takes a whole number or `unset`, not {value:?}")
+            })
+        };
+        match key {
+            "tracking" => self.tracking = as_bool()?,
+            "memory_peak" => self.memory_peak = as_bool()?,
+            "memory_limit_mb" => self.memory_limit_mb = as_num()?,
+            "default_budget" => self.default_budget = as_num()?.map(|v| v as usize),
+            "max_budget" => self.max_budget = as_num()?.map(|v| v as usize),
+            other => {
+                let known: Vec<&str> = SETTINGS.iter().map(|(k, _)| *k).collect();
+                anyhow::bail!(
+                    "no setting called {other:?}. There is: {}",
+                    known.join(", ")
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Write the settings back, creating the file if it is not there yet.
+    ///
+    /// Every field is written, including the ones left at their defaults: a file that
+    /// shows only what was changed reads as though the rest is unknowable.
+    pub fn save(&self) -> Result<PathBuf> {
+        let path = config_path().context(
+            "cannot work out where settings belong (the binary's own location is unreadable)",
+        )?;
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+        }
+        let mut out = String::from(
+            "# cairn settings. Written by `cairn config <key>=<value>`; editing by hand\n\
+             # works too, but the command is what the documentation points at.\n",
+        );
+        for (key, description) in SETTINGS {
+            let value = self.get(key).unwrap_or_default();
+            out.push_str(&format!("\n# {description}\n"));
+            if value == "(unset)" {
+                out.push_str(&format!("#{key}:\n"));
+            } else {
+                out.push_str(&format!("{key}: {value}\n"));
+            }
+        }
+        std::fs::write(&path, out).with_context(|| format!("writing {}", path.display()))?;
+        Ok(path)
+    }
+
     /// The ceiling in bytes: what was configured, or a quarter of the machine's RAM.
     pub fn memory_limit_bytes(&self) -> Option<u64> {
         if let Some(mb) = self.memory_limit_mb {

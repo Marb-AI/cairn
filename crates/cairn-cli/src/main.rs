@@ -15,6 +15,7 @@ use std::time::Instant;
 
 /// Exit codes are part of the contract: an agent must be able to tell "nothing is
 /// there" from "I cannot see" (architecture 6.1.1).
+mod index;
 mod track;
 
 mod exit {
@@ -96,12 +97,15 @@ enum Aspect {
 
 #[derive(Subcommand)]
 enum Cmd {
-    /// Load a SCIP index into the store, replacing what is there.
+    /// Index the repository you are standing in.
+    ///
+    /// Takes nothing in the normal case: the working directory is the repository, the
+    /// languages are whatever the tree actually contains, and the indexers are run for
+    /// you. Passing .scip files instead skips that and ingests them directly.
     Index {
-        /// One or more .scip files.
+        /// Ingest these .scip files rather than producing any. Rarely needed.
         indexes: Vec<PathBuf>,
-        /// Repo root, used to detect generated code by header marker rather than by
-        /// filename pattern. Strongly recommended: filename patterns lie.
+        /// Repository root. Defaults to the working directory.
         #[arg(long)]
         repo: Option<PathBuf>,
     },
@@ -185,6 +189,15 @@ enum Cmd {
     /// a file as generated, where tests live. Copy the output to `.cairn/rules.yaml` and
     /// edit it to change any of them without rebuilding (architecture D16).
     Rules,
+    /// Show or change cairn's own settings.
+    ///
+    /// These belong to the installation rather than to any repository, so they live
+    /// beside the binary and one setting serves every checkout on the machine.
+    Config {
+        /// A setting to change, as `key=value`. Without one, prints what is in effect.
+        /// `key=unset` restores the default.
+        assignment: Option<String>,
+    },
     /// Deployed services and what each one runs.
     Topology,
     /// Every deployed service a change here touches, in-process and over the network.
@@ -436,6 +449,129 @@ fn default_db() -> PathBuf {
     PathBuf::from(".cairn/index.sqlite")
 }
 
+/// Would this command be better for having a file watcher behind it?
+///
+/// Everything that reads the index would. The exceptions are the commands that are not
+/// about a repository's contents at all, plus `index` itself — it is about to replace the
+/// file the watcher would be tracking — and `daemon`, which starts one on its own terms.
+fn wants_a_watcher(cmd: &Cmd) -> bool {
+    !matches!(
+        cmd,
+        Cmd::Daemon { .. } | Cmd::Index { .. } | Cmd::Config { .. } | Cmd::Rules
+    )
+}
+
+/// Start a watcher for this index in the background, and do not wait for it.
+///
+/// Best-effort throughout: every failure here is silent, because none of them should cost
+/// the caller the answer they actually asked for. A repository with no watcher gets an
+/// honest `stale:` line, which is the same thing it got before this existed.
+fn spawn_daemon(db: &Path) {
+    use std::process::Stdio;
+
+    // `<repo>/.cairn/index.sqlite` — the repository is two levels up.
+    let Some(repo) = db.parent().and_then(|d| d.parent()) else {
+        return;
+    };
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    // Somewhere for it to complain to. Without this the daemon's stderr would land in the
+    // caller's terminal, minutes later and out of nowhere.
+    let log = db.parent().map(|d| d.join("daemon.log")).and_then(|p| {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(p)
+            .ok()
+    });
+
+    let mut cmd = std::process::Command::new(exe);
+    cmd.arg("--db")
+        .arg(db)
+        .arg("daemon")
+        .arg("--repo")
+        .arg(repo)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(log.map(Stdio::from).unwrap_or_else(Stdio::null));
+
+    // Detach, or the watcher dies with the shell that happened to run the first query —
+    // including on a Ctrl-C aimed at something else entirely.
+    #[cfg(unix)]
+    unsafe {
+        use std::os::unix::process::CommandExt;
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP: no console, and not on the
+        // receiving end of the parent's Ctrl-C.
+        cmd.creation_flags(0x0000_0008 | 0x0000_0200);
+    }
+
+    let _ = cmd.spawn();
+}
+
+/// Run the indexers for whatever the tree contains, and return the SCIP files produced.
+///
+/// Reports per language rather than stopping at the first gap. A repository whose Go is
+/// indexable and whose Python is not should get its Go answers plus a plain statement that
+/// the Python ones are absent — the same contract every query here follows, applied to the
+/// build step.
+fn produce_indexes(repo: &Path, out_dir: &Path) -> Result<Vec<PathBuf>> {
+    use std::io::Write;
+
+    let found = index::scan(repo)?;
+    if found.is_empty() {
+        anyhow::bail!(
+            "found no Go or Python sources under {}.\n\
+             Those are the two languages cairn indexes today; if the code is elsewhere, \
+             run this from that directory.",
+            repo.display()
+        );
+    }
+
+    println!("repository: {}", repo.display());
+    let mut produced = Vec::new();
+    let mut missing = Vec::new();
+    for f in &found {
+        print!("  {:<7} {:>6} files  ", f.language.name, f.files);
+        let _ = std::io::stdout().flush();
+        match index::run_indexer(f, out_dir) {
+            index::Outcome::Indexed { scip, seconds } => {
+                println!("{seconds:.1}s");
+                produced.push(scip);
+            }
+            index::Outcome::NoIndexer => {
+                println!("{} is not installed", f.language.indexer);
+                println!("{:>16}install it with: {}", "", f.language.install);
+                missing.push(f.language.name);
+            }
+            index::Outcome::Failed(e) => {
+                println!("{} failed: {e}", f.language.indexer);
+                missing.push(f.language.name);
+            }
+        }
+    }
+
+    if produced.is_empty() {
+        anyhow::bail!("nothing could be indexed - install the indexer(s) above and try again");
+    }
+    if !missing.is_empty() {
+        println!(
+            "unknown:  {} is present but was not indexed, so answers about it will be \
+             incomplete rather than empty",
+            missing.join(" and ")
+        );
+    }
+    Ok(produced)
+}
+
 /// Make the index directory, and make it uncommittable.
 ///
 /// A `.gitignore` holding `*` inside `.cairn/` means the directory ignores itself and
@@ -472,13 +608,32 @@ fn run() -> Result<u8> {
                 .chain(d.removed)
                 .collect::<Vec<String>>()
         });
+    // Nobody should have to know the daemon exists. If this repository has an index and
+    // nothing is watching it, start one and carry on — the command it was asked to run
+    // does not wait, so the only cost is that this one answer cannot report freshness.
+    if dirty.is_none() && db.exists() && wants_a_watcher(&cli.cmd) {
+        spawn_daemon(&db);
+    }
 
     match cli.cmd {
         Cmd::Index { indexes, repo } => {
-            if indexes.is_empty() {
-                anyhow::bail!("give at least one .scip file");
-            }
+            // The working directory is the repository. No check for `.git`: standing
+            // somewhere is the intent, and a monorepo subtree or a plain directory of
+            // sources is a perfectly good thing to want indexed.
+            let repo = match repo {
+                Some(r) => r,
+                None => std::env::current_dir().context("reading the working directory")?,
+            };
             ensure_index_dir(&db)?;
+            let repo = Some(repo);
+
+            // Nothing was named, so work out what is here and produce it.
+            let indexes = if indexes.is_empty() {
+                index::refuse_own_directory(repo.as_deref().unwrap())?;
+                produce_indexes(repo.as_deref().unwrap(), &index::index_dir(&db)?)?
+            } else {
+                indexes
+            };
             let started = Instant::now();
             // Build beside the live index, then swap. Measured: while `index` ran, twelve
             // of twelve concurrent reads failed, because a rebuild is not one transaction
@@ -794,6 +949,40 @@ fn run() -> Result<u8> {
             })
         }
 
+        Cmd::Config { assignment } => {
+            let mut cfg = cairn_store::Config::load()?;
+            match assignment {
+                None => {
+                    let where_from = cairn_store::config::config_path()
+                        .filter(|p| p.exists())
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|| "defaults (nothing has been set yet)".to_string());
+                    println!("# from: {where_from}");
+                    let width = cairn_store::config::SETTINGS
+                        .iter()
+                        .map(|(k, _)| k.len())
+                        .max()
+                        .unwrap_or(0);
+                    for (key, description) in cairn_store::config::SETTINGS {
+                        println!(
+                            "{key:<width$}  {:<8}  {description}",
+                            cfg.get(key).unwrap_or_default()
+                        );
+                    }
+                    Ok(exit::FOUND)
+                }
+                Some(a) => {
+                    let (key, value) = a.split_once('=').with_context(|| {
+                        format!("expected key=value, got {a:?} (try `cairn config` to see them)")
+                    })?;
+                    cfg.set(key.trim(), value.trim())?;
+                    let path = cfg.save()?;
+                    println!("{key} = {}", cfg.get(key.trim()).unwrap_or_default());
+                    println!("# saved to {}", path.display());
+                    Ok(exit::FOUND)
+                }
+            }
+        }
         Cmd::Rules => {
             let path = db.parent().map(|d| d.join("rules.yaml"));
             let from = match path.as_deref() {
