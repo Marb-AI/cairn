@@ -1,0 +1,25 @@
+# Regenerating the fixture SCIP indexes.
+#
+#   docker compose -f crates/cairn-cli/tests/fixtures/compose.yaml run --rm scip
+#
+# Reuses the phase 0 spike image, which already carries scip-go and scip-python. They are
+# not in the CI image on purpose: the indexes are committed, so CI never runs an indexer.
+name: cairn-fixture
+
+services:
+  scip:
+    build:
+      context: ../../../../spike
+      dockerfile: Dockerfile
+    entrypoint: ["bash", "/index.sh"]
+    volumes:
+      # Read-only: indexing must not edit the corpus it describes.
+      - ./corpus:/corpus:ro
+      - ./index:/out
+      - ./index.sh:/index.sh:ro
+    environment:
+      CORPUS: /corpus
+      OUT: /out
+      HOST_UID: ${UID:-1000}
+      HOST_GID: ${GID:-1000}
+    command: []

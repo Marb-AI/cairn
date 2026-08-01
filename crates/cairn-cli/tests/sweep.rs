@@ -23,7 +23,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
-const STRIDE: usize = 997; // prime, so the sample is not aligned with any file boundary
+/// How many symbols to sweep, rather than how far apart they sit.
+///
+/// This used to be a fixed stride of 997. That is fine on a checkout with a hundred
+/// thousand symbols and useless on the fixture corpus, which has a few hundred and would
+/// yield a sample of nothing — so the sweep would pass by never running. A count works on
+/// both, and the stride is derived from it.
+const SAMPLE: usize = 40;
 const CEILING_SECS: u64 = 10;
 
 /// The repository the corpus index describes. `/repo` inside the build container, a
@@ -37,6 +43,9 @@ fn indexed_repo(root: &Path) -> PathBuf {
     }
     root.join("../repos/backend")
 }
+
+mod common;
+use common::build_fixture_index;
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -58,15 +67,28 @@ fn binary() -> PathBuf {
 #[test]
 fn every_command_holds_its_contract_across_the_index() {
     let root = workspace_root();
-    // The index belongs to the codebase it describes, not to cairn's own tree — the same
-    // place `cairn` itself would look for it when run from inside that repository.
-    let db = indexed_repo(&root).join(".cairn/index.sqlite");
-    if !db.exists() {
-        eprintln!("SKIP: no index at {}", db.display());
-        return;
-    }
     let bin = binary();
     assert!(bin.exists(), "cairn not built at {}", bin.display());
+
+    // A real checkout when there is one: it is the corpus worth sweeping and it is what a
+    // workstation has. Otherwise the fixture in this tree, which is what CI has. The sweep
+    // must not skip there — a contract test that only runs on one machine is a contract
+    // test that does not run.
+    let real = indexed_repo(&root).join(".cairn/index.sqlite");
+    let (db, corpus) = if real.exists() {
+        (real, "the indexed repository")
+    } else {
+        match build_fixture_index(&root, &bin, "sweep") {
+            Some(db) => (db, "the fixture corpus"),
+            None => {
+                eprintln!(
+                    "SKIP: no index at {} and no fixture SCIP to build one from",
+                    real.display()
+                );
+                return;
+            }
+        }
+    };
 
     let conn = rusqlite::Connection::open(&db).expect("opening the index");
     let mut stmt = conn
@@ -75,18 +97,25 @@ fn every_command_holds_its_contract_across_the_index() {
               ORDER BY h.symbol_id",
         )
         .expect("listing handles");
-    let handles: Vec<String> = stmt
+    let all: Vec<String> = stmt
         .query_map([], |r| r.get::<_, String>(0))
         .expect("reading handles")
         .filter_map(|h| h.ok())
-        .step_by(STRIDE)
         .collect();
     drop(stmt);
     drop(conn);
+
+    // Ordered by symbol id and stepped, so the sample is the same on every run against the
+    // same index: a failure is reproducible and a fix can be verified. Forced odd because
+    // symbols arrive grouped by file, and an even stride can land on the same position
+    // within each of them for a whole run.
+    let stride = ((all.len() / SAMPLE).max(1) | 1).max(1);
+    let handles: Vec<String> = all.iter().cloned().step_by(stride).collect();
     assert!(
-        handles.len() > 20,
-        "sample too small to mean anything: {}",
-        handles.len()
+        handles.len() >= 20,
+        "sample too small to mean anything: {} handles out of {} symbols",
+        handles.len(),
+        all.len()
     );
 
     // Every read command that takes a handle. `affects` and `runs` are the expensive ones
@@ -172,5 +201,9 @@ fn every_command_holds_its_contract_across_the_index() {
         handles.len(),
         failures.join("\n")
     );
-    eprintln!("swept {checked} command runs across {} symbols", handles.len());
+    eprintln!(
+        "swept {checked} command runs across {} of {} symbols in {corpus}",
+        handles.len(),
+        all.len()
+    );
 }

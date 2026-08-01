@@ -1,0 +1,57 @@
+// The schema both sides are generated from. Kept beside the corpus so the generated
+// packages have a visible origin; nothing in the build reads it.
+syntax = "proto3";
+
+package telemetry;
+
+message Reading {
+  string station_id = 1;
+  double celsius = 2;
+  double humidity = 3;
+  int64 observed_at = 4;
+  bool sensor_fault = 5;
+}
+
+message ReadingBatch {
+  repeated Reading readings = 1;
+  string source = 2;
+}
+
+message IngestAck {
+  int64 accepted = 1;
+  int64 rejected = 2;
+}
+
+message AlertRequest {
+  string station_id = 1;
+  string reason = 2;
+  double celsius = 3;
+}
+
+message AlertAck {
+  bool raised = 1;
+  string note = 2;
+}
+
+message StationQuery {
+  string station_id = 1;
+}
+
+message StationInfo {
+  string station_id = 1;
+  string label = 2;
+  int64 altitude = 3;
+  bool retired = 4;
+}
+
+// Served by the Go collector, called from the Python worker.
+service TelemetryService {
+  rpc UploadReadings(ReadingBatch) returns (IngestAck);
+  rpc DescribeStation(StationQuery) returns (StationInfo);
+}
+
+// Served by the Python worker, called from the Go collector.
+service AlertService {
+  rpc RaiseAlert(AlertRequest) returns (AlertAck);
+  rpc ClearAlert(AlertRequest) returns (AlertAck);
+}

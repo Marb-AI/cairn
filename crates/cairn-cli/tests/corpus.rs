@@ -7,14 +7,25 @@
 //! run by nothing, a handlers package reported as entirely dead, a truncated list that
 //! looked complete, a correctness fix that cost two orders of magnitude of latency.
 //!
-//! The cases are data (`eval/corpus/cases.yaml`) so that adding one needs no Rust.
+//! The cases are data, so that adding one needs no Rust.
 //!
-//! Skipped, loudly, when there is no index: a fresh clone has none, and a test that fails
-//! for want of a fixture teaches people to ignore it.
+//! Two corpora, two case files. The fixture corpus in `tests/fixtures/` is the one that
+//! ships: it is invented, it is committed, and its cases in `tests/fixtures/cases.yaml`
+//! run everywhere, including CI. A private checkout can add a second set at
+//! `eval/corpus/cases.yaml` asserting facts about that codebase; those cases quote real
+//! names and counts, so they are not in this repository and their absence is normal.
+//!
+//! The point of shipping the first set is that "there is no corpus here" must not quietly
+//! mean "correctness is not checked here".
+//!
+//! Skipped, loudly, only when even the fixture SCIP is missing.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
+
+mod common;
+use common::build_fixture_index;
 
 #[derive(serde::Deserialize)]
 struct Case {
@@ -65,7 +76,10 @@ fn make_fixtures(real: &Path) -> std::collections::HashMap<String, PathBuf> {
     out.insert("empty".to_string(), empty);
 
     let garbage = dir.join("garbage.sqlite");
-    let _ = std::fs::write(&garbage, b"this is not a database, it is a sentence.\n".repeat(64));
+    let _ = std::fs::write(
+        &garbage,
+        b"this is not a database, it is a sentence.\n".repeat(64),
+    );
     out.insert("garbage".to_string(), garbage);
 
     // An index written by an older build: the binary must refuse it rather than read
@@ -74,7 +88,10 @@ fn make_fixtures(real: &Path) -> std::collections::HashMap<String, PathBuf> {
     std::fs::copy(real, &old).expect("copying the index to make an old-schema fixture");
     let conn = rusqlite::Connection::open(&old).expect("opening the old-schema fixture");
     let changed = conn
-        .execute("UPDATE meta SET value = '1' WHERE key = 'schema_version'", [])
+        .execute(
+            "UPDATE meta SET value = '1' WHERE key = 'schema_version'",
+            [],
+        )
         .expect("ageing the fixture's schema version");
     // Asserted, not hoped for: a fixture that silently fails to be broken makes the case
     // pass for the wrong reason, which is worse than the case not existing.
@@ -126,36 +143,60 @@ fn binary() -> PathBuf {
 #[test]
 fn corpus_cases_hold() {
     let root = workspace_root();
-    // The index belongs to the codebase it describes, not to cairn's own tree — the same
-    // place `cairn` itself would look for it when run from inside that repository.
-    let db = indexed_repo(&root).join(".cairn/index.sqlite");
-    if !db.exists() {
-        eprintln!(
-            "SKIP: no index at {}. Build one with `cairn index <file.scip> --repo <dir>` \
-             to run the corpus cases.",
-            db.display()
-        );
-        return;
-    }
-    // Where the indexed source tree is *from here*. The same cases run on a host and
-    // inside the build container, which mounts the tree at /repo, so an absolute path
-    // written into a case would pass in one and fail in the other for no real reason.
-    let repo = std::env::var("CAIRN_TEST_REPO").unwrap_or_else(|_| {
-        if Path::new("/repo").exists() {
-            "/repo".to_string()
-        } else {
-            root.join("../repos/backend").to_string_lossy().to_string()
-        }
-    });
-
-    let fixtures = make_fixtures(&db);
     let bin = binary();
     assert!(bin.exists(), "cairn binary not built at {}", bin.display());
 
-    let text = std::fs::read_to_string(root.join("eval/corpus/cases.yaml"))
-        .expect("reading eval/corpus/cases.yaml");
-    let cases: Vec<Case> = serde_yaml::from_str(&text).expect("parsing cases.yaml");
-    assert!(!cases.is_empty(), "no cases defined");
+    // The index belongs to the codebase it describes, not to cairn's own tree — the same
+    // place `cairn` itself would look for it when run from inside that repository. Where
+    // there is no such checkout, the fixture corpus stands in with its own case file: the
+    // real cases assert facts about a real codebase and cannot be made to hold anywhere
+    // else, but "no corpus" must not silently mean "no correctness cases".
+    // `eval/corpus/cases.yaml` is not in this repository: its cases quote names and counts
+    // from a closed codebase. Whoever has that checkout drops the file in beside it; for
+    // everyone else the path simply does not exist and the fixture cases run instead.
+    let real = indexed_repo(&root).join(".cairn/index.sqlite");
+    let real_cases = root.join("eval/corpus/cases.yaml");
+    let (db, repo, cases_path) = if real.exists() && real_cases.exists() {
+        // Where the indexed source tree is *from here*. The same cases run on a host and
+        // inside the build container, which mounts the tree at /repo, so an absolute path
+        // written into a case would pass in one and fail in the other for no real reason.
+        let repo = std::env::var("CAIRN_TEST_REPO").unwrap_or_else(|_| {
+            if Path::new("/repo").exists() {
+                "/repo".to_string()
+            } else {
+                root.join("../repos/backend").to_string_lossy().to_string()
+            }
+        });
+        (real, repo, real_cases)
+    } else {
+        let fixtures = root.join("crates/cairn-cli/tests/fixtures");
+        match build_fixture_index(&root, &bin, "corpus") {
+            Some(db) => (
+                db,
+                fixtures.join("corpus").to_string_lossy().to_string(),
+                fixtures.join("cases.yaml"),
+            ),
+            None => {
+                eprintln!(
+                    "SKIP: no index at {} and no fixture SCIP to build one from",
+                    real.display()
+                );
+                return;
+            }
+        }
+    };
+
+    let fixtures = make_fixtures(&db);
+
+    let text = std::fs::read_to_string(&cases_path)
+        .unwrap_or_else(|e| panic!("reading {}: {e}", cases_path.display()));
+    let cases: Vec<Case> = serde_yaml::from_str(&text)
+        .unwrap_or_else(|e| panic!("parsing {}: {e}", cases_path.display()));
+    assert!(
+        !cases.is_empty(),
+        "no cases defined in {}",
+        cases_path.display()
+    );
 
     // Every case runs before anything is reported, so one failure does not hide the rest —
     // a suite that stops at the first problem tells you least when it matters most.

@@ -1,0 +1,123 @@
+# Correctness cases for the fixture corpus.
+#
+# The parallel of eval/corpus/cases.yaml, which asserts facts about a real checkout and
+# can only run where that checkout exists. These run everywhere, including CI, and are
+# what stops "the corpus cases pass" from meaning "the corpus cases were skipped".
+#
+# Two kinds of case live here:
+#
+#   * Ones about the corpus, which are only as stable as the corpus. Adding a symbol to
+#     tests/fixtures/corpus/ shifts handles, so a case naming one has to be updated with
+#     it. Prefer a name or a path over a handle wherever the command takes one.
+#   * Ones about degraded indexes, which say nothing about any codebase and would hold
+#     against any corpus at all. Those are copied in spirit from the real case file: they
+#     are the states most tempting to leave untested and most dangerous when wrong.
+#
+# Fields: args (required), db, env, cwd, exit, contains, not_contains, max_seconds.
+
+# ── the tool has nothing, and says so ────────────────────────────────────────────────
+- name: an unknown name reports what is indexed instead of an empty list
+  args: [symbol, ThisSymbolDoesNotExistAnywhere]
+  contains: ["nothing by that name", "indexed:"]
+  max_seconds: 5
+
+- name: an empty query is a mistake, not a search that matches everything
+  args: [symbol, ""]
+  exit: 2
+  max_seconds: 5
+
+- name: a handle that does not exist is a bad query, not an empty result
+  args: [runs, ZZZZZ]
+  exit: 2
+  contains: ["no symbol with handle"]
+  max_seconds: 5
+
+- name: a blast radius on a bad handle fails before doing any work
+  args: [affects, ZZZZZ]
+  exit: 2
+  contains: ["no symbol with handle"]
+  max_seconds: 5
+
+# ── dispatched code is not dead code, but it does look it ────────────────────────────
+# The handlers in dispatch.py are reached through a registry, so no call graph can see
+# them. The tool is allowed to say it found no caller; what it must not do is say so
+# without the envelope that admits what it cannot see.
+- name: a dispatched handler is found by name in the file that registers it
+  args: [symbol, handle_severe_cold]
+  contains: ["handle_severe_cold", "srcpy/alerting/dispatch.py"]
+  max_seconds: 5
+
+- name: dispatched handlers are listed as uncalled rather than omitted
+  args: [unreached, srcpy/alerting]
+  contains: ["handle_severe_cold", "no callers"]
+  max_seconds: 5
+
+- name: an outline separates production callers from test-only ones
+  args: [outline, srcgo/internal/station]
+  contains: ["Registry.Add", "test-only", "prod"]
+  max_seconds: 5
+
+# ── the deployment chain, both shapes ────────────────────────────────────────────────
+# One service starts from a built Go binary and needs the Dockerfile hop; one names a
+# Python module directly. The third resolves to nothing and has to be reported as such.
+- name: topology resolves a built binary and a python module, and admits the third
+  args: [topology]
+  contains:
+    - "telemetry-collector"
+    - "srcgo/cmd/collector/main.go"
+    - "alert-worker"
+    - "srcpy/alerting/worker.py"
+    - "metrics-sidecar"
+  max_seconds: 5
+
+- name: a service whose start command resolves to nothing is named, not dropped
+  args: [topology]
+  contains: ["could not be resolved to code"]
+  max_seconds: 5
+
+# ── the cross-language boundary ──────────────────────────────────────────────────────
+# The edge no name search can find: nothing in the Go tree names the Python class, and
+# nothing in the Python tree names the Go one. Only the generated artefacts join them.
+- name: the index sees two services, not one per language
+  args: [verify]
+  contains: ["index coverage"]
+  max_seconds: 5
+
+# ── degraded indexes: nothing here depends on the corpus ─────────────────────────────
+# Exit codes are the contract an agent reads: 3 degraded, 2 bad query or unusable index,
+# 1 nothing found, 0 found. A confident 0 over a broken index is worse than any wrong
+# answer, because nothing downstream doubts it.
+- name: no index says so and reports degraded, not empty
+  db: missing
+  args: [status]
+  exit: 3
+  contains: ["no index at"]
+  max_seconds: 5
+
+- name: an empty file where an index should be is degraded, not an empty answer
+  db: empty
+  args: [symbol, Registry]
+  exit: 3
+  not_contains: ["0 matches"]
+  max_seconds: 5
+
+- name: a corrupt database is refused rather than half-read
+  db: garbage
+  args: [symbol, Registry]
+  exit: 3
+  contains: ["not a database"]
+  max_seconds: 5
+
+- name: an index from an older build is refused with both versions named
+  db: old_schema
+  args: [status]
+  exit: 3
+  contains: ["schema v1", "re-run `cairn index`"]
+  max_seconds: 5
+
+- name: an index copied without its knowledge sidecar still answers
+  db: no_sidecar
+  args: [symbol, handle_severe_cold]
+  exit: 0
+  not_contains: ["unable to open database", "-knowledge.sqlite"]
+  max_seconds: 5

@@ -1,0 +1,25 @@
+# Two services, started two different ways on purpose: the rule pack parses a built
+# binary and a `python -m` module through separate branches, and the topology command has
+# to get both right.
+name: telemetry
+
+services:
+  telemetry-collector:
+    build:
+      context: ./srcgo
+    command: ["/bin/collector"]
+    ports:
+      - "9101:9101"
+
+  alert-worker:
+    build:
+      context: ./srcpy
+    command: ["python3", "-m", "alerting.worker"]
+    ports:
+      - "9102:9102"
+
+  # Started and left running, so it resolves to no entrypoint at all. A service the tool
+  # cannot attribute code to has to be reported as such rather than silently dropped.
+  metrics-sidecar:
+    image: busybox
+    command: ["sleep", "infinity"]

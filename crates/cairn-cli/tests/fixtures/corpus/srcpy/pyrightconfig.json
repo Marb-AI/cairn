@@ -1,0 +1,6 @@
+{
+  "pythonVersion": "3.13",
+  "typeCheckingMode": "basic",
+  "exclude": ["**/__pycache__"],
+  "extraPaths": ["."]
+}

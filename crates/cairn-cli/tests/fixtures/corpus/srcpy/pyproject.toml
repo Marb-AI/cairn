@@ -1,0 +1,9 @@
+[project]
+name = "telemetry-alerting"
+version = "0.0.0"
+description = "Fixture corpus. Not a real package; standard library only, on purpose."
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.setuptools]
+packages = ["alerting", "schema"]
