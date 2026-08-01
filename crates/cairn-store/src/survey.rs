@@ -75,6 +75,7 @@ impl Store {
                      WHERE e.dst_symbol = s.id AND e.kind = 0
                        AND coalesce(cf.is_test, 0) = 1)  AS test_callers
               FROM symbols s
+              JOIN strings n ON n.id = s.name_id
               JOIN files   f ON f.id = s.def_file_id
               JOIN strings p ON p.id = f.path_id
              WHERE p.s LIKE ?1
@@ -87,6 +88,11 @@ impl Store {
                -- one is an RPC method invoked over the wire from Go. A command whose whole
                -- promise is "what production never calls" was wrong about an entire
                -- directory, which is worse than being expensive.
+               -- A constructor is called by naming its type, and the call graph attributes
+               -- that to the type symbol. `__init__` therefore always shows zero callers,
+               -- which is an artefact of how instantiation is modelled and not a finding.
+               -- Surfaced by a measured run (task M) that had to reason its way past it.
+               AND n.s NOT IN ('__init__', '__new__')
                AND NOT EXISTS (
                    SELECT 1 FROM service_links l WHERE l.symbol_id = s.id AND l.role = 0)
                AND NOT EXISTS (
@@ -123,7 +129,25 @@ impl Store {
     ///
     /// The question "what is in here" was the first move of every agent that had to work
     /// in an unfamiliar package, and answering it meant listing files and reading them.
-    pub fn outline(&self, prefix: &str, limit: usize) -> Result<Vec<OutlineEntry>> {
+    /// What a module or directory contains, with how used each thing is, and the total.
+    ///
+    /// The count matters: `outline` used to apply its limit in SQL and return the rows
+    /// with no indication that there were more. A measured run (task M) asked about a
+    /// directory holding 91 definitions, got 80, noticed two files missing entirely and
+    /// re-ran per file to recover them. Silent truncation is the failure the envelope
+    /// exists to prevent, and it was in one of the three commands the guide tells agents
+    /// to prefer.
+    pub fn outline(&self, prefix: &str, limit: usize) -> Result<(Vec<OutlineEntry>, i64)> {
+        let like_total = format!("{}%", prefix.trim_end_matches('/'));
+        let total: i64 = self.conn.query_row(
+            "SELECT count(*) FROM symbols s
+               JOIN files f ON f.id = s.def_file_id
+               JOIN strings p ON p.id = f.path_id
+              WHERE p.s LIKE ?1 AND f.generated = 0 AND s.kind IN (1, 3)",
+            params![like_total],
+            |r| r.get(0),
+        )?;
+
         let like = format!("{}%", prefix.trim_end_matches('/'));
         let mut stmt = self.conn.prepare(
             r#"
@@ -172,7 +196,7 @@ impl Store {
                 dispatched,
             });
         }
-        Ok(out)
+        Ok((out, total))
     }
 
     /// Everything that reads or writes a symbol, grouped by the file that owns the site.

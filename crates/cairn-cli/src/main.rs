@@ -433,12 +433,12 @@ fn run() -> Result<u8> {
 
         Cmd::Outline { prefix, limit } => {
             let store = open(&db)?;
-            let rows = store.outline(&prefix, limit)?;
+            let (rows, total) = store.outline(&prefix, limit)?;
             let found = !rows.is_empty();
             let paths = paths_of(rows.iter().map(|r| r.symbol.def.as_ref()));
             print!(
                 "{}",
-                cairn_fmt::outline(&prefix, &rows, &mut budget)
+                cairn_fmt::outline(&prefix, &rows, total, &mut budget)
                     .mark_stale(dirty.as_deref(), &paths)
                     .render()
             );

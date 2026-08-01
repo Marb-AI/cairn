@@ -1031,9 +1031,18 @@ pub fn unreached(
 }
 
 /// What a module contains, and how used each thing is.
-pub fn outline(prefix: &str, rows: &[cairn_store::OutlineEntry], budget: &mut Budget) -> Envelope {
+pub fn outline(
+    prefix: &str,
+    rows: &[cairn_store::OutlineEntry],
+    total: i64,
+    budget: &mut Budget,
+) -> Envelope {
     let mut body = String::new();
-    let _ = writeln!(body, "{prefix}   {} definitions", rows.len());
+    let _ = writeln!(
+        body,
+        "{prefix}   {} of {total} definitions",
+        rows.len()
+    );
     for r in rows {
         let use_note = if r.production_callers > 0 {
             format!("{} prod", r.production_callers)
@@ -1053,7 +1062,17 @@ pub fn outline(prefix: &str, rows: &[cairn_store::OutlineEntry], budget: &mut Bu
     if rows.is_empty() {
         let _ = writeln!(body, "  (nothing indexed under that path)");
     }
-    Envelope::new(body)
+    {
+        let mut env = Envelope::new(body);
+        let dropped = total - rows.len() as i64;
+        if dropped > 0 {
+            env = env.suppressed(format!(
+                "{dropped} definitions beyond --limit. Whole files can be missing from \
+                 this list; raise --limit or narrow the path"
+            ));
+        }
+        env
+    }
 }
 
 /// Where a symbol is used, grouped by file rather than listed flat.
