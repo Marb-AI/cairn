@@ -135,6 +135,7 @@ impl Store {
 
         let mut frontier = vec![symbol_id];
         let mut seen_calls: HashSet<i64> = HashSet::new();
+        let mut walked: HashSet<i64> = HashSet::new();
         let mut hop_count = 0usize;
 
         while !frontier.is_empty() {
@@ -146,6 +147,12 @@ impl Store {
             let mut next = Vec::new();
 
             for root in frontier {
+                // Walking a root twice yields the same nodes. Without this, hop N+1's
+                // frontier re-walked symbols hop N had already covered, and on a symbol
+                // with thirty RPC routes into it that repetition was most of the runtime.
+                if !walked.insert(root) {
+                    continue;
+                }
                 // Everything that reaches this symbol inside its own process. The hop
                 // starts wherever that closure meets an RPC handler.
                 let walk =
@@ -259,8 +266,7 @@ impl Store {
               JOIN symbols t ON t.id = l.symbol_id AND t.kind = 1
               JOIN strings tn ON tn.id = t.name_id
               JOIN symbols m ON m.def_file_id = t.def_file_id AND m.id <> t.id
-              JOIN strings c ON c.id = m.container_id
-               AND (c.s = tn.s OR c.s LIKE '%/' || tn.s || '#')
+               AND m.container_leaf_id = t.name_id
              WHERE l.role = 0
             "#,
         )?;

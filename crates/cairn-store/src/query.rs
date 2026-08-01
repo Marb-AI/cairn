@@ -379,7 +379,7 @@ impl Store {
               JOIN symbols t ON t.def_file_id = me.def_file_id AND t.kind = 1 AND t.id <> me.id
               JOIN strings tn ON tn.id = t.name_id
              WHERE me.id = ?1
-               AND (c.s = tn.s OR c.s LIKE '%/' || tn.s || '#')
+               AND me.container_leaf_id = t.name_id
              ORDER BY length(tn.s) DESC
              LIMIT 1
             "#,

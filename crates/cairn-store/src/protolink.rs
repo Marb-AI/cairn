@@ -294,34 +294,6 @@ impl Store {
                 }
             }
 
-            // Membership for service-bound types only, materialised as edges.
-            //
-            // A registered handler class puts its methods on the live path, and the walk
-            // needs to cross from the class to them. Resolving that with a LIKE join per
-            // node during the walk took `affects` from four seconds to over two minutes on
-            // a hot symbol — a measured run abandoned the command and worked by hand
-            // (eval/RESULTS.md, task E). Materialising it for *every* type was worse: the
-            // join is unindexable and there are thousands of them.
-            //
-            // Only service-bound types need it. A method of an ordinary class is reached
-            // by a static call like anything else; it is dispatch that hides the edge, and
-            // dispatch is what a service binding means.
-            tx.execute_batch(
-                r#"
-                DELETE FROM edges WHERE kind = 4 AND source = 0;
-
-                INSERT INTO edges(src_symbol, dst_symbol, kind, source, confidence,
-                                  file_id, line)
-                SELECT DISTINCT t.id, m.id, 4, 0, 1.0, m.def_file_id, m.def_line
-                  FROM service_links l
-                  JOIN symbols t  ON t.id = l.symbol_id AND t.kind = 1
-                  JOIN strings tn ON tn.id = t.name_id
-                  JOIN symbols m  ON m.def_file_id = t.def_file_id AND m.id <> t.id
-                  JOIN strings c  ON c.id = m.container_id
-                   AND (c.s = tn.s OR c.s LIKE '%/' || tn.s || '#')
-                 WHERE l.role = 0;
-                "#,
-            )?;
         }
         tx.commit()?;
         // `services` counts artefacts processed, not distinct services.
@@ -413,8 +385,7 @@ impl Store {
               -- proto packages apart, since both spell the service the same way.
               JOIN symbols rpc
                 ON rpc.def_file_id = art.def_file_id AND rpc.id <> art.id
-              JOIN strings cont ON cont.id = rpc.container_id
-               AND (cont.s = art_name.s OR cont.s LIKE '%/' || art_name.s || '#')
+               AND rpc.container_leaf_id = art.name_id
               JOIN strings rpc_name ON rpc_name.id = rpc.name_id
               JOIN edges e ON e.dst_symbol = rpc.id AND e.kind = 0
               JOIN symbols caller ON caller.id = e.src_symbol
@@ -458,8 +429,7 @@ impl Store {
             SELECT n.s FROM symbols t
               JOIN strings tn ON tn.id = t.name_id
               JOIN symbols m ON m.def_file_id = t.def_file_id AND m.id <> t.id
-              JOIN strings c ON c.id = m.container_id
-               AND (c.s = tn.s OR c.s LIKE '%/' || tn.s || '#')
+               AND m.container_leaf_id = t.name_id
               JOIN strings n ON n.id = m.name_id
              WHERE t.id = ?1
             "#,

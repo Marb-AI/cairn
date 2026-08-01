@@ -15,7 +15,7 @@ use rusqlite::Connection;
 /// Bumped whenever the schema changes in a way that invalidates existing databases.
 /// The ingest path drops and rebuilds rather than migrating: the store is a projection,
 /// never a source of truth.
-pub const SCHEMA_VERSION: i64 = 13;
+pub const SCHEMA_VERSION: i64 = 14;
 
 pub const SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -69,6 +69,10 @@ CREATE TABLE IF NOT EXISTS symbols (
     -- exactly the set that can *contain* a reference - measured coverage of
     -- reference attribution is 87 % for Go and 92 % for Python.
     def_end_line  INTEGER,
+    -- Last segment of the container descriptor: `…/PricingServiceHandler#` -> the id of
+    -- `PricingServiceHandler`. Derived so membership joins on equality instead of a LIKE,
+    -- which is unindexable and made the one query that needs it cost minutes.
+    container_leaf_id INTEGER REFERENCES strings(id),
     -- Docstring or doc comment, straight from the index. Free: SCIP already carries it
     -- (77.7 % of Python symbols, 10.5 % of Go ones on the target repo), and it is the
     -- best bridge there is between a feature name and a symbol - "OAuth" often appears
@@ -183,6 +187,7 @@ CREATE INDEX IF NOT EXISTS sym_rank       ON symbols(name_id, def_generated, ref
 CREATE INDEX IF NOT EXISTS sym_by_module ON symbols(module_id);
 CREATE INDEX IF NOT EXISTS sym_has_doc   ON symbols(def_file_id) WHERE doc IS NOT NULL;
 CREATE INDEX IF NOT EXISTS sym_by_defspan ON symbols(def_file_id, def_line, def_end_line);
+CREATE INDEX IF NOT EXISTS sym_by_leaf    ON symbols(def_file_id, container_leaf_id);
 CREATE INDEX IF NOT EXISTS edge_out       ON edges(src_symbol, kind);
 CREATE INDEX IF NOT EXISTS edge_in        ON edges(dst_symbol, kind);
 CREATE INDEX IF NOT EXISTS file_is_test   ON files(is_test);
@@ -310,6 +315,7 @@ pub fn finalize(conn: &Connection) -> Result<()> {
         DROP TABLE _defs;
         "#,
     )?;
+    derive_container_leaves(conn)?;
     derive_call_edges(conn)?;
     assign_handles(conn)?;
     conn.execute_batch("ANALYZE;")?;
@@ -368,6 +374,48 @@ fn assign_handles(conn: &Connection) -> Result<()> {
 /// *innermost* such definition reconstructs the edge. References that fall in no body
 /// are module-level (imports, top-level constants) and correctly have no caller —
 /// they are counted, not hidden, so `unknown:` can report them.
+/// Fill in `container_leaf_id`: the last segment of each symbol's container descriptor.
+///
+/// SCIP gives a container as a full descriptor — `…/pricingService#`, `…/PricingServiceHandler#`.
+/// Matching that against a type's name needed `LIKE '%/' || name || '#'`, which no index can
+/// serve, and the one query that needs it — crossing from a registered class into the
+/// methods dispatch puts on the live path — cost minutes as a result. Done once here, the
+/// same join is an equality on an indexed column.
+fn derive_container_leaves(conn: &Connection) -> Result<()> {
+    let mut ids: Vec<(i64, String)> = Vec::new();
+    {
+        let mut stmt = conn.prepare(
+            "SELECT s.id, c.s FROM symbols s JOIN strings c ON c.id = s.container_id",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+        for r in rows {
+            ids.push(r?);
+        }
+    }
+    let tx = conn.unchecked_transaction()?;
+    {
+        let mut intern = tx.prepare(
+            "INSERT INTO strings(s) VALUES (?1) ON CONFLICT(s) DO UPDATE SET s = excluded.s
+             RETURNING id",
+        )?;
+        let mut upd = tx.prepare("UPDATE symbols SET container_leaf_id = ?2 WHERE id = ?1")?;
+        for (id, container) in ids {
+            let leaf = container
+                .rsplit('/')
+                .next()
+                .unwrap_or(&container)
+                .trim_end_matches(['#', '.', '(', ')']);
+            if leaf.is_empty() {
+                continue;
+            }
+            let sid: i64 = intern.query_row([leaf], |r| r.get(0))?;
+            upd.execute(rusqlite::params![id, sid])?;
+        }
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 fn derive_call_edges(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         r#"
@@ -424,6 +472,20 @@ fn derive_call_edges(conn: &Connection) -> Result<()> {
                       AND encl.id <> o.symbol_id)
         ) WHERE rn = 1;
 
+        -- Membership, for every type. A registered class puts its methods on the live
+        -- path and reachability has to cross that edge; restricting it to service-bound
+        -- types was a performance shortcut that silently broke pipeline stages, whose
+        -- methods are dispatched through an interface rather than a service binding.
+        -- With the container leaf precomputed this is an equality join and costs little.
+        DELETE FROM edges WHERE kind = 4 AND source = 0;
+
+        INSERT INTO edges(src_symbol, dst_symbol, kind, source, confidence, file_id, line)
+        SELECT t.id, m.id, 4, 0, 1.0, m.def_file_id, m.def_line
+          FROM symbols t
+          JOIN symbols m ON m.def_file_id = t.def_file_id
+                        AND m.container_leaf_id = t.name_id
+                        AND m.id <> t.id
+         WHERE t.kind = 1;
         "#,
     )?;
     Ok(())

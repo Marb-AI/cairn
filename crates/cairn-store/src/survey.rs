@@ -98,11 +98,9 @@ impl Store {
                AND NOT EXISTS (
                    SELECT 1
                      FROM symbols t
-                     JOIN strings tn ON tn.id = t.name_id
-                     JOIN strings c  ON c.id = s.container_id
                      JOIN service_links l ON l.symbol_id = t.id AND l.role = 0
                     WHERE t.def_file_id = s.def_file_id
-                      AND (c.s = tn.s OR c.s LIKE '%/' || tn.s || '#'))
+                      AND s.container_leaf_id = t.name_id)
              GROUP BY s.id
             HAVING prod_callers = 0
              ORDER BY test_callers DESC, s.ref_count DESC
@@ -162,11 +160,9 @@ impl Store {
                              WHERE l.symbol_id = s.id AND l.role = 0)
                     OR EXISTS (SELECT 1
                                  FROM symbols t
-                                 JOIN strings tn ON tn.id = t.name_id
-                                 JOIN strings c  ON c.id = s.container_id
                                  JOIN service_links l ON l.symbol_id = t.id AND l.role = 0
                                 WHERE t.def_file_id = s.def_file_id
-                                  AND (c.s = tn.s OR c.s LIKE '%/' || tn.s || '#')))
+                                  AND s.container_leaf_id = t.name_id))
               FROM symbols s
               JOIN files   f ON f.id = s.def_file_id
               JOIN strings p ON p.id = f.path_id
