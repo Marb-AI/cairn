@@ -320,8 +320,12 @@ pub fn index_dir(db: &Path) -> Result<PathBuf> {
 mod tests {
     use super::*;
 
-    fn tree(files: &[(&str, &str)]) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("cairn-scan-{}", files.len()));
+    /// Build a throwaway tree. `name` is the calling test's, not a description of the
+    /// contents: cargo runs these in parallel, and keying the directory on anything two
+    /// tests can share — the file count, say — means one test deletes another's tree
+    /// halfway through and the failure lands wherever the scheduler put it.
+    fn tree(name: &str, files: &[(&str, &str)]) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("cairn-scan-{name}"));
         let _ = std::fs::remove_dir_all(&dir);
         for (path, body) in files {
             let full = dir.join(path);
@@ -334,7 +338,10 @@ mod tests {
     #[test]
     fn extensions_decide_the_language_not_the_marker_file() {
         // No go.mod and no pyproject.toml anywhere: the code is still what it is.
-        let dir = tree(&[("srcgo/a.go", ""), ("srcgo/b.go", ""), ("srcpy/c.py", "")]);
+        let dir = tree(
+            "extensions",
+            &[("srcgo/a.go", ""), ("srcgo/b.go", ""), ("srcpy/c.py", "")],
+        );
         let found = scan(&dir).unwrap();
         let names: Vec<_> = found.iter().map(|f| f.language.name).collect();
         assert_eq!(names, vec!["go", "python"], "biggest first");
@@ -343,7 +350,7 @@ mod tests {
 
     #[test]
     fn a_marker_with_no_code_is_not_a_language() {
-        let dir = tree(&[("pyproject.toml", ""), ("main.go", "")]);
+        let dir = tree("marker-only", &[("pyproject.toml", ""), ("main.go", "")]);
         let found = scan(&dir).unwrap();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].language.name, "go");
@@ -351,37 +358,43 @@ mod tests {
 
     #[test]
     fn the_indexer_runs_at_the_shallowest_marker() {
-        let dir = tree(&[
-            ("go.mod", "module x"),
-            ("services/inner/go.mod", "module y"),
-            ("services/inner/a.go", ""),
-        ]);
+        let dir = tree(
+            "shallowest",
+            &[
+                ("go.mod", "module x"),
+                ("services/inner/go.mod", "module y"),
+                ("services/inner/a.go", ""),
+            ],
+        );
         let found = scan(&dir).unwrap();
         assert_eq!(found[0].root, dir, "the root module sees every package");
     }
 
     #[test]
     fn without_a_marker_the_indexer_runs_at_the_repository_root() {
-        let dir = tree(&[("pkg/a.go", "")]);
+        let dir = tree("no-marker", &[("pkg/a.go", "")]);
         let found = scan(&dir).unwrap();
         assert_eq!(found[0].root, dir);
     }
 
     #[test]
     fn noise_directories_are_not_walked() {
-        let dir = tree(&[
-            ("app.py", ""),
-            ("node_modules/pkg/vendored.py", ""),
-            (".venv/lib/thing.py", ""),
-            (".git/hooks/sample.py", ""),
-        ]);
+        let dir = tree(
+            "noise",
+            &[
+                ("app.py", ""),
+                ("node_modules/pkg/vendored.py", ""),
+                (".venv/lib/thing.py", ""),
+                (".git/hooks/sample.py", ""),
+            ],
+        );
         let found = scan(&dir).unwrap();
         assert_eq!(found[0].files, 1, "only the project's own file counts");
     }
 
     #[test]
     fn a_tree_with_nothing_indexable_finds_nothing() {
-        let dir = tree(&[("README.md", ""), ("Makefile", "")]);
+        let dir = tree("nothing", &[("README.md", ""), ("Makefile", "")]);
         assert!(scan(&dir).unwrap().is_empty());
     }
 }
