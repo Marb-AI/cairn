@@ -260,8 +260,23 @@ CREATE INDEX IF NOT EXISTS k.links_by_dst    ON links(dst_hash);
 "#;
 
 /// Attach the knowledge database beside the projection and make sure it exists.
+/// Attach the authored-knowledge sidecar, falling back to an in-memory one.
+///
+/// Authored knowledge is optional by design — an index with none is the normal case — but
+/// the read path opens the projection read-only, so `ATTACH` could not create a missing
+/// sidecar and every command died with `unable to open database` naming a file the user
+/// had never heard of. Copying an index anywhere without its sidecar bricked the tool.
+///
+/// A memory database keeps the schema present so every query still compiles; notes written
+/// against it are lost, which is the right failure when the store they belong in is not
+/// writable anyway.
 pub fn attach_knowledge(conn: &Connection, path: &std::path::Path) -> Result<()> {
-    conn.execute("ATTACH DATABASE ?1 AS k", [path.to_string_lossy()])?;
+    if conn
+        .execute("ATTACH DATABASE ?1 AS k", [path.to_string_lossy()])
+        .is_err()
+    {
+        conn.execute("ATTACH DATABASE ':memory:' AS k", [])?;
+    }
     conn.execute_batch(SQL_KNOWLEDGE)?;
     Ok(())
 }

@@ -17,5 +17,6 @@ cairn-fmt.workspace = true
 cairn-daemon.workspace = true
 
 [dev-dependencies]
+rusqlite.workspace = true
 serde.workspace = true
 serde_yaml.workspace = true

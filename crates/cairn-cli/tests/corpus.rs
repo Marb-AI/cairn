@@ -20,6 +20,13 @@ use std::time::Instant;
 struct Case {
     name: String,
     args: Vec<String>,
+    /// Which index to run against. Absent means the real one.
+    ///
+    /// The degraded states are where a tool is most tempting to leave untested and most
+    /// dangerous when wrong: an agent reads the exit code and a confident `0` over a
+    /// broken index is worse than any wrong answer, because nothing downstream doubts it.
+    #[serde(default)]
+    db: Option<String>,
     #[serde(default)]
     exit: Option<i32>,
     #[serde(default)]
@@ -31,6 +38,50 @@ struct Case {
     /// without failing because a machine was busy.
     #[serde(default)]
     max_seconds: Option<u64>,
+}
+
+/// Broken indexes to run against, built once.
+///
+/// Deliberately made here rather than committed: a corrupt SQLite file in the repository
+/// is a thing someone will one day try to open.
+fn make_fixtures(real: &Path) -> std::collections::HashMap<String, PathBuf> {
+    let dir = std::env::temp_dir().join("cairn-corpus-fixtures");
+    let _ = std::fs::create_dir_all(&dir);
+    let mut out = std::collections::HashMap::new();
+
+    out.insert("missing".to_string(), dir.join("does-not-exist.sqlite"));
+    let _ = std::fs::remove_file(dir.join("does-not-exist.sqlite"));
+
+    let empty = dir.join("empty.sqlite");
+    let _ = std::fs::write(&empty, b"");
+    out.insert("empty".to_string(), empty);
+
+    let garbage = dir.join("garbage.sqlite");
+    let _ = std::fs::write(&garbage, b"this is not a database, it is a sentence.\n".repeat(64));
+    out.insert("garbage".to_string(), garbage);
+
+    // An index written by an older build: the binary must refuse it rather than read
+    // whatever the old layout happens to put where it now expects something else.
+    let old = dir.join("old-schema.sqlite");
+    std::fs::copy(real, &old).expect("copying the index to make an old-schema fixture");
+    let conn = rusqlite::Connection::open(&old).expect("opening the old-schema fixture");
+    let changed = conn
+        .execute("UPDATE meta SET value = '1' WHERE key = 'schema_version'", [])
+        .expect("ageing the fixture's schema version");
+    // Asserted, not hoped for: a fixture that silently fails to be broken makes the case
+    // pass for the wrong reason, which is worse than the case not existing.
+    assert_eq!(changed, 1, "meta.schema_version not found in the fixture");
+    drop(conn);
+    out.insert("old_schema".to_string(), old);
+
+    // An index moved or copied without the sidecar beside it. Authored knowledge is
+    // optional; its absence used to make every command fail.
+    let lone = dir.join("no-sidecar.sqlite");
+    std::fs::copy(real, &lone).expect("copying the index without a sidecar");
+    let _ = std::fs::remove_file(dir.join("no-sidecar-knowledge.sqlite"));
+    out.insert("no_sidecar".to_string(), lone);
+
+    out
 }
 
 fn workspace_root() -> PathBuf {
@@ -75,6 +126,7 @@ fn corpus_cases_hold() {
         }
     });
 
+    let fixtures = make_fixtures(&db);
     let bin = binary();
     assert!(bin.exists(), "cairn binary not built at {}", bin.display());
 
@@ -89,9 +141,16 @@ fn corpus_cases_hold() {
 
     for case in &cases {
         let started = Instant::now();
+        let db_for_case = match case.db.as_deref() {
+            None | Some("default") => db.clone(),
+            Some(kind) => fixtures
+                .get(kind)
+                .unwrap_or_else(|| panic!("unknown db fixture {kind:?}"))
+                .clone(),
+        };
         let out = Command::new(&bin)
             .arg("--db")
-            .arg(&db)
+            .arg(&db_for_case)
             .args(case.args.iter().map(|a| a.replace("{repo}", &repo)))
             .output()
             .unwrap_or_else(|e| panic!("running {:?}: {e}", case.args));

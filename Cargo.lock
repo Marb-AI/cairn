@@ -133,6 +133,7 @@ dependencies = [
  "cairn-scip",
  "cairn-store",
  "clap",
+ "rusqlite",
  "serde",
  "serde_yaml",
 ]
