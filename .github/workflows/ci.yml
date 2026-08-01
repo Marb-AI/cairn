@@ -1,0 +1,54 @@
+name: CI
+
+# One platform, on every push and pull request. The full matrix belongs on a tag: macOS
+# bills at 10x and Windows at 2x, so running all five per commit would spend a month's
+# minutes in a week. What this has to catch is that the tree still builds and passes its
+# tests — and, since there is no Windows runner here, that the Windows code paths still
+# compile.
+on:
+  push:
+    branches: ['**']
+    tags-ignore: ['**']   # tags belong to release.yml
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # The cargo registry and target dir the `ci` compose service binds. Keyed on the
+      # lockfile so a dependency change invalidates it and an ordinary commit does not.
+      - uses: actions/cache@v4
+        with:
+          path: .ci-cache
+          key: ci-cache-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ci-cache-${{ runner.os }}-
+
+      # Same entry point as a workstation (D13): the toolchain lives in the image and
+      # nothing is installed on the runner.
+      - name: Build the image
+        run: docker compose build ci
+
+      # Format and lint are hard gates, and both are cheap enough to run before the
+      # slower steps so a style failure does not wait on a full test run.
+      - name: Format
+        run: docker compose run --rm ci cargo fmt --check
+
+      - name: Lint
+        run: docker compose run --rm ci cargo clippy --workspace --all-targets -- -D warnings
+
+      # tests/corpus.rs and tests/sweep.rs fall back to the fixture corpus in
+      # crates/cairn-cli/tests/fixtures, so the correctness cases and the contract sweep
+      # both really run here. What still does not: tests/hot_path.rs wants pyright on
+      # PATH, and the CI image deliberately does not carry it — that one prints SKIP.
+      - name: Test
+        run: docker compose run --rm ci cargo test --workspace
+
+      # The GNU target shares every `cfg(windows)` path and the same windows-sys bindings
+      # as the MSVC target the release builds. This is what stops a broken Windows build
+      # from staying invisible until someone tags a release.
+      - name: Check the Windows code paths compile
+        run: |
+          docker compose run --rm ci \
+            cargo clippy --workspace --target x86_64-pc-windows-gnu -- -D warnings

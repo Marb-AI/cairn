@@ -1,0 +1,127 @@
+name: Release
+
+# Push a tag like v0.1.0 and this builds every binary and publishes the release. Nothing
+# here runs on a merge: a release is a deliberate act, and this matrix is the expensive
+# one (macOS bills at 10x, Windows at 2x).
+#
+# Built natively rather than cross-compiled from a single runner, which is what forge
+# does. Go can cross-compile the world from one machine; cairn cannot, because rusqlite
+# compiles the SQLite amalgamation and blake3 compiles its SIMD paths, so every target
+# needs a C toolchain that matches it.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.asset }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One platform failing should not hide whether the other four are good.
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04 rather than 24.04 on purpose: the binary links the runner's glibc, and
+          # building on 24.04 raises the floor to 2.39 and refuses to start on anything
+          # older than that.
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            asset: cairn-linux-amd64
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            asset: cairn-linux-arm64
+          # Apple Silicon only — Intel Macs are out of scope for 0.1.
+          - os: macos-15
+            target: aarch64-apple-darwin
+            asset: cairn-darwin-arm64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            asset: cairn-windows-amd64.exe
+          # Cross-compiled from the x64 runner using the ARM64 MSVC toolset rather than
+          # built on `windows-11-arm`. Two reasons: that runner class is plan-gated on
+          # private repositories, and an x64 host keeps the vendored protoc usable (the
+          # vendored set has no Windows-on-ARM build). The cost is that this is the one
+          # binary no CI job ever executes.
+          - os: windows-latest
+            target: aarch64-pc-windows-msvc
+            asset: cairn-windows-arm64.exe
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # No protoc step: cairn-scip vendors one for every host in this matrix.
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }} --package cairn-cli
+
+      - name: Stage the binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          case "${{ runner.os }}" in
+            Windows)
+              cp "target/${{ matrix.target }}/release/cairn.exe" "dist/${{ matrix.asset }}"
+              ;;
+            macOS)
+              cp "target/${{ matrix.target }}/release/cairn" "dist/${{ matrix.asset }}"
+              chmod +x "dist/${{ matrix.asset }}"
+              # Built natively, so the linker has already signed it for this arch. Doing
+              # it again costs nothing and covers the case where it has not.
+              codesign --force --sign - "dist/${{ matrix.asset }}"
+              codesign -dv "dist/${{ matrix.asset }}" 2>&1 | grep -i signature || true
+              ;;
+            *)
+              cp "target/${{ matrix.target }}/release/cairn" "dist/${{ matrix.asset }}"
+              chmod +x "dist/${{ matrix.asset }}"
+              ;;
+          esac
+
+      # A binary that cannot report its own version is not one worth publishing. Skipped
+      # for the cross-compiled ARM64 Windows build, which this runner cannot execute.
+      - name: Smoke test
+        if: matrix.target != 'aarch64-pc-windows-msvc'
+        shell: bash
+        run: ./dist/${{ matrix.asset }} --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      # Fail rather than publish a half release: install.sh derives an asset name from the
+      # user's platform, and a missing one is a 404 for whoever is on it.
+      - name: Check every asset arrived
+        run: |
+          ls -l dist
+          for a in cairn-linux-amd64 cairn-linux-arm64 cairn-darwin-arm64 \
+                   cairn-windows-amd64.exe cairn-windows-arm64.exe; do
+            test -s "dist/$a" || { echo "missing asset: $a" >&2; exit 1; }
+          done
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "cairn $GITHUB_REF_NAME" \
+            --generate-notes

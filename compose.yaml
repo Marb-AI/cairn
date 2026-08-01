@@ -21,6 +21,22 @@ services:
       CAIRN_LOG: ${CAIRN_LOG:-info}
     command: ["cargo", "build"]
 
+  # Build and test entry point for CI (.github/workflows/ci.yml).
+  #
+  # The lean image, and only the source mounted: `dev` also binds a target repo and the
+  # spike's SCIP corpus, which exist on a workstation and not on a runner. Caches are host
+  # directories rather than named volumes so the runner can restore them between jobs.
+  ci:
+    build:
+      context: .
+      target: build
+    volumes:
+      - .:/w
+      - ./.ci-cache/cargo:/cargo
+      - ./.ci-cache/target:/target
+    working_dir: /w
+    command: ["cargo", "test", "--workspace"]
+
 volumes:
   cargo:
   target:

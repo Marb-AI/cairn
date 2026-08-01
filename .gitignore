@@ -1,4 +1,7 @@
 /target
+/dist
+# Cargo/target caches for the `ci` compose service; host dirs so a runner can cache them.
+/.ci-cache
 **/*.rs.bk
 /.cairn
 /fixtures
