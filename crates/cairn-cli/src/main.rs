@@ -394,8 +394,8 @@ fn run() -> Result<u8> {
             // and a reader saw a half-wiped database. A rename is atomic, so a reader gets
             // the old index or the new one and never a mixture.
             let _lock = cairn_store::build::BuildLock::acquire(&db)?;
+            cairn_store::build::clear_staging(&db);
             let building = cairn_store::build::building_path(&db);
-            let _ = std::fs::remove_file(&building);
             let mut store = Store::reset(&building)?;
             // A repository whose conventions differ from the defaults says so here, once,
             // rather than getting silently wrong answers later (architecture D16).

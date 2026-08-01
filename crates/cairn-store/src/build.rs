@@ -25,6 +25,23 @@ pub fn building_path(db: &Path) -> PathBuf {
     with_suffix(db, "building")
 }
 
+/// Clear anything a previous, dead rebuild left behind.
+///
+/// Found by killing a rebuild mid-flight: the staging database is removed on the next
+/// attempt, but its `-wal` and `-shm` were not, and a stale write-ahead log beside a new
+/// database of the same name is precisely the corruption this design exists to avoid. It
+/// happened to work; that is not the same as being safe.
+pub fn clear_staging(db: &Path) {
+    let building = building_path(db);
+    for path in [
+        building.clone(),
+        PathBuf::from(format!("{}-wal", building.display())),
+        PathBuf::from(format!("{}-shm", building.display())),
+    ] {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 fn lock_path(db: &Path) -> PathBuf {
     with_suffix(db, "lock")
 }
