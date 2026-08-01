@@ -15,11 +15,11 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # The cargo registry and target dir the `ci` compose service binds. Keyed on the
       # lockfile so a dependency change invalidates it and an ordinary commit does not.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: .ci-cache
           key: ci-cache-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
@@ -52,3 +52,10 @@ jobs:
         run: |
           docker compose run --rm ci \
             cargo clippy --workspace --target x86_64-pc-windows-gnu -- -D warnings
+
+      # The container writes the cache as root, and the cache action tars it as the runner
+      # user — without this the save step fails with a bare "tar exited 2" and every run
+      # rebuilds from scratch while appearing to be cached.
+      - name: Hand the cache back to the runner
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" .ci-cache
