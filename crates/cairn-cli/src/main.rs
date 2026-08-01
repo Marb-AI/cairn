@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use cairn_fmt::{Budget, Detail, Source, View};
 use cairn_store::{ingest, Direction, EdgeKind, Store};
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
@@ -25,7 +25,8 @@ mod exit {
 #[derive(Parser)]
 #[command(name = "cairn", version, about = "Local code navigation for agents")]
 struct Cli {
-    /// Index database. Defaults to .cairn/index.sqlite under the current directory.
+    /// Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite
+    /// at or above the working directory.
     #[arg(long, global = true)]
     db: Option<PathBuf>,
 
@@ -291,7 +292,8 @@ fn main() -> ExitCode {
             // that reads ERROR concludes it asked wrong and rephrases, when what it should
             // do is retry or rebuild. Reads during a rebuild land here.
             let msg = format!("{e:#}");
-            let degraded = msg.contains("index is incomplete")
+            let degraded = msg.contains("no index at")
+                || msg.contains("index is incomplete")
                 || msg.contains("not a database")
                 || msg.contains("unable to open database")
                 || msg.contains("schema v")
@@ -309,8 +311,60 @@ fn paths_of<'a>(
     defs.flatten().map(|d| d.path.clone()).collect()
 }
 
+/// Where the index is, when the caller did not say.
+///
+/// Precedence: `--db`, then `$CAIRN_DB`, then the nearest `.cairn/index.sqlite` at or above
+/// the working directory, then that path relative to here.
+///
+/// The upward search is the part that matters. It used to be the bare relative path, so
+/// cairn only worked when run from the exact directory holding `.cairn/` — an agent that
+/// had moved into a subdirectory, which they do constantly, got "no index" and would
+/// reasonably conclude the tool was not set up. Git solves this by looking upward for
+/// `.git`; there is no reason to make people think about it here either.
 fn default_db() -> PathBuf {
+    if let Some(from_env) = std::env::var_os("CAIRN_DB") {
+        return PathBuf::from(from_env);
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        // The repository root, so one binary can serve many checkouts and each keeps its
+        // own index at a place that does not depend on where you happen to be standing.
+        // `.git` is a directory in a normal clone and a file in a worktree or submodule.
+        for dir in cwd.ancestors() {
+            if dir.join(".git").exists() {
+                return dir.join(".cairn/index.sqlite");
+            }
+        }
+        // No git: fall back to the nearest existing .cairn, so a plain directory still
+        // works.
+        for dir in cwd.ancestors() {
+            let candidate = dir.join(".cairn/index.sqlite");
+            if candidate.exists() {
+                return candidate;
+            }
+        }
+    }
     PathBuf::from(".cairn/index.sqlite")
+}
+
+/// Make the index directory, and make it uncommittable.
+///
+/// A `.gitignore` holding `*` inside `.cairn/` means the directory ignores itself and
+/// everything in it, including the ignore file. Written on every index build rather than
+/// once, because the failure it prevents — a multi-hundred-megabyte SQLite file in someone
+/// history — is not worth an if.
+fn ensure_index_dir(db: &Path) -> Result<()> {
+    let Some(dir) = db.parent() else { return Ok(()) };
+    std::fs::create_dir_all(dir)
+        .with_context(|| format!("creating {}", dir.display()))?;
+    if dir.file_name().is_some_and(|n| n == ".cairn") {
+        let ignore = dir.join(".gitignore");
+        let want = "# cairn's index is a projection of the code; rebuild it, never commit it.\n*\n";
+        if std::fs::read_to_string(&ignore).unwrap_or_default() != want {
+            std::fs::write(&ignore, want)
+                .with_context(|| format!("writing {}", ignore.display()))?;
+        }
+    }
+    Ok(())
 }
 
 fn run() -> Result<u8> {
@@ -333,10 +387,7 @@ fn run() -> Result<u8> {
             if indexes.is_empty() {
                 anyhow::bail!("give at least one .scip file");
             }
-            if let Some(parent) = db.parent() {
-                std::fs::create_dir_all(parent)
-                    .with_context(|| format!("creating {}", parent.display()))?;
-            }
+            ensure_index_dir(&db)?;
             let started = Instant::now();
             // Build beside the live index, then swap. Measured: while `index` ran, twelve
             // of twelve concurrent reads failed, because a rebuild is not one transaction

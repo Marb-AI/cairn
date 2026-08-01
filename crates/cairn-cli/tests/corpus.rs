@@ -27,6 +27,14 @@ struct Case {
     /// broken index is worse than any wrong answer, because nothing downstream doubts it.
     #[serde(default)]
     db: Option<String>,
+    /// Environment for the run, so precedence between `--db`, `$CAIRN_DB` and discovery
+    /// can be asserted rather than assumed.
+    #[serde(default)]
+    env: std::collections::HashMap<String, String>,
+    /// Working directory. The index is found by searching upward, and the only way to
+    /// test that is to run from somewhere else.
+    #[serde(default)]
+    cwd: Option<String>,
     #[serde(default)]
     exit: Option<i32>,
     #[serde(default)]
@@ -141,16 +149,29 @@ fn corpus_cases_hold() {
 
     for case in &cases {
         let started = Instant::now();
-        let db_for_case = match case.db.as_deref() {
-            None | Some("default") => db.clone(),
-            Some(kind) => fixtures
-                .get(kind)
-                .unwrap_or_else(|| panic!("unknown db fixture {kind:?}"))
-                .clone(),
-        };
-        let out = Command::new(&bin)
-            .arg("--db")
-            .arg(&db_for_case)
+        let mut cmd = Command::new(&bin);
+        match case.db.as_deref() {
+            // `none` passes no --db at all, which is how discovery and $CAIRN_DB get
+            // exercised: with the flag present they can never be reached.
+            Some("none") => {}
+            None | Some("default") => {
+                cmd.arg("--db").arg(&db);
+            }
+            Some(kind) => {
+                cmd.arg("--db").arg(
+                    fixtures
+                        .get(kind)
+                        .unwrap_or_else(|| panic!("unknown db fixture {kind:?}")),
+                );
+            }
+        }
+        for (k, v) in &case.env {
+            cmd.env(k, v.replace("{db}", &db.to_string_lossy()));
+        }
+        if let Some(dir) = &case.cwd {
+            cmd.current_dir(dir.replace("{root}", &root.to_string_lossy()));
+        }
+        let out = cmd
             .args(case.args.iter().map(|a| a.replace("{repo}", &repo)))
             .output()
             .unwrap_or_else(|e| panic!("running {:?}: {e}", case.args));
