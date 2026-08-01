@@ -169,7 +169,13 @@ impl Store {
                         let mut from = runs(self, caller.symbol.id)?;
                         let mut from_by_file = false;
                         if from.is_empty() {
-                            from = self.services_running_file(caller.symbol.id, depth)?;
+                            // Against the precomputed sets, not a fresh walk per symbol in
+                            // the file. This loop calls it for up to forty symbols and the
+                            // old form rebuilt every service's reachability each time —
+                            // twenty-seven of the twenty-nine seconds `affects` took on a
+                            // hot symbol were here, and profiling found it only after three
+                            // wrong guesses.
+                            from = self.services_running_file_in(caller.symbol.id, &sets)?;
                             from_by_file = !from.is_empty();
                         }
                         out.hops.push(Hop {

@@ -415,6 +415,10 @@ impl Store {
             )?;
             stats.services += 1;
         }
+        // Reachability is a function of the index, so it is computed with the index.
+        // Every `runs` and `affects` call used to rebuild it, which put a 1.5s floor under
+        // both.
+        self.materialise_reach(12)?;
         Ok(stats)
     }
 
@@ -557,6 +561,35 @@ impl Store {
     /// loop, so reachability attributes them to nothing while the module they live in is
     /// plainly loaded by a service. Importing a module executes it, which is the same rule
     /// the entrypoint seeding already relies on — applied one level out.
+    /// The file-level fallback, answered from precomputed reachable sets.
+    pub fn services_running_file_in(
+        &self,
+        symbol_id: i64,
+        sets: &[(String, std::collections::HashSet<i64>)],
+    ) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT s.id FROM symbols s
+              WHERE s.def_file_id = (SELECT def_file_id FROM symbols WHERE id = ?1)
+                AND s.id <> ?1
+              ORDER BY s.ref_count DESC
+              LIMIT 40",
+        )?;
+        let rows = stmt.query_map(params![symbol_id], |r| r.get::<_, i64>(0))?;
+        let mut found: Vec<String> = Vec::new();
+        for r in rows {
+            let id = r?;
+            for (name, reach) in sets {
+                if reach.contains(&id) && !found.contains(name) {
+                    found.push(name.clone());
+                }
+            }
+            if !found.is_empty() {
+                break;
+            }
+        }
+        Ok(found)
+    }
+
     pub fn services_running_file(&self, symbol_id: i64, max_depth: usize) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare_cached(
             "SELECT s.id FROM symbols s
@@ -580,6 +613,47 @@ impl Store {
         Ok(found)
     }
 
+    /// Store the reachable set of every service, so queries become lookups.
+    pub fn materialise_reach(&mut self, max_depth: usize) -> Result<()> {
+        let sets = self.reachable_by_service_walk(max_depth)?;
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM deploy_reach", [])?;
+        {
+            let mut ins = tx.prepare(
+                "INSERT OR IGNORE INTO deploy_reach(service, symbol_id) VALUES (?1, ?2)",
+            )?;
+            for (name, reach) in &sets {
+                for id in reach {
+                    ins.execute(params![name, id])?;
+                }
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The stored sets, or a live walk when nothing was stored — an index built before
+    /// this existed still answers, just slowly, rather than answering wrongly.
+    pub fn reachable_by_service(
+        &self,
+        max_depth: usize,
+    ) -> Result<Vec<(String, std::collections::HashSet<i64>)>> {
+        use std::collections::HashMap;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT service, symbol_id FROM deploy_reach")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+        let mut map: HashMap<String, std::collections::HashSet<i64>> = HashMap::new();
+        for r in rows {
+            let (name, id) = r?;
+            map.entry(name).or_default().insert(id);
+        }
+        if map.is_empty() {
+            return self.reachable_by_service_walk(max_depth);
+        }
+        Ok(map.into_iter().collect())
+    }
+
     /// Everything each service can reach, computed once.
     ///
     /// `services_running` rebuilds a breadth-first walk per symbol, which was fine until
@@ -587,7 +661,7 @@ impl Store {
     /// so the cost multiplied and a measured run abandoned the command mid-answer
     /// (eval/RESULTS.md, task E after the rule pack). One walk per service, then set
     /// membership, is the same answer for a fraction of the work.
-    pub fn reachable_by_service(
+    fn reachable_by_service_walk(
         &self,
         max_depth: usize,
     ) -> Result<Vec<(String, std::collections::HashSet<i64>)>> {

@@ -64,6 +64,17 @@ fn corpus_cases_hold() {
         );
         return;
     }
+    // Where the indexed source tree is *from here*. The same cases run on a host and
+    // inside the build container, which mounts the tree at /repo, so an absolute path
+    // written into a case would pass in one and fail in the other for no real reason.
+    let repo = std::env::var("CAIRN_TEST_REPO").unwrap_or_else(|_| {
+        if Path::new("/repo").exists() {
+            "/repo".to_string()
+        } else {
+            root.join("../repos/backend").to_string_lossy().to_string()
+        }
+    });
+
     let bin = binary();
     assert!(bin.exists(), "cairn binary not built at {}", bin.display());
 
@@ -81,7 +92,7 @@ fn corpus_cases_hold() {
         let out = Command::new(&bin)
             .arg("--db")
             .arg(&db)
-            .args(&case.args)
+            .args(case.args.iter().map(|a| a.replace("{repo}", &repo)))
             .output()
             .unwrap_or_else(|e| panic!("running {:?}: {e}", case.args));
         let elapsed = started.elapsed();

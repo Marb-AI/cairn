@@ -15,7 +15,7 @@ use rusqlite::Connection;
 /// Bumped whenever the schema changes in a way that invalidates existing databases.
 /// The ingest path drops and rebuilds rather than migrating: the store is a projection,
 /// never a source of truth.
-pub const SCHEMA_VERSION: i64 = 14;
+pub const SCHEMA_VERSION: i64 = 15;
 
 pub const SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -157,6 +157,18 @@ CREATE TABLE IF NOT EXISTS deploy_services (
 -- carry different confidence. Measured: without this, a container started with
 -- `tail -f /dev/null` looks like it runs nothing while a nightly job in it reaches deep
 -- into the codebase (eval/RESULTS.md, task E).
+-- What each deployed service can reach, precomputed.
+--
+-- Reachability changes only when the index does, and recomputing it per query cost about
+-- 1.5s — the floor under every `runs` and `affects` call. Materialised once at index time
+-- it is a lookup. Same reasoning as the derived call and member edges: if it is a function
+-- of the index, compute it with the index.
+CREATE TABLE IF NOT EXISTS deploy_reach (
+    service   TEXT    NOT NULL,
+    symbol_id INTEGER NOT NULL REFERENCES symbols(id),
+    PRIMARY KEY (symbol_id, service)
+) WITHOUT ROWID;
+
 CREATE TABLE IF NOT EXISTS deploy_on_demand (
     service    TEXT NOT NULL,
     -- The cron expression, when the trigger is one. Null for an entrypoint script with
