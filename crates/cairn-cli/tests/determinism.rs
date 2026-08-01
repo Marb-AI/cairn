@@ -115,3 +115,58 @@ fn rebuilding_produces_the_same_index_and_the_same_handles() {
     );
     assert!(second_build.contains("symbols"), "the second build failed");
 }
+
+#[test]
+fn two_indexes_merge_into_one_store_rather_than_replacing_each_other() {
+    // Checked because a plausible-looking probe suggested the opposite: reading the
+    // per-file progress line instead of the store total made it look as though the second
+    // SCIP file had been discarded. It had not. The property is worth an assertion so
+    // nobody has to re-derive it from output that is easy to misread.
+    let root = workspace_root();
+    let (a, b) = (
+        root.join("spike/out/tg.scip"),
+        root.join("spike/out/t-go-target.scip"),
+    );
+    if !a.exists() || !b.exists() {
+        eprintln!("SKIP: need two SCIP fixtures");
+        return;
+    }
+    let bin = binary();
+    let dir = std::env::temp_dir().join("cairn-merge");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("scratch dir");
+
+    let count = |db: &Path, args: &[&str]| -> i64 {
+        let out = run(&bin, db, args);
+        out.lines()
+            .find(|l| l.starts_with("symbols"))
+            .and_then(|l| l.split_whitespace().nth(1))
+            .and_then(|n| n.parse().ok())
+            .unwrap_or_else(|| panic!("no symbol count in:\n{out}"))
+    };
+
+    let (a, b) = (a.to_string_lossy().to_string(), b.to_string_lossy().to_string());
+    let only_a = dir.join("a.sqlite");
+    run(&bin, &only_a, &["index", &a]);
+    let only_b = dir.join("b.sqlite");
+    run(&bin, &only_b, &["index", &b]);
+    let both = dir.join("both.sqlite");
+    run(&bin, &both, &["index", &a, &b]);
+
+    let (na, nb, nboth) = (
+        count(&only_a, &["status"]),
+        count(&only_b, &["status"]),
+        count(&both, &["status"]),
+    );
+    assert!(na > 0 && nb > 0, "a fixture produced nothing: {na}, {nb}");
+    assert!(
+        nboth > na && nboth > nb,
+        "indexing both files gave {nboth} symbols, no more than either alone ({na}, {nb}) \
+         - the second index replaced the first instead of merging"
+    );
+    assert!(
+        nboth <= na + nb,
+        "indexing both gave {nboth}, more than the sum of {na} and {nb} - symbols present \
+         in both files were counted twice"
+    );
+}
