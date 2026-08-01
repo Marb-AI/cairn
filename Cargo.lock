@@ -173,6 +173,7 @@ dependencies = [
  "anyhow",
  "blake3",
  "cairn-scip",
+ "libc",
  "rusqlite",
  "serde",
  "serde_yaml",

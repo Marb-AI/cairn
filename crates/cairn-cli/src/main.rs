@@ -286,7 +286,18 @@ fn main() -> ExitCode {
         Ok(code) => ExitCode::from(code),
         Err(e) => {
             eprintln!("cairn: {e:#}");
-            ExitCode::from(exit::ERROR)
+            // An unreadable or half-built index is *degraded* — "I cannot see" — not a bad
+            // query. The distinction is the whole point of having both codes: an agent
+            // that reads ERROR concludes it asked wrong and rephrases, when what it should
+            // do is retry or rebuild. Reads during a rebuild land here.
+            let msg = format!("{e:#}");
+            let degraded = msg.contains("index is incomplete")
+                || msg.contains("not a database")
+                || msg.contains("unable to open database")
+                || msg.contains("schema v")
+                || msg.contains("no such table")
+                || msg.contains("file is encrypted or is not a database");
+            ExitCode::from(if degraded { exit::DEGRADED } else { exit::ERROR })
         }
     }
 }
@@ -327,7 +338,14 @@ fn run() -> Result<u8> {
                     .with_context(|| format!("creating {}", parent.display()))?;
             }
             let started = Instant::now();
-            let mut store = Store::reset(&db)?;
+            // Build beside the live index, then swap. Measured: while `index` ran, twelve
+            // of twelve concurrent reads failed, because a rebuild is not one transaction
+            // and a reader saw a half-wiped database. A rename is atomic, so a reader gets
+            // the old index or the new one and never a mixture.
+            let _lock = cairn_store::build::BuildLock::acquire(&db)?;
+            let building = cairn_store::build::building_path(&db);
+            let _ = std::fs::remove_file(&building);
+            let mut store = Store::reset(&building)?;
             // A repository whose conventions differ from the defaults says so here, once,
             // rather than getting silently wrong answers later (architecture D16).
             let rules_path = db.parent().map(|d| d.join("rules.yaml"));
@@ -404,6 +422,11 @@ fn run() -> Result<u8> {
                 }
             }
             let c = store.counts()?;
+            // Closed before the swap: an open connection keeps a WAL beside the file it
+            // belongs to, and a WAL left next to the promoted database is how a rebuild
+            // that reported success produces an index nothing can read.
+            drop(store);
+            cairn_store::build::promote(&building, &db)?;
             println!(
                 "store: {} files, {} symbols, {} occurrences in {:.1}s -> {}",
                 c.files,
@@ -416,6 +439,10 @@ fn run() -> Result<u8> {
         }
 
         Cmd::Context { query, limit } => {
+            if query.trim().is_empty() {
+                eprintln!("cairn: empty query - describe the feature in a word or two");
+                return Ok(exit::ERROR);
+            }
             let store = open(&db)?;
             let coverage = store.coverage_summary()?;
             let res = store.context(&query, limit)?;
@@ -469,6 +496,14 @@ fn run() -> Result<u8> {
         }
 
         Cmd::Symbol { query, limit } => {
+            // An empty or blank query is a caller mistake, not a search. It used to match
+            // everything — fifteen arbitrary symbols returned as "15 matches" with
+            // `unknown: none`, which is the tool asserting it found something and knows of
+            // no gaps. An agent interpolating an empty variable would believe it.
+            if query.trim().is_empty() {
+                eprintln!("cairn: empty query - give a name, or part of one");
+                return Ok(exit::ERROR);
+            }
             let store = open(&db)?;
             let coverage = store.coverage_summary()?;
             let rows = store.find_symbols(&query, limit)?;

@@ -11,6 +11,7 @@ use std::path::Path;
 
 pub mod affects;
 pub mod batch;
+pub mod build;
 pub mod concepts;
 pub mod deploy;
 pub mod context;
@@ -172,7 +173,14 @@ impl Store {
                 "index was built by schema v{v}, this binary speaks v{} - re-run `cairn index`",
                 schema::SCHEMA_VERSION
             ),
-            _ => anyhow::bail!("index is missing its schema version - re-run `cairn index`"),
+            // Also what a reader sees mid-rebuild: `index` is not one transaction, so the
+            // schema version is briefly absent while it runs. Every read fails for that
+            // window, which is honest but unavailable — and it must be reported as
+            // *degraded* rather than as a bad query, or an agent concludes it asked wrong.
+            _ => anyhow::bail!(
+                "index is incomplete - it is being rebuilt, or the last `cairn index` did \
+                 not finish. Retry, or re-run `cairn index`"
+            ),
         }
     }
 
