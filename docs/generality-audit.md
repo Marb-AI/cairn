@@ -28,10 +28,20 @@ a repo does not follow them the mechanism produces nothing:
 | `ondemand` | cron's five fields, and `docker exec … -f name=<service>` |
 | `conventions` | tests live in `tests/` or are named `test_*` |
 
-Architecture D16 says the core should know no language and that these belong in a rule pack.
-They are not in a rule pack. They are Rust functions in the middle of the crate, and calling
-that a deliberate deferral is generous — it is a debt, and until it is paid the tool is a
-Python/Go/Docker tool rather than a general one.
+**Paid.** They are now `crates/cairn-store/src/rules/default.yaml`, embedded so a repository
+following the usual conventions needs no file, and overridable by dropping a `rules.yaml`
+beside the index. `cairn rules` prints the effective pack and says where it came from;
+`cairn index` reports when it loaded one.
+
+Verified two ways. Re-indexing the measured repository with the pack driving the code gives
+identical numbers — 73 services, 477 serve and 321 call links, 275 generated files, 10
+resolved entrypoints, 3 cron entrypoints — so the refactor changed no behaviour. And
+changing one field in a copied pack (`service_marker`) takes cross-language linking to zero,
+which `status` then reports as the mechanism failing rather than as an answer.
+
+What remains hardcoded is the *shape* of a rule, not its content: the pack can say a command
+is `<interpreter> -m <module>` but not invent a new kind of target. Adding a language is a
+pack; adding a new way of pointing at code is still a patch.
 
 ## Tier 3 — one genuine layout assumption, and it failed silently (fixed)
 

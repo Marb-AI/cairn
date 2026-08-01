@@ -20,6 +20,7 @@ pub mod ingest;
 pub mod ondemand;
 pub mod protolink;
 pub mod query;
+pub mod rules;
 pub mod schema;
 pub mod survey;
 pub mod verify;
@@ -32,6 +33,7 @@ pub use context::{ContextResult, Seed, SeedSource};
 pub use deploy::{DeployStats, Service, Topology};
 pub use affects::{Affects, Hop, InProcess, Outgoing};
 pub use protolink::{CrossLink, RpcCaller, ServiceRole};
+pub use rules::Rules;
 pub use survey::{OutlineEntry, Unreached, UnreachedSymbol};
 pub use verify::Report;
 pub use query::{Occurrence, SymbolRow};
@@ -131,6 +133,11 @@ impl EdgeSource {
 
 pub struct Store {
     pub conn: Connection,
+    /// Conventions this store reads the world with. Defaults to the built-in pack; an
+    /// index run overrides it from `.cairn/rules.yaml` when there is one, so a repository
+    /// whose commands or generated code do not look like the defaults can say so without
+    /// a rebuild (architecture D16).
+    pub rules: rules::Rules,
 }
 
 impl Store {
@@ -148,7 +155,7 @@ impl Store {
         )?;
         schema::tune_for_query(&conn)?;
         schema::attach_knowledge(&conn, &knowledge_path(path))?;
-        let store = Store { conn };
+        let store = Store { conn, rules: rules::Rules::default() };
         store.check_schema_version()?;
         Ok(store)
     }
@@ -169,7 +176,7 @@ impl Store {
         let conn = Connection::open_in_memory()?;
         schema::apply(&conn)?;
         schema::attach_knowledge(&conn, std::path::Path::new(":memory:"))?;
-        Ok(Store { conn })
+        Ok(Store { conn, rules: rules::Rules::default() })
     }
 
     /// Drops and recreates the schema. Cheap because the store is a projection.
@@ -190,7 +197,7 @@ impl Store {
         // Deliberately attached *after* the projection was wiped: authored knowledge
         // survives every rebuild, which is the whole reason it lives in its own file.
         schema::attach_knowledge(&conn, &knowledge_path(path))?;
-        Ok(Store { conn })
+        Ok(Store { conn, rules: rules::Rules::default() })
     }
 
     pub fn set_meta(&self, key: &str, value: &str) -> Result<()> {

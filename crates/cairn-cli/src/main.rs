@@ -176,6 +176,12 @@ enum Cmd {
         #[arg(long)]
         repo: Option<PathBuf>,
     },
+    /// The conventions cairn reads the world with, and where they came from.
+    ///
+    /// What a start command looks like, how a protobuf generator names things, what marks
+    /// a file as generated, where tests live. Copy the output to `.cairn/rules.yaml` and
+    /// edit it to change any of them without rebuilding (architecture D16).
+    Rules,
     /// Deployed services and what each one runs.
     Topology,
     /// Every deployed service a change here touches, in-process and over the network.
@@ -322,6 +328,13 @@ fn run() -> Result<u8> {
             }
             let started = Instant::now();
             let mut store = Store::reset(&db)?;
+            // A repository whose conventions differ from the defaults says so here, once,
+            // rather than getting silently wrong answers later (architecture D16).
+            let rules_path = db.parent().map(|d| d.join("rules.yaml"));
+            store.rules = cairn_store::Rules::load(rules_path.as_deref())?;
+            if let Some(p) = rules_path.as_deref().filter(|p| p.exists()) {
+                println!("rules:    {}", p.display());
+            }
             for path in &indexes {
                 let t = Instant::now();
                 let stats = ingest::ingest_path(&mut store, path, repo.as_deref())?;
@@ -589,6 +602,28 @@ fn run() -> Result<u8> {
             }
             print!("{}", env.render());
             Ok(if w.nodes.len() > 1 { exit::FOUND } else { exit::NOT_FOUND })
+        }
+
+        Cmd::Rules => {
+            let path = db.parent().map(|d| d.join("rules.yaml"));
+            let from = match path.as_deref() {
+                Some(p) if p.exists() => format!("{}", p.display()),
+                _ => "built-in defaults (no rules.yaml beside the index)".to_string(),
+            };
+            println!("# effective rule pack, from: {from}");
+            match cairn_store::Rules::load(path.as_deref()) {
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("cairn: {e:#}");
+                    return Ok(exit::ERROR);
+                }
+            }
+            if let Some(p) = path.as_deref().filter(|p| p.exists()) {
+                print!("{}", std::fs::read_to_string(p)?);
+            } else {
+                print!("{}", cairn_store::Rules::builtin_text());
+            }
+            Ok(exit::FOUND)
         }
 
         Cmd::Topology => {

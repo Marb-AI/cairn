@@ -69,47 +69,67 @@ pub struct LinkStats {
 /// every spurious service is a place two unrelated symbols can be joined by a false
 /// cross-language edge. Folding them onto one name is what makes the edges trustworthy.
 fn classify(name: &str) -> Option<(String, ServiceRole)> {
-    let (stem, role) = if let Some(rest) = name.strip_prefix("Register") {
-        (rest.strip_suffix("Server")?, ServiceRole::Serves)
-    } else if let Some(s) = name.strip_suffix("Base") {
-        (s, ServiceRole::Serves)
-    } else if let Some(s) = name.strip_suffix("Server") {
-        // grpc-go's server interface, which an implementation embeds. Without this the
-        // Go serving side is invisible: only `Register<Svc>Server` was matched, so a
-        // service was attributed to whichever function calls the registration rather
-        // than to the type that actually implements the RPCs. Python's serving side has
-        // always been visible, because there it is an inheritance edge SCIP records.
-        (s, ServiceRole::Serves)
-    } else if let Some(s) = name.strip_suffix("Stub") {
-        (s, ServiceRole::Calls)
-    } else if let Some(s) = name.strip_suffix("Client") {
-        (s, ServiceRole::Calls)
-    } else {
-        return None;
-    };
-    canonical_service(stem).map(|svc| (svc, role))
+    classify_with(name, &crate::rules::Rules::default())
+}
+
+/// Split a generated symbol name using a rule pack rather than a hardcoded chain.
+///
+/// The shapes are the same ones that were here before, now in
+/// `src/rules/default.yaml` (architecture D16). Order is meaning: `Register<Svc>Server`
+/// must be tried before the bare `Server` suffix it contains, and the pack keeps them in
+/// that order rather than relying on the order of `else if` arms.
+fn classify_with(name: &str, rules: &crate::rules::Rules) -> Option<(String, ServiceRole)> {
+    for b in &rules.proto.bindings {
+        let stem = match (&b.prefix, &b.suffix) {
+            (Some(p), Some(sfx)) => match name.strip_prefix(p.as_str()) {
+                Some(rest) => match rest.strip_suffix(sfx.as_str()) {
+                    Some(st) => st,
+                    None => continue,
+                },
+                None => continue,
+            },
+            (None, Some(sfx)) => match name.strip_suffix(sfx.as_str()) {
+                Some(st) => st,
+                None => continue,
+            },
+            (Some(p), None) => match name.strip_prefix(p.as_str()) {
+                Some(st) => st,
+                None => continue,
+            },
+            (None, None) => continue,
+        };
+        let role = match b.role.as_str() {
+            "serves" => ServiceRole::Serves,
+            "calls" => ServiceRole::Calls,
+            _ => continue,
+        };
+        if let Some(svc) = canonical_service_with(stem, rules) {
+            return Some((svc, role));
+        }
+    }
+    None
 }
 
 /// Fold a generated stem onto the `service` declaration it came from.
 fn canonical_service(stem: &str) -> Option<String> {
-    // A constructor: `NewChatServiceClient` -> `ChatService`.
-    let stem = stem.strip_prefix("New").unwrap_or(stem);
-    // protoc-gen-go's forward-compatibility base: `UnimplementedChatServiceServer`, and
-    // the guard method every server interface carries,
-    // `mustEmbedUnimplementedChatServiceServer`. Measured: without the second, 52
-    // `MustEmbedUnimplemented*Service` phantoms appeared alongside 51 real declarations -
-    // the exact failure this function exists to prevent.
-    let stem = stem.strip_prefix("mustEmbedUnimplemented").unwrap_or(stem);
-    let stem = stem.strip_prefix("MustEmbedUnimplemented").unwrap_or(stem);
-    let stem = stem.strip_prefix("Unimplemented").unwrap_or(stem);
-    let stem = stem.strip_prefix("Unsafe").unwrap_or(stem);
+    canonical_service_with(stem, &crate::rules::Rules::default())
+}
+
+/// Fold a generated stem onto the `service` declaration it came from, per the pack.
+fn canonical_service_with(stem: &str, rules: &crate::rules::Rules) -> Option<String> {
+    let mut stem = stem;
+    for p in &rules.proto.strip_prefixes {
+        if let Some(rest) = stem.strip_prefix(p.as_str()) {
+            stem = rest;
+            break; // one prefix, longest-first in the pack
+        }
+    }
     // A per-method streaming type: `OrderMirrorService_MirrorOrdersClient`.
     let stem = match stem.find('_') {
         Some(i) => &stem[..i],
         None => stem,
     };
-    // Only protoc's own artefacts qualify, and it derives them all from `service Foo`.
-    if !stem.contains("Service") || stem.is_empty() {
+    if !stem.contains(rules.proto.service_marker.as_str()) || stem.is_empty() {
         return None;
     }
     // Go's unexported implementing struct differs only in case: `chatServiceClient`.
@@ -175,7 +195,8 @@ impl Store {
             })?;
             for row in rows {
                 let (id, name, path) = row?;
-                let (Some((svc, role)), Some(pkg)) = (classify(&name), package_of(&path)) else {
+                let (Some((svc, role)), Some(pkg)) = (classify_with(&name, &self.rules), package_of(&path))
+                else {
                     continue;
                 };
                 artefacts.push((id, pkg.to_string(), svc, role));

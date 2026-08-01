@@ -171,6 +171,7 @@ dependencies = [
  "blake3",
  "cairn-scip",
  "rusqlite",
+ "serde",
  "serde_yaml",
 ]
 

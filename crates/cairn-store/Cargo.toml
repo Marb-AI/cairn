@@ -9,4 +9,5 @@ anyhow.workspace = true
 rusqlite.workspace = true
 blake3.workspace = true
 cairn-scip.workspace = true
+serde.workspace = true
 serde_yaml.workspace = true

@@ -212,58 +212,94 @@ fn service_from_value(name: &str, v: &Value) -> Service {
 /// launcher rules in architecture 8.4. Returns a repo-relative hint, which the caller
 /// matches against indexed files.
 pub fn resolve_command(command: &str) -> Option<CommandTarget> {
+    resolve_command_with(command, &crate::rules::Rules::default())
+}
+
+/// Resolve a start command against a rule pack.
+///
+/// The shapes used to be an `if` chain here; they are now data (architecture D16,
+/// `src/rules/default.yaml`). Behaviour is unchanged for a repository that follows the
+/// usual conventions — the pack is the same set of rules, written down.
+pub fn resolve_command_with(
+    command: &str,
+    rules: &crate::rules::Rules,
+) -> Option<CommandTarget> {
+    use crate::rules::TargetRule;
     let cmd = command.trim();
     let words: Vec<&str> = cmd.split_whitespace().collect();
     if words.is_empty() {
         return None;
     }
 
-    // python -m pkg.module
-    if words[0].starts_with("python") {
-        if let Some(i) = words.iter().position(|w| *w == "-m") {
-            if let Some(module) = words.get(i + 1) {
-                return Some(CommandTarget::PythonModule(module.to_string()));
+    for rule in &rules.commands {
+        let matched_word = if let Some(suffix) = &rule.word_ends_with {
+            match words.iter().position(|w| w.ends_with(suffix.as_str())) {
+                Some(i) => Some(i),
+                None => continue,
+            }
+        } else {
+            None
+        };
+        let applies = rule.word_ends_with.is_some()
+            || rule.argv0_starts_with.iter().any(|p| words[0].starts_with(p.as_str()))
+            || rule.argv0_ends_with.iter().any(|p| words[0].ends_with(p.as_str()))
+            || rule.command_starts_with.iter().any(|p| cmd.starts_with(p.as_str()))
+            || (rule.argv0_starts_with.is_empty()
+                && rule.argv0_ends_with.is_empty()
+                && rule.command_starts_with.is_empty());
+        if !applies {
+            continue;
+        }
+
+        match &rule.target {
+            TargetRule::ModuleAfterFlag { flag } => {
+                if let Some(i) = words.iter().position(|w| w == flag) {
+                    if let Some(m) = words.get(i + 1) {
+                        return Some(CommandTarget::PythonModule(m.to_string()));
+                    }
+                }
+            }
+            TargetRule::ModuleBeforeColon => {
+                if let Some(spec) = words
+                    .iter()
+                    .skip(1)
+                    .find(|w| w.contains(':') && !w.starts_with('-'))
+                {
+                    if let Some(m) = spec.split(':').next() {
+                        if !m.is_empty() {
+                            return Some(CommandTarget::PythonModule(m.to_string()));
+                        }
+                    }
+                }
+            }
+            TargetRule::Idle => return Some(CommandTarget::Idle),
+            TargetRule::SubcommandAfterMatch => {
+                // The word *after* the match, not the last word: a runner script ends its
+                // line with `"$@"` to forward arguments.
+                if let Some(sub) = matched_word.and_then(|i| words.get(i + 1)) {
+                    if !sub.starts_with('-') && !sub.starts_with('"') && !sub.starts_with('$') {
+                        return Some(CommandTarget::DjangoCommand(sub.to_string()));
+                    }
+                }
+            }
+            TargetRule::AppAfterFlag { flag } => {
+                if let Some(i) = words.iter().position(|w| w == flag) {
+                    if let Some(app) = words.get(i + 1) {
+                        return Some(CommandTarget::CeleryApp(app.to_string()));
+                    }
+                }
+            }
+            TargetRule::Binary => {
+                // The basename: the Dockerfile names it after `build -o`, and the
+                // container path it is copied to is a deployment detail.
+                if words[0].starts_with('/') || words[0].starts_with("./") {
+                    let name = words[0].rsplit('/').next().unwrap_or(words[0]);
+                    if !name.is_empty() {
+                        return Some(CommandTarget::Binary(name.to_string()));
+                    }
+                }
             }
         }
-    }
-    // uvicorn / gunicorn take `module:attribute`, so the module is everything before
-    // the colon. This is the ASGI/WSGI shape and it covers the API and MCP services.
-    if words[0].ends_with("uvicorn") || words[0].ends_with("gunicorn") {
-        if let Some(spec) = words.iter().skip(1).find(|w| w.contains(':') && !w.starts_with('-')) {
-            let module = spec.split(':').next()?;
-            if !module.is_empty() {
-                return Some(CommandTarget::PythonModule(module.to_string()));
-            }
-        }
-    }
-    // A container kept alive with no workload of its own: a real answer, not a failure.
-    if cmd.starts_with("tail -f") || cmd == "sleep infinity" {
-        return Some(CommandTarget::Idle);
-    }
-    // manage.py <subcommand>
-    if let Some(i) = words.iter().position(|w| w.ends_with("manage.py")) {
-        // The word after `manage.py`, not the last word: a runner script ends its line
-        // with `"$@"` to forward arguments, and taking the last word named the command
-        // `"$@"`, which resolves to nothing.
-        if let Some(sub) = words.get(i + 1) {
-            if !sub.starts_with('-') && !sub.starts_with('"') && !sub.starts_with('$') {
-                return Some(CommandTarget::DjangoCommand(sub.to_string()));
-            }
-        }
-    }
-    // celery -A proj worker
-    if words[0].ends_with("celery") {
-        if let Some(i) = words.iter().position(|w| *w == "-A") {
-            if let Some(app) = words.get(i + 1) {
-                return Some(CommandTarget::CeleryApp(app.to_string()));
-            }
-        }
-    }
-    // A bare binary path: /bin/grpcserver. Needs the Dockerfile to go further.
-    if words[0].starts_with('/') {
-        return Some(CommandTarget::Binary(
-            words[0].rsplit('/').next()?.to_string(),
-        ));
     }
     None
 }
@@ -331,7 +367,7 @@ impl Store {
 
         // Cron entries and runner scripts: what a service runs after it has started.
         for od in crate::ondemand::scan(repo)? {
-            let entry = match resolve_command(&od.command) {
+            let entry = match resolve_command_with(&od.command, &self.rules) {
                 Some(target) => self.entry_file_for_target(repo, &target, None)?,
                 None => None,
             };
@@ -351,7 +387,7 @@ impl Store {
             let idle = svc
                 .command
                 .as_deref()
-                .and_then(resolve_command)
+                .and_then(|c| resolve_command_with(c, &self.rules))
                 .map(|t| t == CommandTarget::Idle)
                 .unwrap_or(false);
             if entry.is_some() {
@@ -387,7 +423,7 @@ impl Store {
         let Some(command) = &svc.command else {
             return Ok(None);
         };
-        let Some(target) = resolve_command(command) else {
+        let Some(target) = resolve_command_with(command, &self.rules) else {
             return Ok(None);
         };
         // Paths in the index are repo-relative and prefixed by the source root, which is
