@@ -15,7 +15,7 @@ use rusqlite::Connection;
 /// Bumped whenever the schema changes in a way that invalidates existing databases.
 /// The ingest path drops and rebuilds rather than migrating: the store is a projection,
 /// never a source of truth.
-pub const SCHEMA_VERSION: i64 = 12;
+pub const SCHEMA_VERSION: i64 = 13;
 
 pub const SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -423,6 +423,7 @@ fn derive_call_edges(conn: &Connection) -> Result<()> {
                       AND encl.def_end_line >= o.line
                       AND encl.id <> o.symbol_id)
         ) WHERE rn = 1;
+
         "#,
     )?;
     Ok(())

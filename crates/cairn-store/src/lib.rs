@@ -102,6 +102,10 @@ pub enum EdgeKind {
     WeakRef = 2,
     /// A link the static pass cannot see, asserted by whoever read the code.
     Asserted = 3,
+    /// A type owns this member. Derived at index time so reachability can cross from a
+    /// registered class into the methods it puts on the live path without paying a join
+    /// per node.
+    Member = 4,
 }
 
 /// Where an edge came from. Answers group by this so an exact edge is never presented

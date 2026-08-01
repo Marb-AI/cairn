@@ -525,12 +525,23 @@ impl Store {
         symbol_id: i64,
         max_depth: usize,
     ) -> Result<(Vec<String>, Option<crate::SymbolRow>)> {
-        let direct = self.services_running(symbol_id, max_depth)?;
+        // Reuse one walk rather than building two: `runs` asked for the symbol, then for
+        // its enclosing type, and each walk became expensive once membership edges landed.
+        let sets = self.reachable_by_service(max_depth)?;
+        let direct: Vec<String> = sets
+            .iter()
+            .filter(|(_, reach)| reach.contains(&symbol_id))
+            .map(|(n, _)| n.clone())
+            .collect();
         if !direct.is_empty() {
             return Ok((direct, None));
         }
         if let Some(owner) = self.enclosing_type(symbol_id)? {
-            let via = self.services_running(owner.id, max_depth)?;
+            let via: Vec<String> = sets
+                .iter()
+                .filter(|(_, reach)| reach.contains(&owner.id))
+                .map(|(n, _)| n.clone())
+                .collect();
             if !via.is_empty() {
                 return Ok((via, Some(owner)));
             }
@@ -567,6 +578,75 @@ impl Store {
             }
         }
         Ok(found)
+    }
+
+    /// Everything each service can reach, computed once.
+    ///
+    /// `services_running` rebuilds a breadth-first walk per symbol, which was fine until
+    /// membership edges made those walks large: `affects` asks it once per hop candidate,
+    /// so the cost multiplied and a measured run abandoned the command mid-answer
+    /// (eval/RESULTS.md, task E after the rule pack). One walk per service, then set
+    /// membership, is the same answer for a fraction of the work.
+    pub fn reachable_by_service(
+        &self,
+        max_depth: usize,
+    ) -> Result<Vec<(String, std::collections::HashSet<i64>)>> {
+        use std::collections::{HashSet, VecDeque};
+        let mut entries: Vec<(String, Vec<i64>)> = Vec::new();
+        {
+            let mut svc_stmt = self.conn.prepare(
+                "SELECT name, entry_file FROM deploy_services WHERE entry_file IS NOT NULL
+                 UNION ALL
+                 SELECT service || ' (' || coalesce('cron ' || schedule, 'on demand')
+                        || ': ' || command || ')', entry_file
+                   FROM deploy_on_demand WHERE entry_file IS NOT NULL",
+            )?;
+            let mut seed_stmt = self.conn.prepare(
+                "SELECT id FROM symbols WHERE def_file_id = ?1
+                 UNION
+                 SELECT o.symbol_id FROM occurrences o
+                  WHERE o.file_id = ?1 AND (o.role & 1) = 0
+                    AND NOT EXISTS (
+                        SELECT 1 FROM symbols encl
+                         WHERE encl.def_file_id = o.file_id
+                           AND encl.def_end_line IS NOT NULL
+                           AND encl.def_line <= o.line AND encl.def_end_line >= o.line)",
+            )?;
+            let rows = svc_stmt
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+            for r in rows {
+                let (name, file_id) = r?;
+                let seeds = seed_stmt.query_map(params![file_id], |r| r.get::<_, i64>(0))?;
+                let mut v = Vec::new();
+                for s in seeds {
+                    v.push(s?);
+                }
+                entries.push((name, v));
+            }
+        }
+
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT dst_symbol FROM edges WHERE src_symbol = ?1 AND kind IN (0, 4)",
+        )?;
+        let mut out = Vec::new();
+        for (name, seeds) in entries {
+            let mut seen: HashSet<i64> = seeds.iter().copied().collect();
+            let mut queue: VecDeque<(i64, usize)> = seeds.into_iter().map(|s| (s, 0)).collect();
+            while let Some((node, d)) = queue.pop_front() {
+                if d >= max_depth {
+                    continue;
+                }
+                let rows = stmt.query_map(params![node], |r| r.get::<_, i64>(0))?;
+                for r in rows {
+                    let next = r?;
+                    if seen.insert(next) {
+                        queue.push_back((next, d + 1));
+                    }
+                }
+            }
+            out.push((name, seen));
+        }
+        Ok(out)
     }
 
     /// Services whose entrypoint can reach this symbol.
@@ -634,14 +714,9 @@ impl Store {
         // zero services for it, in-process and over the network both. The mirror image of
         // the method-to-enclosing-type fallback, missed because every task before K
         // started from a method rather than ending at one.
-        let mut members = self.conn.prepare_cached(
-            "SELECT m.id FROM symbols t
-               JOIN strings tn ON tn.id = t.name_id
-               JOIN symbols m ON m.def_file_id = t.def_file_id AND m.id <> t.id
-               JOIN strings c ON c.id = m.container_id
-                AND (c.s = tn.s OR c.s LIKE '%/' || tn.s || '#')
-              WHERE t.id = ?1 AND t.kind = 1",
-        )?;
+        let mut members = self
+            .conn
+            .prepare_cached("SELECT dst_symbol FROM edges WHERE src_symbol = ?1 AND kind = 4")?;
         for (name, seeds) in entries {
             let mut seen: HashSet<i64> = seeds.iter().copied().collect();
             let mut queue: VecDeque<(i64, usize)> =

@@ -293,6 +293,35 @@ impl Store {
                     }
                 }
             }
+
+            // Membership for service-bound types only, materialised as edges.
+            //
+            // A registered handler class puts its methods on the live path, and the walk
+            // needs to cross from the class to them. Resolving that with a LIKE join per
+            // node during the walk took `affects` from four seconds to over two minutes on
+            // a hot symbol — a measured run abandoned the command and worked by hand
+            // (eval/RESULTS.md, task E). Materialising it for *every* type was worse: the
+            // join is unindexable and there are thousands of them.
+            //
+            // Only service-bound types need it. A method of an ordinary class is reached
+            // by a static call like anything else; it is dispatch that hides the edge, and
+            // dispatch is what a service binding means.
+            tx.execute_batch(
+                r#"
+                DELETE FROM edges WHERE kind = 4 AND source = 0;
+
+                INSERT INTO edges(src_symbol, dst_symbol, kind, source, confidence,
+                                  file_id, line)
+                SELECT DISTINCT t.id, m.id, 4, 0, 1.0, m.def_file_id, m.def_line
+                  FROM service_links l
+                  JOIN symbols t  ON t.id = l.symbol_id AND t.kind = 1
+                  JOIN strings tn ON tn.id = t.name_id
+                  JOIN symbols m  ON m.def_file_id = t.def_file_id AND m.id <> t.id
+                  JOIN strings c  ON c.id = m.container_id
+                   AND (c.s = tn.s OR c.s LIKE '%/' || tn.s || '#')
+                 WHERE l.role = 0;
+                "#,
+            )?;
         }
         tx.commit()?;
         // `services` counts artefacts processed, not distinct services.

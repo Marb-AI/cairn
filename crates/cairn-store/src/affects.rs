@@ -86,14 +86,33 @@ impl Store {
         // Attribution is a bounded breadth-first walk per symbol and this asks for it once
         // per hop candidate, so the same question is put many times. Memoised, because a
         // command that costs seconds gets used as a fallback rather than as the answer.
+        // One walk per service, then set membership — not one walk per symbol. The
+        // difference stopped mattering when membership edges made the walks large enough
+        // that a measured run gave up waiting (eval/RESULTS.md, task E).
+        let sets = self.reachable_by_service(depth)?;
         let mut runs_memo: HashMap<i64, Vec<String>> = HashMap::new();
         let mut runs = |store: &Store, id: i64| -> Result<Vec<String>> {
             if let Some(hit) = runs_memo.get(&id) {
                 return Ok(hit.clone());
             }
-            let (svc, _) = store.services_running_attributed(id, depth)?;
-            runs_memo.insert(id, svc.clone());
-            Ok(svc)
+            let mut found: Vec<String> = sets
+                .iter()
+                .filter(|(_, reach)| reach.contains(&id))
+                .map(|(n, _)| n.clone())
+                .collect();
+            // A dispatched method with nothing reaching it directly is attributed to the
+            // type that owns it, exactly as `runs` does.
+            if found.is_empty() {
+                if let Some(owner) = store.enclosing_type(id)? {
+                    found = sets
+                        .iter()
+                        .filter(|(_, reach)| reach.contains(&owner.id))
+                        .map(|(n, _)| n.clone())
+                        .collect();
+                }
+            }
+            runs_memo.insert(id, found.clone());
+            Ok(found)
         };
 
         for service in runs(self, symbol_id)? {
@@ -106,7 +125,7 @@ impl Store {
         // builds changes what that service receives - and every cairn arm missed it,
         // because `affects` only ever looked at who reaches the symbol, never at what the
         // symbol reaches.
-        out.outgoing = self.outgoing_services(symbol_id)?;
+        out.outgoing = self.outgoing_services(symbol_id, &sets)?;
 
         // Only symbols that implement an RPC can start a hop, and there are far fewer of
         // them than there are callers of a repository function. Testing membership in a
@@ -166,7 +185,11 @@ impl Store {
     }
 
     /// Services this symbol calls over the network, and who serves them.
-    fn outgoing_services(&self, symbol_id: i64) -> Result<Vec<Outgoing>> {
+    fn outgoing_services(
+        &self,
+        symbol_id: i64,
+        sets: &[(String, std::collections::HashSet<i64>)],
+    ) -> Result<Vec<Outgoing>> {
         let mut stmt = self.conn.prepare(
             r#"
             SELECT DISTINCT ps.pkg, ps.name, mine.symbol_id
@@ -195,11 +218,15 @@ impl Store {
                 "#,
             )?;
             let ids = servers.query_map(params![pkg, service], |r| r.get::<_, i64>(0))?;
+            // Membership in the precomputed sets, not a fresh walk per server: this loop
+            // ran `services_running` once per implementor, and once those walks grew it
+            // turned a four-second command into a five-minute one.
             let mut served_by: Vec<String> = Vec::new();
             for id in ids {
-                for svc in self.services_running(id?, 12)? {
-                    if !served_by.contains(&svc) {
-                        served_by.push(svc);
+                let id = id?;
+                for (name, reach) in sets {
+                    if reach.contains(&id) && !served_by.contains(name) {
+                        served_by.push(name.clone());
                     }
                 }
             }
