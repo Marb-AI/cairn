@@ -129,7 +129,7 @@ Konkrétní průchod tímhle cvičením je v §17.
 ## 2. Procesní topologie
 
 ```
-  agent (Claude Code / …) nebo člověk nebo CI
+  agent (coding agent / …) nebo člověk nebo CI
             │  spustí příkaz, čte stdout
             ▼
      ┌──────────────┐   spustí daemon, pokud neběží
@@ -172,7 +172,7 @@ Na hostiteli nesmí být `cargo`, `rustup`, Node ani Go toolchain. To není jen 
 mění to tři věci v architektuře.
 
 ```
-Claude Code
+Coding agent
    │  stdio
    ▼
 docker compose run --rm cairn refs a4    ← frontend, jednorázový, bez stavu
@@ -796,7 +796,7 @@ Co se získává:
 Co se ztrácí — poctivě dvě věci:
 
 1. **Objevitelnost.** MCP host vidí schémata nástrojů vždy; CLI musí někdo agentovi
-   představit. Skill nebo dva řádky v `CLAUDE.md`. Instalace skillu je ale srovnatelně
+   představit. Skill nebo dva řádky v `AGENTS.md`. Instalace skillu je ale srovnatelně
    snadná jako instalace MCP serveru, takže je to spíš přesun než ztráta.
 2. **MCP sampling.** Odpadá možnost nechat LLM krok proběhnout na modelu hosta (§6.4).
    Ukazuje se ale, že je to zlepšení — viz tam.
@@ -842,7 +842,7 @@ Ergonomie se liší a je potřeba se rozhodnout pro agenta:
 ### 6.2 Skill je produktová práce
 
 U MCP to byly popisy nástrojů, u CLI je to skill — a je to větší prostor, ne menší.
-Claude umí grep a sáhne po něm reflexivně; skill musí říct **kdy je cairn lepší**, ne co dělá:
+Agent umí grep a sáhne po něm reflexivně; skill musí říct **kdy je cairn lepší**, ne co dělá:
 
 > **Hledání použití symbolu.** Použij `cairn refs <handle>` místo grepu. Grep najde
 > komentáře, stringy a stejnojmenné symboly z jiných modulů — a nenajde volání přes alias
@@ -855,7 +855,7 @@ Výhoda skillu oproti popisům nástrojů: unese celý workflow („začni tímh
 na hledání referencí nepoužívej grep") a neplatí se, dokud není relevantní.
 
 Signál kvality zůstává: **jestli agent sáhne po `cairn` i bez skillu** — protože ho vidí
-v `CLAUDE.md` nebo v historii — je nástroj zjevně lepší než grep. Když ho tam musíš tlačit,
+v `AGENTS.md` nebo v historii — je nástroj zjevně lepší než grep. Když ho tam musíš tlačit,
 buď není, nebo to neumíš dost rychle ukázat.
 
 ### 6.3 Formát odpovědi = produkt

@@ -427,7 +427,7 @@ impl Store {
         symbol_id: i64,
         include_generated: bool,
         limit: usize,
-    ) -> Result<(Vec<Occurrence>, i64)> {
+    ) -> Result<(Vec<Occurrence>, i64, i64)> {
         let mut stmt = self.conn.prepare_cached(
             r#"
             SELECT p.s, o.line, o.col_start, o.col_end, o.role, f.generated, f.gen_via,
@@ -474,7 +474,18 @@ impl Store {
                 |r| r.get(0),
             )?
         };
-        Ok((out, suppressed))
+        // How many the filters matched before --limit cut them. Reporting only the
+        // generated-code suppression made a truncated list look complete: `refs` on a
+        // symbol with 435 references returned five rows and `suppressed: none`.
+        let total: i64 = self.conn.query_row(
+            r#"SELECT count(*)
+                 FROM occurrences o
+                 JOIN files f ON f.id = o.file_id
+                WHERE o.symbol_id = ?1 AND (?2 = 1 OR f.generated = 0)"#,
+            params![symbol_id, include_generated as i64],
+            |r| r.get(0),
+        )?;
+        Ok((out, suppressed, total))
     }
 }
 

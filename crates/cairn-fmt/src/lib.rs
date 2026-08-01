@@ -206,6 +206,9 @@ pub fn references_with_context(
     sym: &SymbolRow,
     refs: &[Occurrence],
     suppressed_generated: i64,
+    // How many the filters matched before --limit. Without it a truncated list looked
+    // complete, which is the failure the envelope exists to prevent.
+    total: i64,
     source: Option<&mut Source>,
     ctx: SiteContext,
     budget: &mut Budget,
@@ -262,6 +265,13 @@ pub fn references_with_context(
     }
 
     let mut env = Envelope::new(body);
+    let dropped = total - refs.len() as i64;
+    if dropped > 0 {
+        env = env.suppressed(format!(
+            "{dropped} more references beyond --limit ({total} in total). Raise --limit, \
+             or use `cairn usage` for the same answer grouped by file"
+        ));
+    }
     if shown < refs.len() {
         env = env.suppressed(budget.cut_note(refs.len() - shown, "references"));
     }
@@ -276,7 +286,12 @@ pub fn references_with_context(
     env
 }
 
-pub fn references(sym: &SymbolRow, refs: &[Occurrence], suppressed_generated: i64) -> Envelope {
+pub fn references(
+    sym: &SymbolRow,
+    refs: &[Occurrence],
+    suppressed_generated: i64,
+    total: i64,
+) -> Envelope {
     let mut body = String::new();
     let _ = writeln!(body, "references to [{}] {}", sym.handle, sym.qualified());
     if let Some(def) = &sym.def {
@@ -291,6 +306,13 @@ pub fn references(sym: &SymbolRow, refs: &[Occurrence], suppressed_generated: i6
     }
 
     let mut env = Envelope::new(body);
+    let dropped = total - refs.len() as i64;
+    if dropped > 0 {
+        env = env.suppressed(format!(
+            "{dropped} more references beyond --limit ({total} in total). Raise --limit or \
+             use `cairn usage` for the same answer grouped by file"
+        ));
+    }
     if suppressed_generated > 0 {
         env = env.suppressed(format!(
             "{suppressed_generated} references in generated code (rerun with --include-generated)"

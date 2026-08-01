@@ -297,9 +297,19 @@ impl Store {
         }
         tx.commit()?;
         // `services` counts artefacts processed, not distinct services.
+        // Counted from the tables, not accumulated during the loop: the counters were
+        // incremented once per artefact, so a symbol linked by several artefacts was
+        // counted several times and `index` reported 477 serve links where `status`,
+        // reading the table, reported 295. Two numbers for one fact is one too many.
         stats.services = self
             .conn
             .query_row("SELECT count(*) FROM proto_services", [], |r| r.get(0))?;
+        stats.serves = self
+            .conn
+            .query_row("SELECT count(*) FROM service_links WHERE role = 0", [], |r| r.get(0))?;
+        stats.calls = self
+            .conn
+            .query_row("SELECT count(*) FROM service_links WHERE role = 1", [], |r| r.get(0))?;
         Ok(stats)
     }
 

@@ -508,7 +508,8 @@ fn run() -> Result<u8> {
             } else {
                 limit
             };
-            let (refs, suppressed) = store.references(symbol_id, include_generated, effective_limit)?;
+            let (refs, suppressed, total) =
+                store.references(symbol_id, include_generated, effective_limit)?;
             let found = !refs.is_empty();
             let paths: Vec<String> = refs.iter().map(|r| r.path.clone()).collect();
             let ctx = if context == "auto" {
@@ -528,6 +529,7 @@ fn run() -> Result<u8> {
                     &sym,
                     &refs,
                     suppressed,
+                        total,
                     source.as_mut(),
                     ctx,
                     &mut budget
