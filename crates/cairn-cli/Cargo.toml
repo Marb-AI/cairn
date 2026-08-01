@@ -15,3 +15,7 @@ cairn-scip.workspace = true
 cairn-store.workspace = true
 cairn-fmt.workspace = true
 cairn-daemon.workspace = true
+
+[dev-dependencies]
+serde.workspace = true
+serde_yaml.workspace = true

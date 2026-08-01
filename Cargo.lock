@@ -133,6 +133,8 @@ dependencies = [
  "cairn-scip",
  "cairn-store",
  "clap",
+ "serde",
+ "serde_yaml",
 ]
 
 [[package]]

@@ -478,10 +478,14 @@ impl Store {
         // generated-code suppression made a truncated list look complete: `refs` on a
         // symbol with 435 references returned five rows and `suppressed: none`.
         let total: i64 = self.conn.query_row(
+            // The same filters as the list above, definition row included: counting one
+            // more than was shown made the truncation note off by one, which the corpus
+            // cases caught within a minute of existing.
             r#"SELECT count(*)
                  FROM occurrences o
                  JOIN files f ON f.id = o.file_id
-                WHERE o.symbol_id = ?1 AND (?2 = 1 OR f.generated = 0)"#,
+                WHERE o.symbol_id = ?1 AND (o.role & 1) = 0
+                  AND (?2 = 1 OR f.generated = 0)"#,
             params![symbol_id, include_generated as i64],
             |r| r.get(0),
         )?;
