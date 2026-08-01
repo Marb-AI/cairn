@@ -1037,6 +1037,10 @@ pub fn outline(prefix: &str, rows: &[cairn_store::OutlineEntry], budget: &mut Bu
     for r in rows {
         let use_note = if r.production_callers > 0 {
             format!("{} prod", r.production_callers)
+        } else if r.dispatched {
+            // Not "test-only" and not "unused": a service binding reaches it, and the
+            // static caller count is simply not evidence either way.
+            "dispatched".to_string()
         } else if r.caller_count > 0 {
             format!("{} test-only", r.caller_count)
         } else {

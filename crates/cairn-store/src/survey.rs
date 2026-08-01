@@ -45,6 +45,12 @@ pub struct OutlineEntry {
     pub symbol: SymbolRow,
     pub caller_count: i64,
     pub production_callers: i64,
+    /// A service binding reaches this, so a static caller count of zero says nothing.
+    ///
+    /// Fixing `unreached` was not enough (task M): `outline` kept labelling thirty RPC
+    /// methods `test-only`, an agent correctly disbelieved every one of them, and spent a
+    /// third more than the baseline checking. A wrong label is not cheaper than no label.
+    pub dispatched: bool,
 }
 
 impl Store {
@@ -127,7 +133,16 @@ impl Store {
                       JOIN symbols c   ON c.id = e.src_symbol
                       LEFT JOIN files cf ON cf.id = c.def_file_id
                      WHERE e.dst_symbol = s.id AND e.kind = 0
-                       AND coalesce(cf.is_test, 0) = 0)
+                       AND coalesce(cf.is_test, 0) = 0),
+                   (EXISTS (SELECT 1 FROM service_links l
+                             WHERE l.symbol_id = s.id AND l.role = 0)
+                    OR EXISTS (SELECT 1
+                                 FROM symbols t
+                                 JOIN strings tn ON tn.id = t.name_id
+                                 JOIN strings c  ON c.id = s.container_id
+                                 JOIN service_links l ON l.symbol_id = t.id AND l.role = 0
+                                WHERE t.def_file_id = s.def_file_id
+                                  AND (c.s = tn.s OR c.s LIKE '%/' || tn.s || '#')))
               FROM symbols s
               JOIN files   f ON f.id = s.def_file_id
               JOIN strings p ON p.id = f.path_id
@@ -139,16 +154,22 @@ impl Store {
             "#,
         )?;
         let rows = stmt.query_map(params![like, limit as i64], |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)? != 0,
+            ))
         })?;
         let mut out = Vec::new();
         for row in rows {
-            let (id, callers, prod) = row?;
+            let (id, callers, prod, dispatched) = row?;
             let Some(symbol) = self.symbol(id)? else { continue };
             out.push(OutlineEntry {
                 symbol,
                 caller_count: callers,
                 production_callers: prod,
+                dispatched,
             });
         }
         Ok(out)

@@ -33,7 +33,7 @@ They are not in a rule pack. They are Rust functions in the middle of the crate,
 that a deliberate deferral is generous — it is a debt, and until it is paid the tool is a
 Python/Go/Docker tool rather than a general one.
 
-## Tier 3 — one genuine layout assumption, and it fails silently
+## Tier 3 — one genuine layout assumption, and it failed silently (fixed)
 
 `protolink::package_of` derives the proto package by splitting the file path on `/schema/`:
 
@@ -47,9 +47,19 @@ callers, which is indistinguishable from a service nothing calls. That is the fa
 the whole envelope design exists to prevent, sitting in the one mechanism the measurements
 say is worth the most (tasks D and L, −34 % and −52 %).
 
-It should be inferred (the directory that generated files actually sit in) or configured,
-and until then `cairn status` should say how many cross-language links were built so a zero
-is visible.
+**Both halves are now done.** The package is the directory the generated file actually sits
+in, whatever it is called — `gen/go/billing_v1/…`, `pb/orders/…` and `srcpy/schema/…` all
+resolve, because both generators emit `<anything>/<pkg>/…` and `<pkg>` is what the two
+languages have in common. No layout name is assumed. Re-indexed against the measured
+repository: still 73 services, no new phantoms.
+
+And `cairn status` now prints the link counts, saying so in as many words when they are
+zero:
+
+```
+services   0 - no cross-language links. `cairn reaches` will find nothing, and that
+           is this mechanism failing, not an answer
+```
 
 ## What the day's fixes did and did not do
 

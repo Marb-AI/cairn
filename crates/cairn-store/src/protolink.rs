@@ -124,12 +124,27 @@ fn canonical_service(stem: &str) -> Option<String> {
 /// `srcgo/schema/orders_api/service_auth_grpc.pb.go` both yield `orders_api`,
 /// which is what makes the two sides meet.
 fn package_of(path: &str) -> Option<&str> {
-    let after = path.split("/schema/").nth(1)?;
-    let first = after.split('/').next()?;
-    if first.is_empty() || first.contains('.') {
-        return None; // a file directly under schema/, not a package directory
+    // The directory the generated file sits in, whatever it is called.
+    //
+    // This used to split on the literal `/schema/`, which is where this repository puts
+    // generated protobuf code. A repository that generates into `gen/`, `pb/` or `proto/`
+    // got *zero* cross-language links and no indication of it — `reaches` would report no
+    // callers, which is indistinguishable from a service nothing calls. That is exactly
+    // the silent failure the envelope design exists to prevent, sitting in the mechanism
+    // the measurements value most (tasks D and L).
+    //
+    // The parent directory is what the two languages actually have in common: both
+    // generators emit `<anything>/<pkg>/…`, and `<pkg>` is the proto package. No layout
+    // name is assumed.
+    let (dir, file) = path.rsplit_once('/')?;
+    if file.is_empty() {
+        return None;
     }
-    Some(first)
+    let name = dir.rsplit('/').next()?;
+    if name.is_empty() || name.contains('.') {
+        return None; // not a package directory
+    }
+    Some(name)
 }
 
 impl Store {
@@ -264,6 +279,19 @@ impl Store {
             .conn
             .query_row("SELECT count(*) FROM proto_services", [], |r| r.get(0))?;
         Ok(stats)
+    }
+
+    /// Services and links recorded, so `status` can show a zero rather than hide it.
+    pub fn link_counts(&self) -> Result<(i64, i64, i64)> {
+        let services =
+            self.conn.query_row("SELECT count(*) FROM proto_services", [], |r| r.get(0))?;
+        let serves = self
+            .conn
+            .query_row("SELECT count(*) FROM service_links WHERE role = 0", [], |r| r.get(0))?;
+        let calls = self
+            .conn
+            .query_row("SELECT count(*) FROM service_links WHERE role = 1", [], |r| r.get(0))?;
+        Ok((services, serves, calls))
     }
 
     /// Who reaches this symbol across a service boundary.
@@ -596,7 +624,7 @@ mod tests {
     }
 
     #[test]
-    fn package_comes_from_the_schema_directory() {
+    fn package_comes_from_the_containing_directory_whatever_it_is_called() {
         assert_eq!(
             package_of("srcpy/schema/orders_api/__init__.py"),
             Some("orders_api")
@@ -605,9 +633,17 @@ mod tests {
             package_of("srcgo/schema/orders_fe/service_auth_grpc.pb.go"),
             Some("orders_fe")
         );
-        // A file sitting directly under schema/ belongs to no package.
-        assert_eq!(package_of("srcpy/schema/openapi.py"), None);
-        assert_eq!(package_of("srcpy/domains/orders/x.py"), None);
+        // The layout name is not assumed: these are the shapes other repositories use,
+        // and they used to yield nothing at all.
+        assert_eq!(package_of("gen/go/billing_v1/service.pb.go"), Some("billing_v1"));
+        assert_eq!(package_of("pb/orders/orders_pb2.py"), Some("orders"));
+        assert_eq!(package_of("x.py"), None); // no directory to take a name from
+
+        // A file directly under its tree now yields that directory's name rather than
+        // nothing. Harmless: this is only ever asked about files already classified as
+        // generated, and a package name only reaches the graph if a symbol in that file
+        // also classifies as a service artefact, which `openapi.py` has none of.
+        assert_eq!(package_of("srcpy/schema/openapi.py"), Some("schema"));
     }
 
     #[test]

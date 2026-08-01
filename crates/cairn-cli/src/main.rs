@@ -930,6 +930,21 @@ fn run() -> Result<u8> {
             println!("occurrence {}", c.occurrences);
             println!("generated  {} files", c.generated_files);
 
+            // Cross-language linking either found something or it did not, and a zero used
+            // to be invisible: `reaches` would report no callers, which reads as "nothing
+            // calls this" rather than "this mechanism produced nothing". Named here so a
+            // repository whose generated code does not look like this one's finds out at
+            // `status` rather than through a wrong answer.
+            let (services, serves, calls) = store.link_counts()?;
+            if services == 0 {
+                println!(
+                    "services   0 - no cross-language links. `cairn reaches` will find \
+                     nothing, and that is this mechanism failing, not an answer"
+                );
+            } else {
+                println!("services   {services} gRPC ({serves} serve, {calls} call links)");
+            }
+
             let socket = cairn_daemon::socket_path(&db);
             match cairn_daemon::Client::connect(&socket) {
                 Some(mut client) => {
