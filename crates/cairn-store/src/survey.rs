@@ -75,6 +75,22 @@ impl Store {
                AND f.generated = 0
                AND coalesce(f.is_test, 0) = 0
                AND s.kind IN (1, 3)
+               -- Code a service binding reaches is not dead, it is dispatched. Measured
+               -- (task M): asked which symbols in a gRPC handlers package production never
+               -- calls, this reported all 35 of them, and the right answer is none — every
+               -- one is an RPC method invoked over the wire from Go. A command whose whole
+               -- promise is "what production never calls" was wrong about an entire
+               -- directory, which is worse than being expensive.
+               AND NOT EXISTS (
+                   SELECT 1 FROM service_links l WHERE l.symbol_id = s.id AND l.role = 0)
+               AND NOT EXISTS (
+                   SELECT 1
+                     FROM symbols t
+                     JOIN strings tn ON tn.id = t.name_id
+                     JOIN strings c  ON c.id = s.container_id
+                     JOIN service_links l ON l.symbol_id = t.id AND l.role = 0
+                    WHERE t.def_file_id = s.def_file_id
+                      AND (c.s = tn.s OR c.s LIKE '%/' || tn.s || '#'))
              GROUP BY s.id
             HAVING prod_callers = 0
              ORDER BY test_callers DESC, s.ref_count DESC
