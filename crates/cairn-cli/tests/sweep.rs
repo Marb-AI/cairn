@@ -26,6 +26,18 @@ use std::time::Instant;
 const STRIDE: usize = 997; // prime, so the sample is not aligned with any file boundary
 const CEILING_SECS: u64 = 10;
 
+/// The repository the corpus index describes. `/repo` inside the build container, a
+/// sibling checkout on a host.
+fn indexed_repo(root: &Path) -> PathBuf {
+    if let Some(p) = std::env::var_os("CAIRN_TEST_REPO") {
+        return PathBuf::from(p);
+    }
+    if Path::new("/repo").exists() {
+        return PathBuf::from("/repo");
+    }
+    root.join("../repos/backend")
+}
+
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
@@ -46,7 +58,9 @@ fn binary() -> PathBuf {
 #[test]
 fn every_command_holds_its_contract_across_the_index() {
     let root = workspace_root();
-    let db = root.join(".cairn/index.sqlite");
+    // The index belongs to the codebase it describes, not to cairn's own tree — the same
+    // place `cairn` itself would look for it when run from inside that repository.
+    let db = indexed_repo(&root).join(".cairn/index.sqlite");
     if !db.exists() {
         eprintln!("SKIP: no index at {}", db.display());
         return;

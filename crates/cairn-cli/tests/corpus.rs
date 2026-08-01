@@ -92,6 +92,18 @@ fn make_fixtures(real: &Path) -> std::collections::HashMap<String, PathBuf> {
     out
 }
 
+/// The repository the corpus index describes. `/repo` inside the build container, a
+/// sibling checkout on a host.
+fn indexed_repo(root: &Path) -> PathBuf {
+    if let Some(p) = std::env::var_os("CAIRN_TEST_REPO") {
+        return PathBuf::from(p);
+    }
+    if Path::new("/repo").exists() {
+        return PathBuf::from("/repo");
+    }
+    root.join("../repos/backend")
+}
+
 fn workspace_root() -> PathBuf {
     // CARGO_MANIFEST_DIR is crates/cairn-cli.
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -114,7 +126,9 @@ fn binary() -> PathBuf {
 #[test]
 fn corpus_cases_hold() {
     let root = workspace_root();
-    let db = root.join(".cairn/index.sqlite");
+    // The index belongs to the codebase it describes, not to cairn's own tree — the same
+    // place `cairn` itself would look for it when run from inside that repository.
+    let db = indexed_repo(&root).join(".cairn/index.sqlite");
     if !db.exists() {
         eprintln!(
             "SKIP: no index at {}. Build one with `cairn index <file.scip> --repo <dir>` \
@@ -169,7 +183,10 @@ fn corpus_cases_hold() {
             cmd.env(k, v.replace("{db}", &db.to_string_lossy()));
         }
         if let Some(dir) = &case.cwd {
-            cmd.current_dir(dir.replace("{root}", &root.to_string_lossy()));
+            cmd.current_dir(
+                dir.replace("{root}", &root.to_string_lossy())
+                    .replace("{repo}", &repo),
+            );
         }
         let out = cmd
             .args(case.args.iter().map(|a| a.replace("{repo}", &repo)))

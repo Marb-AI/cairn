@@ -129,6 +129,21 @@ fn pid_alive(pid: u32) -> bool {
 /// to the file they were written beside, and leaving the old ones next to the new database
 /// is how a "successful" rebuild produces a corrupt index.
 pub fn promote(building: &Path, db: &Path) -> Result<()> {
+    // Fold the write-ahead log back into the file before it ships.
+    //
+    // A WAL-mode database cannot be opened even for reading without write access to its
+    // directory: SQLite must create the `-wal` and `-shm` sidecars. Found by putting the
+    // index where it belongs — inside the repository it describes — and mounting that
+    // read-only, which is exactly how it will be used in CI and in any container that
+    // takes source as read-only. WAL is what makes the *build* fast, and the build now
+    // happens in a separate file, so the promoted one has no reason to keep it.
+    {
+        let conn = rusqlite::Connection::open(building)
+            .with_context(|| format!("reopening {} to checkpoint", building.display()))?;
+        conn.pragma_update(None, "journal_mode", "DELETE")
+            .context("switching the finished index off WAL")?;
+    }
+
     for suffix in ["-wal", "-shm"] {
         let stale = PathBuf::from(format!("{}{suffix}", db.display()));
         let _ = std::fs::remove_file(stale);
