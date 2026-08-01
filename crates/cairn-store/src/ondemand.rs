@@ -3,7 +3,7 @@
 //! The compose `command:` is only half of what a deployment runs. The other half arrives
 //! later — a crontab line, a management command, a `docker exec` — and it is invisible to
 //! every mechanism the rest of this crate uses, because nothing in the source tree calls
-//! it. Measured (eval/RESULTS.md, task E): a container whose command is `tail -f
+//! it. Measured (the measurement record, task E): a container whose command is `tail -f
 //! /dev/null` was reported as running nothing, while a nightly job inside it reached a
 //! repository function under audit. The tool-less baseline found it by reading a shell
 //! script, which is the one thing an index cannot do by not looking.
@@ -41,14 +41,23 @@ pub struct OnDemand {
 
 /// Directories that never hold deployment scripts and cost a lot to walk.
 const SKIP: &[&str] = &[
-    ".git", "node_modules", ".venv", "venv", "__pycache__", "target", "dist", "build",
-    ".mypy_cache", ".ruff_cache", ".pytest_cache",
+    ".git",
+    "node_modules",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "target",
+    "dist",
+    "build",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".pytest_cache",
 ];
 
 /// Find cron-triggered runners and the code they lead to.
 pub fn scan(repo: &Path) -> Result<Vec<OnDemand>> {
     let mut scripts: Vec<std::path::PathBuf> = Vec::new();
-    collect_scripts(repo, repo, 0, &mut scripts);
+    collect_scripts(repo, 0, &mut scripts);
 
     // Runner scripts are looked up by basename: a crontab names a path inside the
     // container (`/app/foo.sh`) and the repo holds it somewhere else entirely
@@ -63,16 +72,30 @@ pub fn scan(repo: &Path) -> Result<Vec<OnDemand>> {
 
     let mut out: Vec<OnDemand> = Vec::new();
     for path in &scripts {
-        let Ok(text) = std::fs::read_to_string(path) else { continue };
+        let Ok(text) = std::fs::read_to_string(path) else {
+            continue;
+        };
         let vars = assignments(&text);
         for line in text.lines() {
             let line = expand(line.trim(), &vars);
-            let Some((schedule, rest)) = split_cron(&line) else { continue };
-            let Some(service) = container_filter(&rest) else { continue };
-            let Some(runner) = runner_script(&rest) else { continue };
-            let Some(runner_path) = by_name.get(&runner) else { continue };
-            let Ok(runner_text) = std::fs::read_to_string(runner_path) else { continue };
-            let Some(command) = last_command(&runner_text) else { continue };
+            let Some((schedule, rest)) = split_cron(&line) else {
+                continue;
+            };
+            let Some(service) = container_filter(&rest) else {
+                continue;
+            };
+            let Some(runner) = runner_script(&rest) else {
+                continue;
+            };
+            let Some(runner_path) = by_name.get(&runner) else {
+                continue;
+            };
+            let Ok(runner_text) = std::fs::read_to_string(runner_path) else {
+                continue;
+            };
+            let Some(command) = last_command(&runner_text) else {
+                continue;
+            };
             let rel = runner_path
                 .strip_prefix(repo)
                 .unwrap_or(runner_path)
@@ -91,11 +114,13 @@ pub fn scan(repo: &Path) -> Result<Vec<OnDemand>> {
     Ok(out)
 }
 
-fn collect_scripts(root: &Path, dir: &Path, depth: usize, out: &mut Vec<std::path::PathBuf>) {
+fn collect_scripts(dir: &Path, depth: usize, out: &mut Vec<std::path::PathBuf>) {
     if depth > 8 || out.len() > 5000 {
         return;
     }
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in entries.flatten() {
         let p = e.path();
         let name = e.file_name().to_string_lossy().to_string();
@@ -103,7 +128,7 @@ fn collect_scripts(root: &Path, dir: &Path, depth: usize, out: &mut Vec<std::pat
             if SKIP.contains(&name.as_str()) || name.starts_with('.') {
                 continue;
             }
-            collect_scripts(root, &p, depth + 1, out);
+            collect_scripts(&p, depth + 1, out);
         } else if name.ends_with(".sh") {
             out.push(p);
         }
@@ -118,12 +143,12 @@ fn assignments(text: &str) -> HashMap<String, String> {
         if line.starts_with('#') {
             continue;
         }
-        let Some((name, value)) = line.split_once('=') else { continue };
+        let Some((name, value)) = line.split_once('=') else {
+            continue;
+        };
         let name = name.trim();
         if name.is_empty()
-            || !name
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '_')
+            || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
             || name.chars().next().is_some_and(|c| c.is_ascii_digit())
         {
             continue;
@@ -147,7 +172,9 @@ fn expand(line: &str, vars: &HashMap<String, String>) -> String {
     let mut out = line.to_string();
     for n in names {
         let v = &vars[n];
-        out = out.replace(&format!("${{{n}}}"), v).replace(&format!("${n}"), v);
+        out = out
+            .replace(&format!("${{{n}}}"), v)
+            .replace(&format!("${n}"), v);
     }
     out
 }
@@ -253,7 +280,10 @@ mod tests {
     fn finds_the_service_and_the_runner() {
         let line = r#"docker exec "$(docker ps -q -f name=orders-cli | head -1)" /app/daily_pricing_sync.sh >> /var/log/x.log 2>&1"#;
         assert_eq!(container_filter(line).as_deref(), Some("orders-cli"));
-        assert_eq!(runner_script(line).as_deref(), Some("daily_pricing_sync.sh"));
+        assert_eq!(
+            runner_script(line).as_deref(),
+            Some("daily_pricing_sync.sh")
+        );
     }
 
     #[test]

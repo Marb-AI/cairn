@@ -74,7 +74,10 @@ fn a_file_the_index_knows_and_disk_does_not_is_removed_not_modified() {
         dirty.removed.iter().any(|p| p == "vanished.py"),
         "a file present in the index and absent from disk should be removed: {dirty:?}"
     );
-    assert!(dirty.modified.is_empty(), "and not also modified: {dirty:?}");
+    assert!(
+        dirty.modified.is_empty(),
+        "and not also modified: {dirty:?}"
+    );
 }
 
 #[test]

@@ -30,19 +30,72 @@ fn session_id() -> String {
             return sanitise(&id);
         }
     }
-    #[cfg(unix)]
-    {
-        return format!("ppid-{}", std::os::unix::process::parent_id());
+    match parent_id() {
+        Some(ppid) => format!("ppid-{ppid}"),
+        None => "unknown".to_string(),
     }
-    #[allow(unreachable_code)]
-    "unknown".to_string()
+}
+
+/// The pid of the process that started us.
+#[cfg(unix)]
+fn parent_id() -> Option<u32> {
+    Some(std::os::unix::process::parent_id())
+}
+
+/// Windows has no `getppid`, so the parent has to be found by walking the process table.
+///
+/// Worth the walk rather than falling back to "unknown": every command would otherwise
+/// share one session id, which turns the whole session file into a single undifferentiated
+/// stream and defeats the point of recording it.
+#[cfg(windows)]
+fn parent_id() -> Option<u32> {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+
+    let me = unsafe { GetCurrentProcessId() };
+    let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snapshot == INVALID_HANDLE_VALUE {
+        return None;
+    }
+    let mut entry: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+    entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+    let mut found = None;
+    if unsafe { Process32FirstW(snapshot, &mut entry) } != 0 {
+        loop {
+            if entry.th32ProcessID == me {
+                found = Some(entry.th32ParentProcessID);
+                break;
+            }
+            if unsafe { Process32NextW(snapshot, &mut entry) } == 0 {
+                break;
+            }
+        }
+    }
+    unsafe { CloseHandle(snapshot) };
+    found
+}
+
+#[cfg(not(any(unix, windows)))]
+fn parent_id() -> Option<u32> {
+    None
 }
 
 /// Keep the id usable as a file name: it comes from the environment, so it is not ours.
 fn sanitise(raw: &str) -> String {
     let cleaned: String = raw
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .take(64)
         .collect();
     if cleaned.is_empty() {
@@ -72,7 +125,9 @@ pub struct Record<'a> {
 /// Tracking must never be able to fail a query. A full disk, a read-only checkout, a
 /// directory someone removed mid-session — all of them cost a log line and nothing else.
 pub fn append(db: &Path, rec: &Record) {
-    let Some(dir) = db.parent().map(|d| d.join("sessions")) else { return };
+    let Some(dir) = db.parent().map(|d| d.join("sessions")) else {
+        return;
+    };
     if std::fs::create_dir_all(&dir).is_err() {
         return;
     }
@@ -110,7 +165,11 @@ pub fn append(db: &Path, rec: &Record) {
         rec.elapsed.as_millis(),
     );
 
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
         let _ = f.write_all(line.as_bytes());
     }
 }
@@ -154,13 +213,48 @@ fn now_iso8601() -> String {
 }
 
 /// Peak resident memory, where the platform will say.
+///
+/// Each platform reports a different unit, so the conversion is part of the answer rather
+/// than something the caller is expected to know.
+#[cfg(target_os = "linux")]
 pub fn peak_rss_kb() -> Option<u64> {
+    // VmHWM is already in kB.
     let status = std::fs::read_to_string("/proc/self/status").ok()?;
     status
         .lines()
         .find_map(|l| l.strip_prefix("VmHWM:"))
         .and_then(|v| v.split_whitespace().next())
         .and_then(|n| n.parse().ok())
+}
+
+#[cfg(target_os = "macos")]
+pub fn peak_rss_kb() -> Option<u64> {
+    let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+    if unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) } != 0 {
+        return None;
+    }
+    // Darwin reports `ru_maxrss` in bytes; Linux reports the same field in kilobytes.
+    // Reading it as kB here would overstate the peak by a factor of 1024.
+    Some((usage.ru_maxrss as u64) / 1024)
+}
+
+#[cfg(windows)]
+pub fn peak_rss_kb() -> Option<u64> {
+    use windows_sys::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+
+    let mut counters: PROCESS_MEMORY_COUNTERS = unsafe { std::mem::zeroed() };
+    counters.cb = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+    let ok = unsafe { GetProcessMemoryInfo(GetCurrentProcess(), &mut counters, counters.cb) };
+    // Peak working set is the closest Windows equivalent of high-water resident size.
+    (ok != 0).then_some(counters.PeakWorkingSetSize as u64 / 1024)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+pub fn peak_rss_kb() -> Option<u64> {
+    None
 }
 
 #[cfg(test)]

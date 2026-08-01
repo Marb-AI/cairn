@@ -311,7 +311,6 @@ impl Store {
         }
         Ok(n)
     }
-
 }
 
 fn author_from_i64(v: i64) -> EdgeSource {
@@ -334,17 +333,26 @@ mod tests {
     #[test]
     fn upsert_is_idempotent_and_updates_the_note() {
         let s = store();
-        let a = s.concept_upsert("agent", "oauth-flow", "first", EdgeSource::Agent).unwrap();
-        let b = s.concept_upsert("agent", "oauth-flow", "second", EdgeSource::Agent).unwrap();
+        let a = s
+            .concept_upsert("agent", "oauth-flow", "first", EdgeSource::Agent)
+            .unwrap();
+        let b = s
+            .concept_upsert("agent", "oauth-flow", "second", EdgeSource::Agent)
+            .unwrap();
         assert_eq!(a, b);
-        assert_eq!(s.concept_find("agent", "oauth-flow").unwrap().unwrap().note, "second");
+        assert_eq!(
+            s.concept_find("agent", "oauth-flow").unwrap().unwrap().note,
+            "second"
+        );
     }
 
     #[test]
     fn namespaces_are_separate() {
         let s = store();
-        s.concept_upsert("agent", "billing", "", EdgeSource::Agent).unwrap();
-        s.concept_upsert("team", "billing", "", EdgeSource::Human).unwrap();
+        s.concept_upsert("agent", "billing", "", EdgeSource::Agent)
+            .unwrap();
+        s.concept_upsert("team", "billing", "", EdgeSource::Human)
+            .unwrap();
         assert_eq!(s.concept_list(None).unwrap().len(), 2);
         assert_eq!(s.concept_list(Some("team")).unwrap().len(), 1);
     }
@@ -352,8 +360,10 @@ mod tests {
     #[test]
     fn dropping_a_namespace_leaves_the_others_alone() {
         let s = store();
-        s.concept_upsert("session-1", "guess", "", EdgeSource::Agent).unwrap();
-        s.concept_upsert("team", "keep", "", EdgeSource::Human).unwrap();
+        s.concept_upsert("session-1", "guess", "", EdgeSource::Agent)
+            .unwrap();
+        s.concept_upsert("team", "keep", "", EdgeSource::Human)
+            .unwrap();
         let (concepts, _) = s.concept_drop_ns("session-1").unwrap();
         assert_eq!(concepts, 1);
         assert_eq!(s.concept_list(None).unwrap().len(), 1);

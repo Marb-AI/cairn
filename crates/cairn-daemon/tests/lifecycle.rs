@@ -85,7 +85,10 @@ fn staleness_covers_changed_and_deleted_files_but_not_new_ones() {
     };
     // `complete` is false by default, which is the honest starting state: the initial
     // scan has not finished and the set must not be presented as authoritative.
-    assert!(!dirty.complete, "a hand-built set should not claim to be complete");
+    assert!(
+        !dirty.complete,
+        "a hand-built set should not claim to be complete"
+    );
     assert!(dirty.affects("a.py"));
     assert!(dirty.affects("gone.py"));
     assert!(!dirty.affects("new.py"));

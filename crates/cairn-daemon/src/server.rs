@@ -7,12 +7,12 @@
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::time::Instant;
 
+use crate::ipc::{UnixListener, UnixStream};
 use crate::lsp::Pool;
 use crate::watch::DirtyTracker;
 use crate::{DaemonStatus, Request, Response};
@@ -144,12 +144,19 @@ impl Daemon {
             Ok(Request::FileSymbols { path }) => {
                 match self.pool.lock().unwrap().document_symbols(&path) {
                     Ok(symbols) => (Response::FileSymbols { symbols }, false),
-                    Err(e) => (Response::Error { message: format!("{e:#}") }, false),
+                    Err(e) => (
+                        Response::Error {
+                            message: format!("{e:#}"),
+                        },
+                        false,
+                    ),
                 }
             }
             Ok(Request::Shutdown) => (Response::Ok, true),
             Err(e) => (
-                Response::Error { message: format!("bad request: {e}") },
+                Response::Error {
+                    message: format!("bad request: {e}"),
+                },
                 false,
             ),
         };

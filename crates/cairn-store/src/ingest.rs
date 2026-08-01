@@ -82,11 +82,11 @@ impl<'a> Interner<'a> {
         }
         self.conn
             .execute("INSERT OR IGNORE INTO strings(s) VALUES (?1)", params![s])?;
-        let id: i64 = self
-            .conn
-            .query_row("SELECT id FROM strings WHERE s = ?1", params![s], |r| {
-                r.get(0)
-            })?;
+        let id: i64 =
+            self.conn
+                .query_row("SELECT id FROM strings WHERE s = ?1", params![s], |r| {
+                    r.get(0)
+                })?;
         self.cache.insert(s.to_string(), id);
         Ok(id)
     }
@@ -97,7 +97,11 @@ impl<'a> Interner<'a> {
 /// `repo_root` is optional. When given, file heads are read to detect generated code
 /// by marker; without it detection falls back to path patterns and says so via
 /// `gen_via`, so the weaker signal is never silently presented as the strong one.
-pub fn ingest_scip(store: &mut Store, index_path: &Path, repo_root: Option<&Path>) -> Result<IngestStats> {
+pub fn ingest_scip(
+    store: &mut Store,
+    index_path: &Path,
+    repo_root: Option<&Path>,
+) -> Result<IngestStats> {
     let index = cairn_scip::load(index_path)?;
     let mut stats = IngestStats::default();
 
@@ -137,7 +141,15 @@ pub fn ingest_scip(store: &mut Store, index_path: &Path, repo_root: Option<&Path
         // through the batching queue rather than one statement per row.
         let mut occ_batch = BatchWriter::new(
             "occurrences",
-            &["file_id", "symbol_id", "line", "col_start", "col_end", "role", "enc_end"],
+            &[
+                "file_id",
+                "symbol_id",
+                "line",
+                "col_start",
+                "col_end",
+                "role",
+                "enc_end",
+            ],
         );
         // `implements` relations come straight from the index; unlike call edges they
         // need no derivation. On the spike corpus: 9,743 in Go, 2,549 in Python.
@@ -148,7 +160,8 @@ pub fn ingest_scip(store: &mut Store, index_path: &Path, repo_root: Option<&Path
 
         for doc in &index.documents {
             let lang = detect_lang(doc);
-            let (generated, via) = detect_generated(&join_prefix(&prefix, &doc.relative_path), repo_root);
+            let (generated, via) =
+                detect_generated(&join_prefix(&prefix, &doc.relative_path), repo_root);
             if generated {
                 stats.generated_files += 1;
                 if via == GeneratedVia::HeaderMarker {
@@ -264,8 +277,7 @@ pub fn ingest_scip(store: &mut Store, index_path: &Path, repo_root: Option<&Path
             stats.documents += 1;
         }
         {
-            let mut set_doc =
-                tx.prepare("UPDATE symbols SET doc = ?2 WHERE hash = ?1")?;
+            let mut set_doc = tx.prepare("UPDATE symbols SET doc = ?2 WHERE hash = ?1")?;
             for (symbol, text) in &docs {
                 if text.is_empty() {
                     continue;
@@ -435,10 +447,9 @@ fn normalise_repo_path(path: &str) -> Option<String> {
     for seg in path.split('/') {
         match seg {
             "" | "." => continue,
+            // `?` here is the climb above the workspace root: nothing left to pop.
             ".." => {
-                if parts.pop().is_none() {
-                    return None; // climbed above the workspace root
-                }
+                parts.pop()?;
             }
             s => parts.push(s),
         }
@@ -526,7 +537,8 @@ fn occurrence_range(occ: &cairn_scip::Occurrence) -> (i64, i64, i64) {
             r.start_character as i64,
             r.end_character as i64,
         ),
-        None => {
+        None =>
+        {
             #[allow(deprecated)]
             decode_range(&occ.range)
         }
@@ -593,7 +605,7 @@ const GENERATED_PATH_HINTS: &[&str] = &[".pb.go", "_pb2.py", "_pb2_grpc.py", "_p
 /// SPENDING_CUT steps" on line 40 — prose about generated *plan steps* — and the file was
 /// classified as generated code. `outline` and `unreached` both exclude generated files,
 /// so a 457-line module vanished from the two queries whose whole promise is that they
-/// are exhaustive, and a measured run spent tokens working around it (eval/RESULTS.md).
+/// are exhaustive, and a measured run spent tokens working around it (the measurement record).
 ///
 /// A generator writes its marker above the code, never below it, so stopping at the first
 /// real line costs nothing and removes the whole class of false positive.
@@ -641,9 +653,10 @@ fn detect_generated(rel_path: &str, repo_root: Option<&Path>) -> (bool, Generate
             let mut buf = vec![0u8; MARKER_SCAN_BYTES];
             if let Ok(n) = f.read(&mut buf) {
                 let head = String::from_utf8_lossy(&buf[..n]).to_ascii_lowercase();
-                if header_block(&head).iter().any(|line| {
-                    GENERATED_MARKERS.iter().any(|m| line.contains(m))
-                }) {
+                if header_block(&head)
+                    .iter()
+                    .any(|line| GENERATED_MARKERS.iter().any(|m| line.contains(m)))
+                {
                     return (true, GeneratedVia::HeaderMarker);
                 }
                 // The file was readable and carries no marker, so a path-pattern guess
@@ -659,12 +672,15 @@ fn detect_generated(rel_path: &str, repo_root: Option<&Path>) -> (bool, Generate
 }
 
 /// Ingest with a friendlier error when the file is missing.
-pub fn ingest_path(store: &mut Store, path: &Path, repo_root: Option<&Path>) -> Result<IngestStats> {
+pub fn ingest_path(
+    store: &mut Store,
+    path: &Path,
+    repo_root: Option<&Path>,
+) -> Result<IngestStats> {
     if !path.exists() {
         anyhow::bail!("SCIP index not found: {}", path.display());
     }
-    ingest_scip(store, path, repo_root)
-        .with_context(|| format!("ingesting {}", path.display()))
+    ingest_scip(store, path, repo_root).with_context(|| format!("ingesting {}", path.display()))
 }
 
 #[cfg(test)]
@@ -764,7 +780,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-
     #[test]
     fn prose_below_the_header_is_not_a_generated_marker() {
         // The case that hid a 457-line module: a comment about auto-generated plan steps,
@@ -791,4 +806,5 @@ mod tests {
                 "should match: {src}"
             );
         }
-    }}
+    }
+}

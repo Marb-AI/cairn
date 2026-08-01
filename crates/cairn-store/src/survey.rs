@@ -3,7 +3,7 @@
 //! This exists because of a measurement. Asked "which functions in this package are
 //! called only from tests", an agent with cairn spent 41 tool calls doing `symbol` then
 //! `graph --aspect callers` once per symbol, for 178 symbols — and only matched the
-//! grep-and-script baseline (eval/RESULTS.md). The index held the answer to the whole
+//! grep-and-script baseline (the measurement record). The index held the answer to the whole
 //! question the entire time; there was simply no way to ask for it.
 //!
 //! That is the general lesson, not a one-off: per-symbol commands make an agent pay a
@@ -108,15 +108,25 @@ impl Store {
             "#,
         )?;
         let rows = stmt.query_map(params![like, limit as i64], |r| {
-            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
         })?;
         let mut out = Vec::new();
         for row in rows {
             let (id, _prod, tests) = row?;
-            let Some(symbol) = self.symbol(id)? else { continue };
+            let Some(symbol) = self.symbol(id)? else {
+                continue;
+            };
             out.push(UnreachedSymbol {
                 symbol,
-                why: if tests > 0 { Unreached::TestsOnly } else { Unreached::Never },
+                why: if tests > 0 {
+                    Unreached::TestsOnly
+                } else {
+                    Unreached::Never
+                },
                 test_callers: tests,
             });
         }
@@ -184,7 +194,9 @@ impl Store {
         let mut out = Vec::new();
         for row in rows {
             let (id, callers, prod, dispatched) = row?;
-            let Some(symbol) = self.symbol(id)? else { continue };
+            let Some(symbol) = self.symbol(id)? else {
+                continue;
+            };
             out.push(OutlineEntry {
                 symbol,
                 caller_count: callers,
@@ -219,9 +231,16 @@ impl Store {
              LIMIT ?3
             "#,
         )?;
-        let rows = stmt.query_map(params![symbol_id, include_tests as i64, limit as i64], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)? != 0))
-        })?;
+        let rows = stmt.query_map(
+            params![symbol_id, include_tests as i64, limit as i64],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, i64>(2)? != 0,
+                ))
+            },
+        )?;
         let mut out = Vec::new();
         for r in rows {
             out.push(r?);

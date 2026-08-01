@@ -55,7 +55,10 @@ impl BatchWriter {
         max_rows: usize,
         max_age: Duration,
     ) -> BatchWriter {
-        assert!(!columns.is_empty(), "batch writer needs at least one column");
+        assert!(
+            !columns.is_empty(),
+            "batch writer needs at least one column"
+        );
         let max_rows = max_rows.min(PARAM_CEILING / columns.len()).max(1);
         BatchWriter {
             table: table.to_string(),
@@ -176,7 +179,8 @@ mod tests {
     }
 
     fn count(c: &Connection) -> i64 {
-        c.query_row("SELECT count(*) FROM t", [], |r| r.get(0)).unwrap()
+        c.query_row("SELECT count(*) FROM t", [], |r| r.get(0))
+            .unwrap()
     }
 
     #[test]
@@ -184,7 +188,8 @@ mod tests {
         let c = conn();
         let mut w = BatchWriter::with_thresholds("t", &["a", "b"], 4, Duration::from_secs(3600));
         for i in 0..4 {
-            w.push(&c, vec![Value::from(i), Value::from(i * 2)]).unwrap();
+            w.push(&c, vec![Value::from(i), Value::from(i * 2)])
+                .unwrap();
         }
         // Threshold reached on the fourth push, so the rows are already durable.
         assert_eq!(count(&c), 4);

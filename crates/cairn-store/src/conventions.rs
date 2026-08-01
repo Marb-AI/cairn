@@ -45,7 +45,9 @@ mod tests {
         assert!(is_test_path("srcpy/domains/x/test_order.py"));
         assert!(is_test_path("srcpy/domains/x/order_test.py"));
         assert!(is_test_path("web/src/x.test.ts"));
-        assert!(is_test_path("srcpy/domains/orders/grpc/tests/handlers/conftest.py"));
+        assert!(is_test_path(
+            "srcpy/domains/orders/grpc/tests/handlers/conftest.py"
+        ));
     }
 
     #[test]

@@ -64,7 +64,9 @@ impl Config {
     }
 
     pub fn load() -> Result<Config> {
-        let Some(path) = config_path() else { return Ok(Config::default()) };
+        let Some(path) = config_path() else {
+            return Ok(Config::default());
+        };
         if !path.exists() {
             return Ok(Config::default());
         }
@@ -76,6 +78,12 @@ impl Config {
 
 /// Physical memory, where the platform will say. `None` means no default ceiling, which
 /// is the honest answer rather than a guessed number.
+///
+/// Asked per platform rather than through one portable call, because there isn't one.
+/// Getting this wrong is not cosmetic: the answer sets the default ceiling that aborts an
+/// index build, so a silent `None` on macOS or Windows would quietly remove the guard
+/// instead of applying it.
+#[cfg(target_os = "linux")]
 fn total_ram_bytes() -> Option<u64> {
     let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;
     let kb: u64 = meminfo
@@ -88,6 +96,40 @@ fn total_ram_bytes() -> Option<u64> {
     Some(kb * 1024)
 }
 
+#[cfg(target_os = "macos")]
+fn total_ram_bytes() -> Option<u64> {
+    let mut bytes: u64 = 0;
+    let mut len = std::mem::size_of::<u64>();
+    // `hw.memsize` is the physical total in bytes; `hw.physmem` is a 32-bit legacy
+    // sibling that saturates on any machine we care about.
+    let rc = unsafe {
+        libc::sysctlbyname(
+            b"hw.memsize\0".as_ptr() as *const libc::c_char,
+            &mut bytes as *mut u64 as *mut libc::c_void,
+            &mut len,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    (rc == 0 && bytes > 0).then_some(bytes)
+}
+
+#[cfg(windows)]
+fn total_ram_bytes() -> Option<u64> {
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+
+    let mut status: MEMORYSTATUSEX = unsafe { std::mem::zeroed() };
+    // The call rejects a struct that has not been told its own size.
+    status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
+    let ok = unsafe { GlobalMemoryStatusEx(&mut status) };
+    (ok != 0 && status.ullTotalPhys > 0).then_some(status.ullTotalPhys)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
+fn total_ram_bytes() -> Option<u64> {
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,12 +139,18 @@ mod tests {
         // The normal state of a fresh install.
         std::env::set_var("CAIRN_CONFIG", "/nonexistent/cairn.yaml");
         let c = Config::load().expect("a missing config is not an error");
-        assert!(!c.tracking, "tracking must be off unless someone asked for it");
+        assert!(
+            !c.tracking,
+            "tracking must be off unless someone asked for it"
+        );
         assert!(!c.memory_peak);
         assert!(c.default_budget.is_none());
         // No explicit limit still yields one, from the machine.
         if let Some(limit) = c.memory_limit_bytes() {
-            assert!(limit > 64 * 1024 * 1024, "a quarter of RAM should not be tiny");
+            assert!(
+                limit > 64 * 1024 * 1024,
+                "a quarter of RAM should not be tiny"
+            );
         }
         std::env::remove_var("CAIRN_CONFIG");
     }

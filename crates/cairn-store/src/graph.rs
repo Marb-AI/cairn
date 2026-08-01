@@ -9,6 +9,10 @@ use anyhow::Result;
 use rusqlite::params;
 use std::collections::HashSet;
 
+/// One step out from a symbol: where it lands, how the edge was derived, and the call
+/// site when there is one.
+pub type Neighbour = (i64, EdgeSource, Option<String>);
+
 /// Which way an edge is followed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -122,7 +126,7 @@ impl Store {
         dir: Direction,
         limit: usize,
         exclude_tests: bool,
-    ) -> Result<(Vec<(i64, EdgeSource, Option<String>)>, i64)> {
+    ) -> Result<(Vec<Neighbour>, i64)> {
         let (from_col, to_col) = match dir {
             Direction::In => ("dst_symbol", "src_symbol"),
             Direction::Out => ("src_symbol", "dst_symbol"),
@@ -134,7 +138,7 @@ impl Store {
         // rows of which three were calls — the rest were parameters, protobuf message
         // types and stdlib names with no definition in this repository. An agent asked to
         // trace an entry point to its database write read that list and then went symbol
-        // by symbol, which is where task F's 34 tool calls went (eval/RESULTS.md).
+        // by symbol, which is where task F's 34 tool calls went (the measurement record).
         //
         // Only applied outwards, and only to call edges: `impls` genuinely wants types,
         // and the inward direction is not polluted.
@@ -170,20 +174,20 @@ impl Store {
         let rows = stmt.query_map(
             params![symbol_id, kind as i64, limit as i64, exclude_tests as i64],
             |r| {
-            let path: Option<String> = r.get(2)?;
-            let line: Option<i64> = r.get(3)?;
-            let site = match (path, line) {
-                (Some(p), Some(l)) => Some(format!("{p}:{}", l + 1)),
-                _ => None,
-            };
-            Ok((
-                r.get::<_, i64>(0)?,
-                match r.get::<_, i64>(1)? {
-                    1 => EdgeSource::Weak,
-                    _ => EdgeSource::Scip,
-                },
-                site,
-            ))
+                let path: Option<String> = r.get(2)?;
+                let line: Option<i64> = r.get(3)?;
+                let site = match (path, line) {
+                    (Some(p), Some(l)) => Some(format!("{p}:{}", l + 1)),
+                    _ => None,
+                };
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    match r.get::<_, i64>(1)? {
+                        1 => EdgeSource::Weak,
+                        _ => EdgeSource::Scip,
+                    },
+                    site,
+                ))
             },
         )?;
         let mut out = Vec::new();
@@ -246,19 +250,17 @@ impl Store {
     ///
     /// Returns `None` when no path exists within `max_depth`, which is a real answer
     /// and must not be confused with "there is no path at all".
-    pub fn call_path(
-        &self,
-        from: i64,
-        to: i64,
-        max_depth: usize,
-    ) -> Result<Option<Vec<PathHop>>> {
+    pub fn call_path(&self, from: i64, to: i64, max_depth: usize) -> Result<Option<Vec<PathHop>>> {
         use std::collections::{HashMap, VecDeque};
 
         if from == to {
             let Some(sym) = self.symbol(from)? else {
                 return Ok(None);
             };
-            return Ok(Some(vec![PathHop { symbol: sym, site: None }]));
+            return Ok(Some(vec![PathHop {
+                symbol: sym,
+                site: None,
+            }]));
         }
 
         // parent[node] = (previous node, call site) so the path can be rebuilt.
@@ -322,7 +324,9 @@ impl Store {
 
         let mut hops = Vec::with_capacity(chain.len());
         for id in chain {
-            let Some(sym) = self.symbol(id)? else { continue };
+            let Some(sym) = self.symbol(id)? else {
+                continue;
+            };
             let site = parent.get(&id).and_then(|(_, s)| s.clone());
             hops.push(PathHop { symbol: sym, site });
         }
@@ -335,7 +339,12 @@ impl Store {
     /// (see `conventions`). This is derived, not a separate index: coverage-based test
     /// impact is the L3 story (architecture 9), and when the two disagree that is a
     /// finding rather than a bug.
-    pub fn tests_reaching(&self, symbol_id: i64, depth: usize, limit: usize) -> Result<Vec<SymbolRow>> {
+    pub fn tests_reaching(
+        &self,
+        symbol_id: i64,
+        depth: usize,
+        limit: usize,
+    ) -> Result<Vec<SymbolRow>> {
         use std::collections::VecDeque;
 
         let mut seen: HashSet<i64> = HashSet::from([symbol_id]);

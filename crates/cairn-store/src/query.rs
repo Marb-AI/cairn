@@ -94,18 +94,14 @@ fn container_is_type(container: &str) -> bool {
 /// This does not fix the resolution. It makes the gap visible, which is the difference
 /// between a wrong answer and an honest one.
 pub fn is_under_resolved_attribute(kind: SymbolKind, container: Option<&str>) -> bool {
-    matches!(kind, SymbolKind::Term)
-        && container.map(container_is_type).unwrap_or(false)
+    matches!(kind, SymbolKind::Term) && container.map(container_is_type).unwrap_or(false)
 }
 
 /// Trailing type/namespace segment of a container descriptor, for display.
 /// `` `a.b.c`/Outer#Inner# `` -> `Inner`
 fn last_container_segment(container: &str) -> &str {
     let trimmed = container.trim_end_matches(['#', '/', '.']);
-    let start = trimmed
-        .rfind(['#', '/'])
-        .map(|i| i + 1)
-        .unwrap_or(0);
+    let start = trimmed.rfind(['#', '/']).map(|i| i + 1).unwrap_or(0);
     trimmed[start..].trim_matches('`')
 }
 
@@ -185,7 +181,10 @@ impl Store {
             let (q, start, end, kind) = r?;
             // Parameters and locals are not file structure; the live view does not
             // list them either, so including them would manufacture "gone" entries.
-            if matches!(kind_from_i64(kind), SymbolKind::Parameter | SymbolKind::TypeParameter) {
+            if matches!(
+                kind_from_i64(kind),
+                SymbolKind::Parameter | SymbolKind::TypeParameter
+            ) {
                 continue;
             }
             out.push((q, start, end));
@@ -336,7 +335,7 @@ impl Store {
 
     /// The type whose body contains this symbol's definition, if any.
     ///
-    /// Measurement drove this in (eval/RESULTS.md, task E). Asked which services run
+    /// Measurement drove this in (the measurement record, task E). Asked which services run
     /// `PricingServiceHandler.recalculate_plan`, the tool answered "0 services" — true of
     /// the method, since an RPC dispatch table invokes it rather than a static call, and
     /// badly wrong as an answer, because the class it belongs to demonstrably runs. The

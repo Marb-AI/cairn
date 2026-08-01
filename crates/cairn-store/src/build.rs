@@ -78,9 +78,7 @@ impl BuildLock {
                     path.display()
                 ),
                 Some(pid) => {
-                    eprintln!(
-                        "cairn: taking over a lock left by pid {pid}, which is gone"
-                    );
+                    eprintln!("cairn: taking over a lock left by pid {pid}, which is gone");
                 }
                 None => {}
             }
@@ -102,24 +100,53 @@ impl Drop for BuildLock {
 
 /// Is a process with this id still around?
 ///
-/// Signal 0 performs the permission and existence checks without delivering anything,
-/// which is the portable way to ask. A pid we may not signal is still a live process, so
-/// `EPERM` counts as alive.
+/// Both implementations follow the same rule: a process we are not allowed to inspect is
+/// still a live process. Reporting it dead would let us steal a lock that someone else is
+/// genuinely holding, which is the one outcome this check exists to prevent.
 fn pid_alive(pid: u32) -> bool {
     if pid == 0 {
         return false;
     }
     #[cfg(unix)]
     {
+        // Signal 0 performs the permission and existence checks without delivering
+        // anything, which is the portable way to ask.
         let rc = unsafe { libc::kill(pid as i32, 0) };
         if rc == 0 {
             return true;
         }
         std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     {
-        Path::new(&format!("/proc/{pid}")).exists()
+        use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED};
+        use windows_sys::Win32::System::Threading::{
+            GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        };
+
+        // 259 (STILL_ACTIVE). Windows keeps a pid reserved until the process has exited
+        // *and* every handle to it is closed, so a handle we just opened cannot have been
+        // recycled underneath us — "still active" here really means our pid.
+        const STILL_ACTIVE: u32 = 259;
+
+        let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if handle.is_null() {
+            // The unix `EPERM` case: a process owned by another user exists but is not
+            // ours to look at.
+            return std::io::Error::last_os_error().raw_os_error()
+                == Some(ERROR_ACCESS_DENIED as i32);
+        }
+        let mut code: u32 = 0;
+        let ok = unsafe { GetExitCodeProcess(handle, &mut code) };
+        unsafe { CloseHandle(handle) };
+        ok != 0 && code == STILL_ACTIVE
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        // No way to ask, so assume the holder is alive. A lock that outlives its process
+        // needs deleting by hand here, which is the lesser of the two failures.
+        let _ = pid;
+        true
     }
 }
 
@@ -150,9 +177,8 @@ pub fn promote(building: &Path, db: &Path) -> Result<()> {
         let from = PathBuf::from(format!("{}{suffix}", building.display()));
         let _ = std::fs::remove_file(from);
     }
-    std::fs::rename(building, db).with_context(|| {
-        format!("promoting {} to {}", building.display(), db.display())
-    })?;
+    std::fs::rename(building, db)
+        .with_context(|| format!("promoting {} to {}", building.display(), db.display()))?;
     Ok(())
 }
 
@@ -168,7 +194,10 @@ mod tests {
         {
             let _held = BuildLock::acquire(&db).unwrap();
             assert!(lock_path(&db).exists());
-            assert!(BuildLock::acquire(&db).is_err(), "a live lock must not be taken twice");
+            assert!(
+                BuildLock::acquire(&db).is_err(),
+                "a live lock must not be taken twice"
+            );
         }
         assert!(!lock_path(&db).exists());
     }
@@ -182,7 +211,10 @@ mod tests {
         // around, and the point is that a crash must not need a human with a shovel.
         std::fs::write(lock_path(&db), "pid=4294967290\n").unwrap();
         let held = BuildLock::acquire(&db);
-        assert!(held.is_ok(), "a stale lock should be taken over, not refused");
+        assert!(
+            held.is_ok(),
+            "a stale lock should be taken over, not refused"
+        );
     }
 
     #[test]

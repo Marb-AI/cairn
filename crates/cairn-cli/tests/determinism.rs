@@ -3,7 +3,7 @@
 //! Two properties, and the second is the one that would hurt quietly.
 //!
 //! Counts drifting between identical builds would mean the derivation depends on iteration
-//! order somewhere, and every measured number in `eval/RESULTS.md` would be built on sand.
+//! order somewhere, and every measured number in `the measurement record` would be built on sand.
 //!
 //! Handles are worse. They are the tool's contract with an agent: `cairn symbol` hands out
 //! `[fba]`, the agent writes it down, and uses it in the next command — or an hour later,
@@ -145,7 +145,10 @@ fn two_indexes_merge_into_one_store_rather_than_replacing_each_other() {
             .unwrap_or_else(|| panic!("no symbol count in:\n{out}"))
     };
 
-    let (a, b) = (a.to_string_lossy().to_string(), b.to_string_lossy().to_string());
+    let (a, b) = (
+        a.to_string_lossy().to_string(),
+        b.to_string_lossy().to_string(),
+    );
     let only_a = dir.join("a.sqlite");
     run(&bin, &only_a, &["index", &a]);
     let only_b = dir.join("b.sqlite");

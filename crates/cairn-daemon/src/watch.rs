@@ -20,8 +20,19 @@ use crate::DirtySet;
 /// Directories never worth watching. Watching them is not merely wasted work: a build
 /// or a virtualenv generates thousands of events and would drown real edits.
 const IGNORED_DIRS: &[&str] = &[
-    ".git", "node_modules", "__pycache__", ".venv", "venv", "target", "dist", ".next",
-    ".mypy_cache", ".pytest_cache", ".ruff_cache", "vendor", ".cairn",
+    ".git",
+    "node_modules",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "target",
+    "dist",
+    ".next",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    "vendor",
+    ".cairn",
 ];
 
 /// Events arrive in bursts - one editor save can produce several, and a git operation
@@ -47,7 +58,10 @@ impl DirtyTracker {
             inner: Arc::new(Mutex::new(State {
                 repo: repo.to_path_buf(),
                 indexed,
-                dirty: DirtySet { complete: false, ..Default::default() },
+                dirty: DirtySet {
+                    complete: false,
+                    ..Default::default()
+                },
                 scheduler: Scheduler::new(),
             })),
         }
@@ -198,7 +212,9 @@ impl DirtyTracker {
                 let batch = std::mem::take(&mut pending);
                 let mut seen: Vec<String> = Vec::new();
                 for p in batch {
-                    let Some(rel) = relativise(&repo, &p) else { continue };
+                    let Some(rel) = relativise(&repo, &p) else {
+                        continue;
+                    };
                     // `.git` is ignored for indexing, but HEAD moving is the single
                     // most useful reindex signal there is, so it is read first.
                     if rel == ".git/HEAD" || rel.starts_with(".git/refs/heads/") {
@@ -233,16 +249,15 @@ fn relativise(root: &Path, p: &Path) -> Option<String> {
 ///
 /// Bounded by the same ignore rules the watcher uses, so a `node_modules` does not turn a
 /// startup scan into a minute of walking.
-fn walk_new(
-    root: &Path,
-    dir: &Path,
-    indexed: &HashMap<String, [u8; 16]>,
-    out: &mut Vec<String>,
-) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+fn walk_new(root: &Path, dir: &Path, indexed: &HashMap<String, [u8; 16]>, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
-        let Ok(rel) = path.strip_prefix(root) else { continue };
+        let Ok(rel) = path.strip_prefix(root) else {
+            continue;
+        };
         let rel = rel.to_string_lossy().to_string();
         if is_ignored(&rel) {
             continue;
@@ -327,7 +342,11 @@ mod tests {
         t.initial_scan();
         let g = t.snapshot().generation;
         t.recheck("a.py");
-        assert_eq!(t.snapshot().generation, g, "no content change, no generation bump");
+        assert_eq!(
+            t.snapshot().generation,
+            g,
+            "no content change, no generation bump"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

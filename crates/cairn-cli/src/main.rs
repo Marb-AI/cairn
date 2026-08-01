@@ -303,7 +303,11 @@ fn main() -> ExitCode {
                 || msg.contains("schema v")
                 || msg.contains("no such table")
                 || msg.contains("file is encrypted or is not a database");
-            if degraded { exit::DEGRADED } else { exit::ERROR }
+            if degraded {
+                exit::DEGRADED
+            } else {
+                exit::ERROR
+            }
         }
     };
 
@@ -325,7 +329,9 @@ fn report(argv: &[String], code: u8, elapsed: std::time::Duration) {
     // Installation settings, not repository ones: one binary serves every checkout on the
     // machine, and whether it records sessions should not depend on which directory you
     // are standing in.
-    let Ok(cfg) = cairn_store::Config::load() else { return };
+    let Ok(cfg) = cairn_store::Config::load() else {
+        return;
+    };
 
     if cfg.memory_peak {
         if let Some(kb) = track::peak_rss_kb() {
@@ -367,7 +373,9 @@ fn report(argv: &[String], code: u8, elapsed: std::time::Duration) {
         positional.push(a);
     }
     let mut positional = positional.into_iter();
-    let Some(command) = positional.next() else { return };
+    let Some(command) = positional.next() else {
+        return;
+    };
     let subject = positional.next();
     let flags: Vec<String> = argv
         .iter()
@@ -389,9 +397,7 @@ fn report(argv: &[String], code: u8, elapsed: std::time::Duration) {
 }
 
 /// Repo-relative paths mentioned by an answer, for staleness marking.
-fn paths_of<'a>(
-    defs: impl Iterator<Item = Option<&'a cairn_store::Occurrence>>,
-) -> Vec<String> {
+fn paths_of<'a>(defs: impl Iterator<Item = Option<&'a cairn_store::Occurrence>>) -> Vec<String> {
     defs.flatten().map(|d| d.path.clone()).collect()
 }
 
@@ -437,9 +443,10 @@ fn default_db() -> PathBuf {
 /// once, because the failure it prevents — a multi-hundred-megabyte SQLite file in someone
 /// history — is not worth an if.
 fn ensure_index_dir(db: &Path) -> Result<()> {
-    let Some(dir) = db.parent() else { return Ok(()) };
-    std::fs::create_dir_all(dir)
-        .with_context(|| format!("creating {}", dir.display()))?;
+    let Some(dir) = db.parent() else {
+        return Ok(());
+    };
+    std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
     if dir.file_name().is_some_and(|n| n == ".cairn") {
         let ignore = dir.join(".gitignore");
         let want = "# cairn's index is a projection of the code; rebuild it, never commit it.\n*\n";
@@ -529,8 +536,13 @@ fn run() -> Result<u8> {
             if let Some(root) = repo.as_deref() {
                 let topo = cairn_store::deploy::parse_compose(
                     root,
-                    &["compose.yaml", "compose.yml", "docker-compose.yml",
-                      "compose.local.yaml", "compose.override.yaml"],
+                    &[
+                        "compose.yaml",
+                        "compose.yml",
+                        "docker-compose.yml",
+                        "compose.local.yaml",
+                        "compose.override.yaml",
+                    ],
                 )?;
                 if !topo.services.is_empty() {
                     let d = store.link_deployment(root, &topo)?;
@@ -549,10 +561,7 @@ fn run() -> Result<u8> {
                     // live code look unreachable, which is the failure mode 8.4 warns
                     // about.
                     if !d.unresolved.is_empty() {
-                        println!(
-                            "          unresolved: {}",
-                            d.unresolved.join(", ")
-                        );
+                        println!("          unresolved: {}", d.unresolved.join(", "));
                     }
                 }
             }
@@ -620,7 +629,11 @@ fn run() -> Result<u8> {
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
-        Cmd::Usage { handle, include_tests, limit } => {
+        Cmd::Usage {
+            handle,
+            include_tests,
+            limit,
+        } => {
             let store = open(&db)?;
             let symbol_id = resolve(&store, &handle)?;
             let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
@@ -685,8 +698,9 @@ fn run() -> Result<u8> {
             let ctx = if context == "auto" {
                 cairn_fmt::SiteContext::auto(cli_budget, refs.len())
             } else {
-                cairn_fmt::SiteContext::parse(&context)
-                    .with_context(|| format!("unknown --context '{context}' (none|line|block|<n>|auto)"))?
+                cairn_fmt::SiteContext::parse(&context).with_context(|| {
+                    format!("unknown --context '{context}' (none|line|block|<n>|auto)")
+                })?
             };
             let mut source = match (ctx, repo) {
                 (cairn_fmt::SiteContext::None, _) => None,
@@ -699,7 +713,7 @@ fn run() -> Result<u8> {
                     &sym,
                     &refs,
                     suppressed,
-                        total,
+                    total,
                     source.as_mut(),
                     ctx,
                     &mut budget
@@ -722,10 +736,11 @@ fn run() -> Result<u8> {
         } => {
             let store = open(&db)?;
             let symbol_id = resolve(&store, &handle)?;
-            let view = View::parse(&view)
-                .with_context(|| format!("unknown view '{view}' (list|tree)"))?;
-            let detail = Detail::parse(&detail)
-                .with_context(|| format!("unknown detail '{detail}' (skeleton|signature|doc|body)"))?;
+            let view =
+                View::parse(&view).with_context(|| format!("unknown view '{view}' (list|tree)"))?;
+            let detail = Detail::parse(&detail).with_context(|| {
+                format!("unknown detail '{detail}' (skeleton|signature|doc|body)")
+            })?;
             let mut source = make_source(detail, repo)?;
             // `tests` is a filtered reachability question rather than a plain walk,
             // so it takes its own path through the store.
@@ -755,9 +770,8 @@ fn run() -> Result<u8> {
                 .first()
                 .map(|n| n.symbol.qualified())
                 .unwrap_or_default();
-            let title = format!(
-                "{label} [{handle}] {root}   depth={depth} fanout={fanout}   [L1, exact]"
-            );
+            let title =
+                format!("{label} [{handle}] {root}   depth={depth} fanout={fanout}   [L1, exact]");
             let paths = paths_of(w.nodes.iter().map(|n| n.symbol.def.as_ref()));
             let mut env = cairn_fmt::walk(&w, &title, view, detail, source.as_mut(), &mut budget)
                 .mark_stale(dirty.as_deref(), &paths);
@@ -773,7 +787,11 @@ fn run() -> Result<u8> {
                 }
             }
             print!("{}", env.render());
-            Ok(if w.nodes.len() > 1 { exit::FOUND } else { exit::NOT_FOUND })
+            Ok(if w.nodes.len() > 1 {
+                exit::FOUND
+            } else {
+                exit::NOT_FOUND
+            })
         }
 
         Cmd::Rules => {
@@ -806,7 +824,11 @@ fn run() -> Result<u8> {
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
-        Cmd::Affects { handle, depth, fanout } => {
+        Cmd::Affects {
+            handle,
+            depth,
+            fanout,
+        } => {
             let store = open(&db)?;
             let symbol_id = resolve(&store, &handle)?;
             let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
@@ -845,10 +867,10 @@ fn run() -> Result<u8> {
             // A method implements exactly one RPC, and its real call sites are indexed.
             // Answer from those rather than from the handler-wide convention: it is the
             // narrower and the stronger claim, and it is the narrowing an agent otherwise
-            // does by hand (eval/RESULTS.md, task E).
+            // does by hand (the measurement record, task E).
             if !outgoing {
                 // A handler type: answer for all of its RPCs at once rather than making
-                // the caller ask once per method (eval/RESULTS.md, task D).
+                // the caller ask once per method (the measurement record, task D).
                 if matches!(sym.kind, cairn_scip::SymbolKind::Type) {
                     let precise = store.rpc_callers_of_type(symbol_id)?;
                     if !precise.is_empty() {
@@ -861,7 +883,10 @@ fn run() -> Result<u8> {
                 }
                 let precise = store.rpc_callers(symbol_id)?;
                 if !precise.is_empty() {
-                    print!("{}", cairn_fmt::rpc_reaches(&sym, &precise, false, &mut budget).render());
+                    print!(
+                        "{}",
+                        cairn_fmt::rpc_reaches(&sym, &precise, false, &mut budget).render()
+                    );
                     return Ok(exit::FOUND);
                 }
             }
@@ -883,18 +908,32 @@ fn run() -> Result<u8> {
             let found = !links.is_empty();
             print!(
                 "{}",
-                cairn_fmt::cross_language(&sym, &services, &links, outgoing, via.as_ref(), &mut budget)
-                    .render()
+                cairn_fmt::cross_language(
+                    &sym,
+                    &services,
+                    &links,
+                    outgoing,
+                    via.as_ref(),
+                    &mut budget
+                )
+                .render()
             );
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
-        Cmd::Path { from, to, max_depth, detail, repo } => {
+        Cmd::Path {
+            from,
+            to,
+            max_depth,
+            detail,
+            repo,
+        } => {
             let store = open(&db)?;
             let src = resolve(&store, &from)?;
             let dst = resolve(&store, &to)?;
-            let detail = Detail::parse(&detail)
-                .with_context(|| format!("unknown detail '{detail}' (skeleton|signature|doc|body)"))?;
+            let detail = Detail::parse(&detail).with_context(|| {
+                format!("unknown detail '{detail}' (skeleton|signature|doc|body)")
+            })?;
             let mut source = make_source(detail, repo)?;
             match store.call_path(src, dst, max_depth)? {
                 Some(hops) => {
@@ -953,12 +992,7 @@ fn run() -> Result<u8> {
                         .def_end_line
                         .map(|e| (e as usize).min(lines.len().saturating_sub(1)))
                         .unwrap_or(start);
-                    for (i, line) in lines
-                        .iter()
-                        .enumerate()
-                        .take(end + 1)
-                        .skip(start)
-                    {
+                    for (i, line) in lines.iter().enumerate().take(end + 1).skip(start) {
                         if !budget.push(&mut body, &format!("{:>6} {line}", i + 1)) {
                             break;
                         }
@@ -1011,7 +1045,11 @@ fn run() -> Result<u8> {
             print!("{}", cairn_fmt::verify(&rep).render());
             // A degraded index must be distinguishable by exit code, not just by
             // reading the text (6.1.1).
-            Ok(if rep.is_clean() { exit::FOUND } else { exit::DEGRADED })
+            Ok(if rep.is_clean() {
+                exit::FOUND
+            } else {
+                exit::DEGRADED
+            })
         }
 
         Cmd::Link { from, to, note, by } => {
@@ -1052,7 +1090,10 @@ fn run() -> Result<u8> {
             let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
             let links = store.asserted_links(symbol_id)?;
             let found = !links.is_empty();
-            print!("{}", cairn_fmt::asserted(&store, &sym, &links, &mut budget)?.render());
+            print!(
+                "{}",
+                cairn_fmt::asserted(&store, &sym, &links, &mut budget)?.render()
+            );
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
@@ -1101,9 +1142,7 @@ fn run() -> Result<u8> {
         Cmd::Live { path } => {
             let socket = cairn_daemon::socket_path(&db);
             let Some(mut client) = cairn_daemon::Client::connect(&socket) else {
-                anyhow::bail!(
-                    "the live view needs a running daemon (`cairn daemon --repo <dir>`)"
-                );
+                anyhow::bail!("the live view needs a running daemon (`cairn daemon --repo <dir>`)");
             };
             let live: Vec<cairn_fmt::LiveSymbolView> = client
                 .file_symbols(&path)?
@@ -1119,7 +1158,10 @@ fn run() -> Result<u8> {
                 .collect();
             let store = open(&db)?;
             let indexed = store.symbols_in_file(&path)?;
-            print!("{}", cairn_fmt::live_overlay(&path, &live, &indexed, &mut budget).render());
+            print!(
+                "{}",
+                cairn_fmt::live_overlay(&path, &live, &indexed, &mut budget).render()
+            );
             Ok(exit::FOUND)
         }
 
@@ -1182,7 +1224,11 @@ fn run() -> Result<u8> {
                         println!("reindex due: {why}");
                         println!("             run `cairn index <scip...> --repo <dir>`");
                     }
-                    Ok(if d.is_empty() { exit::FOUND } else { exit::DEGRADED })
+                    Ok(if d.is_empty() {
+                        exit::FOUND
+                    } else {
+                        exit::DEGRADED
+                    })
                 }
                 None => {
                     // An unknown dirty set and an empty one look the same in an answer.
@@ -1199,7 +1245,7 @@ fn run() -> Result<u8> {
     }
 }
 
-fn run_concept(sub: ConceptCmd, db: &PathBuf, budget: &mut Budget) -> Result<u8> {
+fn run_concept(sub: ConceptCmd, db: &Path, budget: &mut Budget) -> Result<u8> {
     use cairn_store::concepts::DEFAULT_NS;
     let store = open(db)?;
     match sub {
@@ -1213,7 +1259,13 @@ fn run_concept(sub: ConceptCmd, db: &PathBuf, budget: &mut Budget) -> Result<u8>
             println!("concept {ns}/{name} recorded");
             Ok(exit::FOUND)
         }
-        ConceptCmd::Link { name, handle, rel, note, ns } => {
+        ConceptCmd::Link {
+            name,
+            handle,
+            rel,
+            note,
+            ns,
+        } => {
             let concept = store
                 .concept_find(&ns, &name)?
                 .with_context(|| format!("no concept {ns}/{name} (create it first)"))?;
@@ -1236,7 +1288,10 @@ fn run_concept(sub: ConceptCmd, db: &PathBuf, budget: &mut Budget) -> Result<u8>
                 return Ok(exit::NOT_FOUND);
             };
             let links = store.concept_links(concept.id)?;
-            print!("{}", cairn_fmt::concept(&store, &concept, &links, budget)?.render());
+            print!(
+                "{}",
+                cairn_fmt::concept(&store, &concept, &links, budget)?.render()
+            );
             Ok(exit::FOUND)
         }
         ConceptCmd::List { ns } => {
@@ -1280,7 +1335,7 @@ fn resolve(store: &Store, handle: &str) -> Result<i64> {
         .with_context(|| format!("no symbol with handle '{handle}' (run `cairn symbol` first)"))
 }
 
-fn open(db: &PathBuf) -> Result<Store> {
+fn open(db: &Path) -> Result<Store> {
     if !db.exists() {
         anyhow::bail!(
             "no index at {} - run `cairn index <file.scip> --repo <dir>` first",

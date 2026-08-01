@@ -4,10 +4,10 @@
 //! CLI must work without one — it simply cannot report live staleness, and says so
 //! rather than implying the index is current.
 
+use crate::ipc::UnixStream;
 use crate::{DirtySet, Request, Response};
 use anyhow::{anyhow, Result};
 use std::io::{BufRead, BufReader, Write};
-use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::Duration;
 
@@ -69,7 +69,12 @@ impl Client {
 
     /// Ask the language server what is in a file right now.
     pub fn file_symbols(&mut self, path: &str) -> Result<Vec<crate::lsp::LiveSymbol>> {
-        match self.call_with(Request::FileSymbols { path: path.to_string() }, WORK_TIMEOUT)? {
+        match self.call_with(
+            Request::FileSymbols {
+                path: path.to_string(),
+            },
+            WORK_TIMEOUT,
+        )? {
             Response::FileSymbols { symbols } => Ok(symbols),
             Response::Error { message } => Err(anyhow!(message)),
             other => Err(anyhow!("unexpected response: {other:?}")),

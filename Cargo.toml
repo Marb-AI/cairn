@@ -27,6 +27,20 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
 
+# Platform bindings. Each is pulled in only under the matching `[target.'cfg(..)']`
+# section, so neither ends up in the dependency graph of the other platform.
+libc = "0.2"
+# AF_UNIX on Windows (10 build 17063+). Chosen over named pipes because it is a real
+# socket, so the read/write timeouts the daemon protocol depends on still work.
+uds_windows = "1.1"
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    "Win32_System_SystemInformation",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Diagnostics_ToolHelp",
+] }
+
 [profile.release]
 opt-level = 3
 lto = "thin"

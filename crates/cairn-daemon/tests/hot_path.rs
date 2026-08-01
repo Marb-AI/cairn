@@ -24,9 +24,7 @@ fn scratch(name: &str) -> PathBuf {
 
 fn have(binary: &str) -> bool {
     std::env::var_os("PATH")
-        .map(|paths| {
-            std::env::split_paths(&paths).any(|d| d.join(binary).exists())
-        })
+        .map(|paths| std::env::split_paths(&paths).any(|d| d.join(binary).exists()))
         .unwrap_or(false)
 }
 

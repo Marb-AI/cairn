@@ -231,7 +231,10 @@ mod tests {
             ));
         }
         let settled = start + Duration::from_secs(5) + QUIESCENCE;
-        assert!(matches!(s.decide(settled), Decision::Due(Trigger::HeadMoved)));
+        assert!(matches!(
+            s.decide(settled),
+            Decision::Due(Trigger::HeadMoved)
+        ));
     }
 
     #[test]

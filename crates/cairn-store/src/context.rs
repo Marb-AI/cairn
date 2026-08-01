@@ -10,8 +10,8 @@
 //!
 //!   1. concepts     — someone already said what this means (18.6). Strongest.
 //!   2. names/paths  — `*Auth*`, `/auth/`. Primitive, and right surprisingly often.
-//!   3. documentation— the bridge for terms that appear in no identifier. SCIP carries
-//!                     it for 77.7 % of Python symbols on the target repo.
+//!   3. documentation— the bridge for terms that appear in no identifier. SCIP
+//!      carries it for 77.7 % of Python symbols on the target repo.
 //!   4. test names   — the best description of a feature a project usually has.
 //!
 //! What deliberately does *not* happen here is an LLM call. The caller is one
@@ -216,9 +216,15 @@ impl Store {
         result.low_confidence = best < CONFIDENCE_FLOOR;
 
         for (id, score, mut sources) in ranked.into_iter().take(limit) {
-            let Some(symbol) = self.symbol(id)? else { continue };
+            let Some(symbol) = self.symbol(id)? else {
+                continue;
+            };
             sources.sort();
-            result.seeds.push(Seed { symbol, score, sources });
+            result.seeds.push(Seed {
+                symbol,
+                score,
+                sources,
+            });
         }
         Ok(result)
     }

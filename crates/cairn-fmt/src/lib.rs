@@ -51,7 +51,12 @@ pub struct Envelope {
 
 impl Envelope {
     pub fn new(body: String) -> Envelope {
-        Envelope { body, unknown: Vec::new(), suppressed: Vec::new(), stale: Vec::new() }
+        Envelope {
+            body,
+            unknown: Vec::new(),
+            suppressed: Vec::new(),
+            stale: Vec::new(),
+        }
     }
 
     pub fn unknown(mut self, msg: impl Into<String>) -> Self {
@@ -145,12 +150,7 @@ pub fn symbol_line(s: &SymbolRow) -> String {
     )
 }
 
-pub fn symbols(
-    rows: &[SymbolRow],
-    query: &str,
-    coverage: &str,
-    budget: &mut Budget,
-) -> Envelope {
+pub fn symbols(rows: &[SymbolRow], query: &str, coverage: &str, budget: &mut Budget) -> Envelope {
     let mut body = String::new();
     let _ = writeln!(body, "{} matches for \"{}\"", rows.len(), query);
     let defined_in: Vec<&str> = rows
@@ -223,7 +223,11 @@ pub fn references_with_context(
     if let Some(def) = &sym.def {
         let _ = writeln!(body, "  defined at {}", def.location());
     }
-    let _ = writeln!(body, "{} references                    [L0, exact]", refs.len());
+    let _ = writeln!(
+        body,
+        "{} references                    [L0, exact]",
+        refs.len()
+    );
 
     let paths: Vec<&str> = refs.iter().map(|r| r.path.as_str()).collect();
     if let Some(note) = concentration_note(&paths, "references") {
@@ -247,7 +251,10 @@ pub fn references_with_context(
         } else {
             String::new()
         };
-        if !budget.push(&mut body, &format!("  {:<46}{inside}{inline}", r.location())) {
+        if !budget.push(
+            &mut body,
+            &format!("  {:<46}{inside}{inline}", r.location()),
+        ) {
             break;
         }
         if lines.len() > 1 {
@@ -297,7 +304,11 @@ pub fn references(
     if let Some(def) = &sym.def {
         let _ = writeln!(body, "  defined at {}", def.location());
     }
-    let _ = writeln!(body, "{} references                    [L0, exact]", refs.len());
+    let _ = writeln!(
+        body,
+        "{} references                    [L0, exact]",
+        refs.len()
+    );
     for r in refs {
         let _ = writeln!(body, "  {}", r.location());
     }
@@ -366,7 +377,11 @@ pub fn walk(
         shown = i + 1;
 
         if detail.needs_source() {
-            let indent = if view == View::Tree { "  ".repeat(node.depth + 1) } else { "  ".into() };
+            let indent = if view == View::Tree {
+                "  ".repeat(node.depth + 1)
+            } else {
+                "  ".into()
+            };
             if !emit_excerpt(
                 &mut body,
                 &indent,
@@ -389,10 +404,7 @@ pub fn walk(
         env = env.suppressed(budget.cut_note(w.nodes.len() - shown, "nodes"));
     }
     if w.truncated > 0 {
-        env = env.suppressed(format!(
-            "{} neighbours beyond --fanout",
-            w.truncated
-        ));
+        env = env.suppressed(format!("{} neighbours beyond --fanout", w.truncated));
     }
     if w.revisited > 0 {
         env = env.suppressed(format!(
@@ -482,7 +494,10 @@ pub fn tests(sym: &SymbolRow, rows: &[SymbolRow], budget: &mut Budget) -> Envelo
         shown = i + 1;
     }
     if rows.is_empty() {
-        let _ = writeln!(body, "  (no test reaches this symbol through the call graph)");
+        let _ = writeln!(
+            body,
+            "  (no test reaches this symbol through the call graph)"
+        );
     }
     let mut env = Envelope::new(body);
     if shown < rows.len() {
@@ -557,25 +572,6 @@ fn truncate(s: &str, max: usize) -> String {
     }
     let keep: String = s.chars().take(max.saturating_sub(1)).collect();
     format!("{keep}~")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn envelope_always_has_all_sections() {
-        let out = Envelope::new("body".into()).render();
-        assert!(out.contains("suppressed: none"));
-        assert!(out.contains("unknown: none"));
-        assert!(out.contains("stale: none"));
-    }
-
-    #[test]
-    fn truncation_marks_itself() {
-        assert_eq!(truncate("abcdef", 4), "abc~");
-        assert_eq!(truncate("abc", 4), "abc");
-    }
 }
 /// The known-unknowns report.
 ///
@@ -811,10 +807,18 @@ pub fn concept_list(list: &[cairn_store::Concept], budget: &mut Budget) -> Envel
     let mut body = String::new();
     let _ = writeln!(body, "{} concepts", list.len());
     for c in list {
-        let note = if c.note.is_empty() { String::new() } else { format!("  — {}", c.note) };
+        let note = if c.note.is_empty() {
+            String::new()
+        } else {
+            format!("  — {}", c.note)
+        };
         if !budget.push(
             &mut body,
-            &format!("  {:<28} {:>3} links{note}", format!("{}/{}", c.ns, c.name), c.link_count),
+            &format!(
+                "  {:<28} {:>3} links{note}",
+                format!("{}/{}", c.ns, c.name),
+                c.link_count
+            ),
         ) {
             break;
         }
@@ -840,8 +844,7 @@ pub fn live_overlay(
     use std::collections::HashSet;
     // Compare qualified names on both sides. Two classes in a file can share a method
     // name, and matching bare names pairs them and invents a move.
-    let live_q: Vec<(String, &LiveSymbolView)> =
-        live.iter().map(|s| (s.qualified(), s)).collect();
+    let live_q: Vec<(String, &LiveSymbolView)> = live.iter().map(|s| (s.qualified(), s)).collect();
     let live_names: HashSet<&str> = live_q.iter().map(|(q, _)| q.as_str()).collect();
     let indexed_names: HashSet<&str> = indexed.iter().map(|(n, _, _)| n.as_str()).collect();
 
@@ -883,7 +886,10 @@ pub fn live_overlay(
 
     let gone: Vec<&str> = indexed_names.difference(&live_names).copied().collect();
     for name in &gone {
-        let _ = budget.push(&mut body, &format!("- {name}   (in the index, not in the file now)"));
+        let _ = budget.push(
+            &mut body,
+            &format!("- {name}   (in the index, not in the file now)"),
+        );
     }
 
     let mut env = Envelope::new(body);
@@ -925,7 +931,7 @@ impl LiveSymbolView {
     }
 }
 
-/// Entry point by concept: seeds, why each one is here, and how far to trust it.
+// Entry point by concept: seeds, why each one is here, and how far to trust it.
 
 /// Say so when the seeds carry no navigational signal.
 ///
@@ -1039,7 +1045,10 @@ pub fn unreached(
             cairn_store::Unreached::TestsOnly => format!("tests only ({})", r.test_callers),
             cairn_store::Unreached::Never => "no callers".to_string(),
         };
-        if !budget.push(&mut body, &format!("  {:<22} {}", why, symbol_line(&r.symbol))) {
+        if !budget.push(
+            &mut body,
+            &format!("  {:<22} {}", why, symbol_line(&r.symbol)),
+        ) {
             break;
         }
     }
@@ -1060,11 +1069,7 @@ pub fn outline(
     budget: &mut Budget,
 ) -> Envelope {
     let mut body = String::new();
-    let _ = writeln!(
-        body,
-        "{prefix}   {} of {total} definitions",
-        rows.len()
-    );
+    let _ = writeln!(body, "{prefix}   {} of {total} definitions", rows.len());
     for r in rows {
         let use_note = if r.production_callers > 0 {
             format!("{} prod", r.production_callers)
@@ -1077,7 +1082,10 @@ pub fn outline(
         } else {
             "unused".to_string()
         };
-        if !budget.push(&mut body, &format!("  {:<12} {}", use_note, symbol_line(&r.symbol))) {
+        if !budget.push(
+            &mut body,
+            &format!("  {:<12} {}", use_note, symbol_line(&r.symbol)),
+        ) {
             break;
         }
     }
@@ -1330,10 +1338,7 @@ pub fn cross_language(
 }
 
 /// The deployment map: services, what starts each one, and where that lands in the code.
-pub fn topology(
-    rows: &[(String, Option<String>, Option<String>, String, bool)],
-    budget: &mut Budget,
-) -> Envelope {
+pub fn topology(rows: &[cairn_store::DeployServiceRow], budget: &mut Budget) -> Envelope {
     let mut body = String::new();
     let resolved = rows.iter().filter(|r| r.4).count();
     let _ = writeln!(
@@ -1343,10 +1348,15 @@ pub fn topology(
     );
     let mut unresolved = Vec::new();
     for (name, command, entry_path, ports, ok) in rows {
-        let where_ = entry_path
-            .clone()
-            .unwrap_or_else(|| if *ok { String::new() } else { "—".into() });
-        let p = if ports.is_empty() { String::new() } else { format!("  :{ports}") };
+        let where_ =
+            entry_path
+                .clone()
+                .unwrap_or_else(|| if *ok { String::new() } else { "—".into() });
+        let p = if ports.is_empty() {
+            String::new()
+        } else {
+            format!("  :{ports}")
+        };
         if !*ok && command.is_some() {
             unresolved.push(name.clone());
         }
@@ -1484,8 +1494,10 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
             body,
             "\nover the network, by hop - every route below reaches this symbol"
         );
-        let mut groups: std::collections::BTreeMap<(String, String, String), (Vec<String>, String)> =
-            std::collections::BTreeMap::new();
+        let mut groups: std::collections::BTreeMap<
+            (String, String, String),
+            (Vec<String>, String),
+        > = std::collections::BTreeMap::new();
         for h in &a.hops {
             let from = if h.from.is_empty() {
                 "(starts nothing)".to_string()
@@ -1494,7 +1506,11 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
             } else {
                 h.from.join(", ")
             };
-            let to = if h.to.is_empty() { "?".to_string() } else { h.to.join(", ") };
+            let to = if h.to.is_empty() {
+                "?".to_string()
+            } else {
+                h.to.join(", ")
+            };
             let site = h
                 .call_site
                 .def
@@ -1578,4 +1594,23 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
          is where those candidates live",
     );
     env
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn envelope_always_has_all_sections() {
+        let out = Envelope::new("body".into()).render();
+        assert!(out.contains("suppressed: none"));
+        assert!(out.contains("unknown: none"));
+        assert!(out.contains("stale: none"));
+    }
+
+    #[test]
+    fn truncation_marks_itself() {
+        assert_eq!(truncate("abcdef", 4), "abc~");
+        assert_eq!(truncate("abc", 4), "abc");
+    }
 }

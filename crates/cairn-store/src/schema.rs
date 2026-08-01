@@ -156,7 +156,7 @@ CREATE TABLE IF NOT EXISTS deploy_services (
 -- a service has one start command and any number of on-demand entrypoints, and the two
 -- carry different confidence. Measured: without this, a container started with
 -- `tail -f /dev/null` looks like it runs nothing while a nightly job in it reaches deep
--- into the codebase (eval/RESULTS.md, task E).
+-- into the codebase (the measurement record, task E).
 -- What each deployed service can reach, precomputed.
 --
 -- Reachability changes only when the index does, and recomputing it per query cost about
@@ -382,7 +382,8 @@ fn assign_handles(conn: &Connection) -> Result<()> {
             taken.insert(h?);
         }
     }
-    let mut insert = conn.prepare("INSERT OR IGNORE INTO handles(symbol_id, handle) VALUES (?1, ?2)")?;
+    let mut insert =
+        conn.prepare("INSERT OR IGNORE INTO handles(symbol_id, handle) VALUES (?1, ?2)")?;
     for (id, hash) in rows {
         let full = crate::query::encode_handle(&hash);
         for len in 2..=full.len() {
@@ -415,9 +416,8 @@ fn assign_handles(conn: &Connection) -> Result<()> {
 fn derive_container_leaves(conn: &Connection) -> Result<()> {
     let mut ids: Vec<(i64, String)> = Vec::new();
     {
-        let mut stmt = conn.prepare(
-            "SELECT s.id, c.s FROM symbols s JOIN strings c ON c.id = s.container_id",
-        )?;
+        let mut stmt = conn
+            .prepare("SELECT s.id, c.s FROM symbols s JOIN strings c ON c.id = s.container_id")?;
         let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
         for r in rows {
             ids.push(r?);
@@ -476,7 +476,7 @@ fn derive_call_edges(conn: &Connection) -> Result<()> {
         -- reference, but it is in no function body, so the pass above drops it and the
         -- async half of an entire repository layer becomes unreachable. Measured: the
         -- gRPC handler calls `arecalculate_plan`, and `cairn path` reported no route from
-        -- the handler to code it plainly reaches (eval/RESULTS.md, task E).
+        -- the handler to code it plainly reaches (the measurement record, task E).
         --
         -- The symbol *defined* on that line is the binding being built, so it is the
         -- honest source of the edge. General beyond this idiom: `const x = memoize(y)`,

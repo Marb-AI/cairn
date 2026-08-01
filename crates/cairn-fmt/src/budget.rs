@@ -21,11 +21,17 @@ pub struct Budget {
 
 impl Budget {
     pub fn unlimited() -> Budget {
-        Budget { max_tokens: None, spent_chars: 0 }
+        Budget {
+            max_tokens: None,
+            spent_chars: 0,
+        }
     }
 
     pub fn tokens(max: usize) -> Budget {
-        Budget { max_tokens: Some(max), spent_chars: 0 }
+        Budget {
+            max_tokens: Some(max),
+            spent_chars: 0,
+        }
     }
 
     pub fn from_opt(max: Option<usize>) -> Budget {
@@ -40,7 +46,8 @@ impl Budget {
     }
 
     pub fn remaining_tokens(&self) -> Option<usize> {
-        self.max_tokens.map(|m| m.saturating_sub(self.spent_tokens()))
+        self.max_tokens
+            .map(|m| m.saturating_sub(self.spent_tokens()))
     }
 
     /// Append a line if it fits. Returns false when the budget is exhausted, so the

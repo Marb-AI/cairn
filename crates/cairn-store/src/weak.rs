@@ -81,7 +81,11 @@ pub struct WeakStats {
 pub fn derive_weak_links(store: &mut Store, repo_root: &Path) -> Result<WeakStats> {
     let mut stats = WeakStats::default();
 
-    debug_assert_eq!(MATCHABLE_KINDS.len(), 2, "kind filter below is inlined in SQL");
+    debug_assert_eq!(
+        MATCHABLE_KINDS.len(),
+        2,
+        "kind filter below is inlined in SQL"
+    );
     // Name -> symbol id, for names that are distinctive enough to be worth matching.
     let mut by_name: HashMap<String, i64> = HashMap::new();
     {
@@ -126,10 +130,21 @@ pub fn derive_weak_links(store: &mut Store, repo_root: &Path) -> Result<WeakStat
     {
         let mut batch = crate::BatchWriter::new(
             "edges",
-            &["src_symbol", "dst_symbol", "kind", "source", "confidence", "file_id", "line"],
+            &[
+                "src_symbol",
+                "dst_symbol",
+                "kind",
+                "source",
+                "confidence",
+                "file_id",
+                "line",
+            ],
         );
         // The weak layer is rebuilt wholesale; it is derived, never authored.
-        tx.execute("DELETE FROM edges WHERE source = ?1", params![EdgeSource::Weak as i64])?;
+        tx.execute(
+            "DELETE FROM edges WHERE source = ?1",
+            params![EdgeSource::Weak as i64],
+        )?;
 
         for (file_id, rel_path) in &files {
             let full = repo_root.join(rel_path);
@@ -145,10 +160,7 @@ pub fn derive_weak_links(store: &mut Store, repo_root: &Path) -> Result<WeakStat
                 }
                 // Match the whole literal, or its last dotted/slashed segment, so
                 // "auth.TokenValidator" and "plugins/TokenValidator" both land.
-                let tail = literal
-                    .rsplit(['.', '/', ':'])
-                    .next()
-                    .unwrap_or(&literal);
+                let tail = literal.rsplit(['.', '/', ':']).next().unwrap_or(&literal);
                 let Some(&target) = by_name.get(&literal).or_else(|| by_name.get(tail)) else {
                     continue;
                 };
@@ -270,7 +282,10 @@ mod tests {
     use super::*;
 
     fn lits(text: &str, path: &str) -> Vec<String> {
-        string_literals(text, path).into_iter().map(|(_, s)| s).collect()
+        string_literals(text, path)
+            .into_iter()
+            .map(|(_, s)| s)
+            .collect()
     }
 
     #[test]

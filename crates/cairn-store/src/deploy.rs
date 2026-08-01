@@ -7,7 +7,7 @@
 //! layout says which. Only reachability from each service's entrypoint does.
 //!
 //! That is the same shape as the two question classes the tool measurably wins:
-//! a bounded question answered from an edge the caller cannot see (eval/RESULTS.md).
+//! a bounded question answered from an edge the caller cannot see (the measurement record).
 //!
 //! The chain, and every link is a parse rather than a guess:
 //!
@@ -33,6 +33,13 @@ use rusqlite::params;
 use serde_yaml::Value;
 use std::collections::HashMap;
 use std::path::Path;
+
+/// One row of the stored deployment table: name, start command, entry file path, ports,
+/// and whether the entry file was resolved to a symbol at all.
+///
+/// A tuple rather than a struct because it crosses into `cairn-fmt` only to be rendered,
+/// and naming it is enough to say what the positions mean.
+pub type DeployServiceRow = (String, Option<String>, Option<String>, String, bool);
 
 #[derive(Debug, Clone, Default)]
 pub struct Service {
@@ -78,8 +85,8 @@ pub fn parse_compose(repo: &Path, files: &[&str]) -> Result<Topology> {
         }
         let text = std::fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
-        let mut doc: Value = serde_yaml::from_str(&text)
-            .with_context(|| format!("parsing {}", path.display()))?;
+        let mut doc: Value =
+            serde_yaml::from_str(&text).with_context(|| format!("parsing {}", path.display()))?;
         // Resolve `<<:` merge keys. Without this every service in this repo comes back
         // empty, because build context, env and init all arrive through a merge.
         doc.apply_merge().ok();
@@ -167,7 +174,10 @@ fn service_from_value(name: &str, v: &Value) -> Service {
             .map(|s| s.trim_start_matches("./").to_string()),
         _ => None,
     };
-    svc.image = v.get("image").and_then(|i| i.as_str()).map(|s| s.to_string());
+    svc.image = v
+        .get("image")
+        .and_then(|i| i.as_str())
+        .map(|s| s.to_string());
     svc.ports = as_string_list(v.get("ports"));
     svc.depends_on = match v.get("depends_on") {
         Some(Value::Sequence(seq)) => seq
@@ -199,7 +209,10 @@ fn service_from_value(name: &str, v: &Value) -> Service {
         if host.is_empty() || host.starts_with('.') {
             continue; // named volume or dotfile cache, not source
         }
-        svc.mount = Some((host.to_string(), container.trim_end_matches('/').to_string()));
+        svc.mount = Some((
+            host.to_string(),
+            container.trim_end_matches('/').to_string(),
+        ));
         break;
     }
 
@@ -220,10 +233,7 @@ pub fn resolve_command(command: &str) -> Option<CommandTarget> {
 /// The shapes used to be an `if` chain here; they are now data (architecture D16,
 /// `src/rules/default.yaml`). Behaviour is unchanged for a repository that follows the
 /// usual conventions — the pack is the same set of rules, written down.
-pub fn resolve_command_with(
-    command: &str,
-    rules: &crate::rules::Rules,
-) -> Option<CommandTarget> {
+pub fn resolve_command_with(command: &str, rules: &crate::rules::Rules) -> Option<CommandTarget> {
     use crate::rules::TargetRule;
     let cmd = command.trim();
     let words: Vec<&str> = cmd.split_whitespace().collect();
@@ -241,9 +251,18 @@ pub fn resolve_command_with(
             None
         };
         let applies = rule.word_ends_with.is_some()
-            || rule.argv0_starts_with.iter().any(|p| words[0].starts_with(p.as_str()))
-            || rule.argv0_ends_with.iter().any(|p| words[0].ends_with(p.as_str()))
-            || rule.command_starts_with.iter().any(|p| cmd.starts_with(p.as_str()))
+            || rule
+                .argv0_starts_with
+                .iter()
+                .any(|p| words[0].starts_with(p.as_str()))
+            || rule
+                .argv0_ends_with
+                .iter()
+                .any(|p| words[0].ends_with(p.as_str()))
+            || rule
+                .command_starts_with
+                .iter()
+                .any(|p| cmd.starts_with(p.as_str()))
             || (rule.argv0_starts_with.is_empty()
                 && rule.argv0_ends_with.is_empty()
                 && rule.command_starts_with.is_empty());
@@ -497,7 +516,7 @@ impl Store {
     /// Reachability therefore attributes nothing to it, which is not the same as it
     /// running nothing, and `runs` must say so or it silently under-reports. Measured:
     /// task E, where the baseline found a nightly cron job in such a container and the
-    /// cairn run did not (eval/RESULTS.md).
+    /// cairn run did not (the measurement record).
     pub fn services_without_entrypoint(&self) -> Result<Vec<String>> {
         // A service with a resolved cron entry is no longer blind: something it runs is
         // in the graph. It may still run more than that, which is what the wording says.
@@ -659,7 +678,7 @@ impl Store {
     /// `services_running` rebuilds a breadth-first walk per symbol, which was fine until
     /// membership edges made those walks large: `affects` asks it once per hop candidate,
     /// so the cost multiplied and a measured run abandoned the command mid-answer
-    /// (eval/RESULTS.md, task E after the rule pack). One walk per service, then set
+    /// (the measurement record, task E after the rule pack). One walk per service, then set
     /// membership, is the same answer for a fraction of the work.
     fn reachable_by_service_walk(
         &self,
@@ -686,8 +705,8 @@ impl Store {
                            AND encl.def_end_line IS NOT NULL
                            AND encl.def_line <= o.line AND encl.def_end_line >= o.line)",
             )?;
-            let rows = svc_stmt
-                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
+            let rows =
+                svc_stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
             for r in rows {
                 let (name, file_id) = r?;
                 let seeds = seed_stmt.query_map(params![file_id], |r| r.get::<_, i64>(0))?;
@@ -763,9 +782,8 @@ impl Store {
                            AND encl.def_end_line IS NOT NULL
                            AND encl.def_line <= o.line AND encl.def_end_line >= o.line)",
             )?;
-            let rows = svc_stmt.query_map([], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
-            })?;
+            let rows =
+                svc_stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))?;
             for r in rows {
                 let (name, file_id) = r?;
                 let seeds = seed_stmt.query_map(params![file_id], |r| r.get::<_, i64>(0))?;
@@ -793,8 +811,7 @@ impl Store {
             .prepare_cached("SELECT dst_symbol FROM edges WHERE src_symbol = ?1 AND kind = 4")?;
         for (name, seeds) in entries {
             let mut seen: HashSet<i64> = seeds.iter().copied().collect();
-            let mut queue: VecDeque<(i64, usize)> =
-                seeds.iter().map(|s| (*s, 0usize)).collect();
+            let mut queue: VecDeque<(i64, usize)> = seeds.iter().map(|s| (*s, 0usize)).collect();
             let mut found = seen.contains(&symbol_id);
             while let Some((node, d)) = queue.pop_front() {
                 if node == symbol_id {
@@ -826,7 +843,7 @@ impl Store {
         Ok(out)
     }
 
-    pub fn deploy_services(&self) -> Result<Vec<(String, Option<String>, Option<String>, String, bool)>> {
+    pub fn deploy_services(&self) -> Result<Vec<DeployServiceRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT d.name, d.command, p.s, d.ports, d.entry_file IS NOT NULL
                FROM deploy_services d
@@ -872,7 +889,9 @@ mod tests {
     fn resolves_the_command_shapes_that_appear() {
         assert_eq!(
             resolve_command("python3 -m domains.orders.grpc.server"),
-            Some(CommandTarget::PythonModule("domains.orders.grpc.server".into()))
+            Some(CommandTarget::PythonModule(
+                "domains.orders.grpc.server".into()
+            ))
         );
         assert_eq!(
             resolve_command("/bin/grpcserver"),
@@ -888,10 +907,15 @@ mod tests {
         ));
         assert_eq!(
             resolve_command("uvicorn domains.orders.mcp.server:app --host 0.0.0.0"),
-            Some(CommandTarget::PythonModule("domains.orders.mcp.server".into()))
+            Some(CommandTarget::PythonModule(
+                "domains.orders.mcp.server".into()
+            ))
         );
         // A container held open on purpose is a fact, not a failure to parse.
-        assert_eq!(resolve_command("tail -f /dev/null"), Some(CommandTarget::Idle));
+        assert_eq!(
+            resolve_command("tail -f /dev/null"),
+            Some(CommandTarget::Idle)
+        );
         assert_eq!(resolve_command("sleep infinity"), Some(CommandTarget::Idle));
         assert_eq!(resolve_command("some-unknown-binary --flag"), None);
     }
@@ -928,7 +952,10 @@ services:
         doc.apply_merge().unwrap();
         let svc = service_from_value("api", doc.get("services").unwrap().get("api").unwrap());
         assert_eq!(svc.build_context.as_deref(), Some("srcpy"));
-        assert_eq!(svc.command.as_deref(), Some("python3 -m domains.api.server"));
+        assert_eq!(
+            svc.command.as_deref(),
+            Some("python3 -m domains.api.server")
+        );
         assert_eq!(svc.ports, vec!["8000:8000".to_string()]);
     }
 
@@ -947,7 +974,12 @@ services:
 ";
         let mut b: Value = serde_yaml::from_str(base).unwrap();
         let o: Value = serde_yaml::from_str(overlay).unwrap();
-        let mut svc_b = b.get_mut("services").unwrap().get_mut("api").unwrap().clone();
+        let mut svc_b = b
+            .get_mut("services")
+            .unwrap()
+            .get_mut("api")
+            .unwrap()
+            .clone();
         deep_merge(&mut svc_b, o.get("services").unwrap().get("api").unwrap());
         let svc = service_from_value("api", &svc_b);
         assert_eq!(

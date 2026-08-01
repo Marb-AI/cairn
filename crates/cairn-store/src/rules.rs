@@ -130,14 +130,15 @@ impl Rules {
     /// harder to reason about than a whole one, and a pack author who wants the defaults
     /// can start from the embedded file, which is printed by `cairn rules --print`.
     pub fn load(path: Option<&Path>) -> Result<Rules> {
-        let Some(path) = path else { return Ok(Rules::default()) };
+        let Some(path) = path else {
+            return Ok(Rules::default());
+        };
         if !path.exists() {
             return Ok(Rules::default());
         }
         let text = std::fs::read_to_string(path)
             .with_context(|| format!("reading rule pack {}", path.display()))?;
-        serde_yaml::from_str(&text)
-            .with_context(|| format!("parsing rule pack {}", path.display()))
+        serde_yaml::from_str(&text).with_context(|| format!("parsing rule pack {}", path.display()))
     }
 
     /// The embedded default, verbatim, so a pack can be started from it.
@@ -153,11 +154,14 @@ mod tests {
     #[test]
     fn the_embedded_pack_parses_and_covers_the_shapes_that_were_hardcoded() {
         let r = Rules::default();
-        assert!(r.commands.iter().any(|c| matches!(
-            c.target,
-            TargetRule::ModuleAfterFlag { .. }
-        )));
-        assert!(r.commands.iter().any(|c| matches!(c.target, TargetRule::Idle)));
+        assert!(r
+            .commands
+            .iter()
+            .any(|c| matches!(c.target, TargetRule::ModuleAfterFlag { .. })));
+        assert!(r
+            .commands
+            .iter()
+            .any(|c| matches!(c.target, TargetRule::Idle)));
         assert!(r.proto.bindings.iter().any(|b| b.role == "serves"));
         assert!(r.proto.bindings.iter().any(|b| b.role == "calls"));
         assert!(!r.generated.markers.is_empty());
@@ -167,7 +171,10 @@ mod tests {
     #[test]
     fn a_missing_pack_is_the_default_not_an_error() {
         let r = Rules::load(Some(Path::new("/nonexistent/rules.yaml"))).unwrap();
-        assert_eq!(r.proto.service_marker, Rules::default().proto.service_marker);
+        assert_eq!(
+            r.proto.service_marker,
+            Rules::default().proto.service_marker
+        );
     }
 
     #[test]

@@ -20,6 +20,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 pub mod client;
+pub mod ipc;
 pub mod lsp;
 pub mod schedule;
 pub mod server;
@@ -51,11 +52,15 @@ pub enum Request {
 pub enum Response {
     Dirty(DirtySet),
     Status(DaemonStatus),
-    FileSymbols { symbols: Vec<lsp::LiveSymbol> },
+    FileSymbols {
+        symbols: Vec<lsp::LiveSymbol>,
+    },
     Ok,
     /// The daemon understood the request and cannot serve it. Distinct from a
     /// transport failure, which the client reports as "no daemon".
-    Error { message: String },
+    Error {
+        message: String,
+    },
 }
 
 /// What the watcher has seen since the index was built.
@@ -87,8 +92,7 @@ impl DirtySet {
     /// Is this specific file affected? Used to mark individual answers stale rather
     /// than declaring the whole index suspect.
     pub fn affects(&self, path: &str) -> bool {
-        self.modified.iter().any(|p| p == path)
-            || self.removed.iter().any(|p| p == path)
+        self.modified.iter().any(|p| p == path) || self.removed.iter().any(|p| p == path)
     }
 }
 

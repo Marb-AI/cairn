@@ -14,9 +14,9 @@ pub mod batch;
 pub mod build;
 pub mod concepts;
 pub mod config;
-pub mod deploy;
 pub mod context;
 pub mod conventions;
+pub mod deploy;
 pub mod graph;
 pub mod ingest;
 pub mod ondemand;
@@ -28,18 +28,18 @@ pub mod survey;
 pub mod verify;
 pub mod weak;
 
-pub use batch::{BatchStats, BatchWriter};
-pub use graph::{Direction, PathHop, Walk, WalkNode};
-pub use concepts::{Concept, ConceptLink};
-pub use context::{ContextResult, Seed, SeedSource};
-pub use deploy::{DeployStats, Service, Topology};
 pub use affects::{Affects, Hop, InProcess, Outgoing};
-pub use protolink::{CrossLink, RpcCaller, ServiceRole};
+pub use batch::{BatchStats, BatchWriter};
+pub use concepts::{Concept, ConceptLink};
 pub use config::Config;
+pub use context::{ContextResult, Seed, SeedSource};
+pub use deploy::{DeployServiceRow, DeployStats, Service, Topology};
+pub use graph::{Direction, PathHop, Walk, WalkNode};
+pub use protolink::{CrossLink, RpcCaller, ServiceRole};
+pub use query::{Occurrence, SymbolRow};
 pub use rules::Rules;
 pub use survey::{OutlineEntry, Unreached, UnreachedSymbol};
 pub use verify::Report;
-pub use query::{Occurrence, SymbolRow};
 
 /// Language tag. Stored as an integer; the set is closed on purpose (D16 puts
 /// per-language knowledge in rule packs, not in the core schema).
@@ -162,7 +162,10 @@ impl Store {
         )?;
         schema::tune_for_query(&conn)?;
         schema::attach_knowledge(&conn, &knowledge_path(path))?;
-        let store = Store { conn, rules: rules::Rules::default() };
+        let store = Store {
+            conn,
+            rules: rules::Rules::default(),
+        };
         store.check_schema_version()?;
         Ok(store)
     }
@@ -190,7 +193,10 @@ impl Store {
         let conn = Connection::open_in_memory()?;
         schema::apply(&conn)?;
         schema::attach_knowledge(&conn, std::path::Path::new(":memory:"))?;
-        Ok(Store { conn, rules: rules::Rules::default() })
+        Ok(Store {
+            conn,
+            rules: rules::Rules::default(),
+        })
     }
 
     /// Drops and recreates the schema. Cheap because the store is a projection.
@@ -211,7 +217,10 @@ impl Store {
         // Deliberately attached *after* the projection was wiped: authored knowledge
         // survives every rebuild, which is the whole reason it lives in its own file.
         schema::attach_knowledge(&conn, &knowledge_path(path))?;
-        Ok(Store { conn, rules: rules::Rules::default() })
+        Ok(Store {
+            conn,
+            rules: rules::Rules::default(),
+        })
     }
 
     pub fn set_meta(&self, key: &str, value: &str) -> Result<()> {
@@ -256,7 +265,9 @@ impl Store {
             .prepare("SELECT key, value FROM meta WHERE key LIKE 'root.%'")?;
         let rows = stmt.query_map([], |r| {
             Ok((
-                r.get::<_, String>(0)?.trim_start_matches("root.").to_string(),
+                r.get::<_, String>(0)?
+                    .trim_start_matches("root.")
+                    .to_string(),
                 r.get::<_, String>(1)?,
             ))
         })?;

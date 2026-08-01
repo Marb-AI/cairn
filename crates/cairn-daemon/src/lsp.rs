@@ -50,7 +50,10 @@ impl ServerSpec {
     /// Default launcher for a language tag as recorded by the indexer.
     pub fn for_lang(lang: &str, root: PathBuf) -> Option<ServerSpec> {
         let (command, language_id) = match lang {
-            "py" => (vec!["pyright-langserver".into(), "--stdio".into()], "python"),
+            "py" => (
+                vec!["pyright-langserver".into(), "--stdio".into()],
+                "python",
+            ),
             "go" => (vec!["gopls".into(), "-mode=stdio".into()], "go"),
             "ts" => (
                 vec!["typescript-language-server".into(), "--stdio".into()],
@@ -95,9 +98,46 @@ pub struct Server {
     ready_at: Option<Instant>,
 }
 
+/// Turn a command name into something the platform can actually spawn.
+///
+/// A no-op on unix, where `Command` searches `PATH` the way a shell would. Windows needs
+/// the work: `CreateProcess` only ever appends `.exe`, but two of the three servers we
+/// launch are npm shims (`pyright-langserver.cmd`, `typescript-language-server.cmd`), so a
+/// bare name that runs fine in a terminal fails here with "program not found". Resolving
+/// against `PATHEXT` ourselves is the only way to find them.
+#[cfg(not(windows))]
+fn resolve_program(name: &str) -> std::ffi::OsString {
+    name.into()
+}
+
+#[cfg(windows)]
+fn resolve_program(name: &str) -> std::ffi::OsString {
+    // An explicit path, or a name that already carries its extension, needs no help.
+    if name.contains(['/', '\\']) || Path::new(name).extension().is_some() {
+        return name.into();
+    }
+    let exts = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
+    let Some(path) = std::env::var_os("PATH") else {
+        return name.into();
+    };
+    for dir in std::env::split_paths(&path) {
+        for ext in exts.split(';').filter(|e| !e.is_empty()) {
+            let candidate = dir.join(format!("{name}{ext}"));
+            if candidate.is_file() {
+                // Handing a `.cmd`/`.bat` path to `Command` is safe: since 1.77.2 the
+                // standard library applies batch-specific argument escaping (CVE-2024-24576).
+                return candidate.into_os_string();
+            }
+        }
+    }
+    // Nothing matched. Spawn the bare name anyway so the failure is the ordinary
+    // "server not installed" one the pool already reports, not a different error here.
+    name.into()
+}
+
 impl Server {
     pub fn start(spec: ServerSpec) -> Result<Server> {
-        let mut child = Command::new(&spec.command[0])
+        let mut child = Command::new(resolve_program(&spec.command[0]))
             .args(&spec.command[1..])
             .current_dir(&spec.root)
             .stdin(Stdio::piped())
@@ -146,7 +186,10 @@ impl Server {
                     let method = msg["method"].as_str().unwrap_or("");
                     let result = match method {
                         "workspace/configuration" => {
-                            let n = msg["params"]["items"].as_array().map(|a| a.len()).unwrap_or(1);
+                            let n = msg["params"]["items"]
+                                .as_array()
+                                .map(|a| a.len())
+                                .unwrap_or(1);
                             serde_json::Value::Array(vec![serde_json::json!({}); n])
                         }
                         _ => serde_json::Value::Null,
@@ -221,7 +264,10 @@ impl Server {
                 if let Some(err) = msg.get("error") {
                     return Err(anyhow!("{method} failed: {err}"));
                 }
-                Ok(msg.get("result").cloned().unwrap_or(serde_json::Value::Null))
+                Ok(msg
+                    .get("result")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null))
             }
             Err(_) => {
                 self.pending.lock().unwrap().remove(&id);
@@ -344,8 +390,8 @@ impl Pool {
         let lang = Pool::lang_of(rel_path)
             .ok_or_else(|| anyhow!("no language server handles {rel_path}"))?;
         let abs = self.repo.join(rel_path);
-        let text = std::fs::read_to_string(&abs)
-            .with_context(|| format!("reading {}", abs.display()))?;
+        let text =
+            std::fs::read_to_string(&abs).with_context(|| format!("reading {}", abs.display()))?;
         self.server_for(lang)?.document_symbols(&abs, &text)
     }
 

@@ -10,6 +10,10 @@ use prost::Message;
 use std::path::Path;
 
 pub mod proto {
+    // prost's output is not ours to lint. The doc comments come straight from the
+    // vendored `scip.proto`, and their indentation is upstream's business.
+    #![allow(clippy::doc_overindented_list_items)]
+
     include!(concat!(env!("OUT_DIR"), "/scip.rs"));
 }
 
@@ -19,8 +23,8 @@ pub use proto::{Document, Index, Occurrence, SymbolInformation};
 pub const ROLE_DEFINITION: i32 = 0x1;
 
 pub fn load(path: &Path) -> Result<Index> {
-    let bytes = std::fs::read(path)
-        .with_context(|| format!("reading SCIP index {}", path.display()))?;
+    let bytes =
+        std::fs::read(path).with_context(|| format!("reading SCIP index {}", path.display()))?;
     Index::decode(&*bytes).with_context(|| format!("decoding SCIP index {}", path.display()))
 }
 

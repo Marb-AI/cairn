@@ -6,7 +6,7 @@
 //! can emit — which is also why it is the setting where `--budget` matters most.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 /// How much of each symbol to print.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,7 +52,10 @@ pub struct Source {
 
 impl Source {
     pub fn new(root: impl Into<PathBuf>) -> Source {
-        Source { root: root.into(), cache: HashMap::new() }
+        Source {
+            root: root.into(),
+            cache: HashMap::new(),
+        }
     }
 
     fn lines(&mut self, rel_path: &str) -> Option<&Vec<String>> {
@@ -92,7 +95,10 @@ impl Source {
         }
 
         match detail {
-            Detail::Skeleton => Excerpt { lines: Vec::new(), note: None },
+            Detail::Skeleton => Excerpt {
+                lines: Vec::new(),
+                note: None,
+            },
             Detail::Signature => Excerpt {
                 lines: vec![(start + 1, lines[start].clone())],
                 note: None,
@@ -131,8 +137,7 @@ impl Source {
                     return Excerpt {
                         lines: vec![(start + 1, lines[start].clone())],
                         note: Some(
-                            "indexer gave no body extent; showing the definition line only"
-                                .into(),
+                            "indexer gave no body extent; showing the definition line only".into(),
                         ),
                     };
                 };
@@ -227,8 +232,8 @@ mod tests {
         pub struct Dir(PathBuf);
         impl Dir {
             pub fn new(tag: &str) -> Dir {
-                let p = std::env::temp_dir()
-                    .join(format!("cairn-src-{tag}-{}", std::process::id()));
+                let p =
+                    std::env::temp_dir().join(format!("cairn-src-{tag}-{}", std::process::id()));
                 let _ = std::fs::create_dir_all(&p);
                 Dir(p)
             }

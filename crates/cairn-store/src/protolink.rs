@@ -68,6 +68,10 @@ pub struct LinkStats {
 /// literally they produced 237 "services" against 71 real `service` declarations — and
 /// every spurious service is a place two unrelated symbols can be joined by a false
 /// cross-language edge. Folding them onto one name is what makes the edges trustworthy.
+///
+/// Only the tests call this: production always has a rule pack to hand and goes straight
+/// to `classify_with`.
+#[cfg(test)]
 fn classify(name: &str) -> Option<(String, ServiceRole)> {
     classify_with(name, &crate::rules::Rules::default())
 }
@@ -108,11 +112,6 @@ fn classify_with(name: &str, rules: &crate::rules::Rules) -> Option<(String, Ser
         }
     }
     None
-}
-
-/// Fold a generated stem onto the `service` declaration it came from.
-fn canonical_service(stem: &str) -> Option<String> {
-    canonical_service_with(stem, &crate::rules::Rules::default())
 }
 
 /// Fold a generated stem onto the `service` declaration it came from, per the pack.
@@ -171,9 +170,8 @@ impl Store {
     /// Build the service graph from generated symbol names and their use sites.
     pub fn link_services(&mut self) -> Result<LinkStats> {
         let mut stats = LinkStats::default();
-        self.conn.execute_batch(
-            "DELETE FROM service_links; DELETE FROM proto_services;",
-        )?;
+        self.conn
+            .execute_batch("DELETE FROM service_links; DELETE FROM proto_services;")?;
 
         // 1. Every generated service artefact, with the package it belongs to.
         let mut artefacts: Vec<(i64, String, String, ServiceRole)> = Vec::new();
@@ -195,7 +193,8 @@ impl Store {
             })?;
             for row in rows {
                 let (id, name, path) = row?;
-                let (Some((svc, role)), Some(pkg)) = (classify_with(&name, &self.rules), package_of(&path))
+                let (Some((svc, role)), Some(pkg)) =
+                    (classify_with(&name, &self.rules), package_of(&path))
                 else {
                     continue;
                 };
@@ -255,17 +254,11 @@ impl Store {
             )?;
 
             for (artefact_id, pkg, svc, role) in artefacts {
-                let service_id: i64 =
-                    ins_svc.query_row(params![pkg, svc], |r| r.get(0))?;
+                let service_id: i64 = ins_svc.query_row(params![pkg, svc], |r| r.get(0))?;
                 stats.services += 1;
 
                 let mut link = |symbol_id: i64, role: ServiceRole| -> Result<()> {
-                    ins_link.execute(params![
-                        service_id,
-                        symbol_id,
-                        role as i64,
-                        artefact_id
-                    ])?;
+                    ins_link.execute(params![service_id, symbol_id, role as i64, artefact_id])?;
                     Ok(())
                 };
 
@@ -285,15 +278,13 @@ impl Store {
                         link(r?, ServiceRole::Serves)?;
                         stats.serves += 1;
                     }
-                    let rows =
-                        embedders.query_map(params![artefact_id], |r| r.get::<_, i64>(0))?;
+                    let rows = embedders.query_map(params![artefact_id], |r| r.get::<_, i64>(0))?;
                     for r in rows {
                         link(r?, ServiceRole::Serves)?;
                         stats.serves += 1;
                     }
                 }
             }
-
         }
         tx.commit()?;
         // `services` counts artefacts processed, not distinct services.
@@ -304,25 +295,34 @@ impl Store {
         stats.services = self
             .conn
             .query_row("SELECT count(*) FROM proto_services", [], |r| r.get(0))?;
-        stats.serves = self
-            .conn
-            .query_row("SELECT count(*) FROM service_links WHERE role = 0", [], |r| r.get(0))?;
-        stats.calls = self
-            .conn
-            .query_row("SELECT count(*) FROM service_links WHERE role = 1", [], |r| r.get(0))?;
+        stats.serves = self.conn.query_row(
+            "SELECT count(*) FROM service_links WHERE role = 0",
+            [],
+            |r| r.get(0),
+        )?;
+        stats.calls = self.conn.query_row(
+            "SELECT count(*) FROM service_links WHERE role = 1",
+            [],
+            |r| r.get(0),
+        )?;
         Ok(stats)
     }
 
     /// Services and links recorded, so `status` can show a zero rather than hide it.
     pub fn link_counts(&self) -> Result<(i64, i64, i64)> {
-        let services =
-            self.conn.query_row("SELECT count(*) FROM proto_services", [], |r| r.get(0))?;
-        let serves = self
+        let services = self
             .conn
-            .query_row("SELECT count(*) FROM service_links WHERE role = 0", [], |r| r.get(0))?;
-        let calls = self
-            .conn
-            .query_row("SELECT count(*) FROM service_links WHERE role = 1", [], |r| r.get(0))?;
+            .query_row("SELECT count(*) FROM proto_services", [], |r| r.get(0))?;
+        let serves = self.conn.query_row(
+            "SELECT count(*) FROM service_links WHERE role = 0",
+            [],
+            |r| r.get(0),
+        )?;
+        let calls = self.conn.query_row(
+            "SELECT count(*) FROM service_links WHERE role = 1",
+            [],
+            |r| r.get(0),
+        )?;
         Ok((services, serves, calls))
     }
 
@@ -355,8 +355,14 @@ impl Store {
         let mut out = Vec::new();
         for row in rows {
             let (pkg, service, caller_id) = row?;
-            let Some(caller) = self.symbol(caller_id)? else { continue };
-            out.push(CrossLink { pkg, service, symbol: caller });
+            let Some(caller) = self.symbol(caller_id)? else {
+                continue;
+            };
+            out.push(CrossLink {
+                pkg,
+                service,
+                symbol: caller,
+            });
         }
         Ok(out)
     }
@@ -377,8 +383,12 @@ impl Store {
     /// the two proto packages apart, which matters here because `orders_api` and
     /// `orders_fe` carry the same service names to different processes.
     pub fn rpc_callers(&self, method_id: i64) -> Result<Vec<RpcCaller>> {
-        let Some(me) = self.symbol(method_id)? else { return Ok(Vec::new()) };
-        let Some(owner) = self.enclosing_type(method_id)? else { return Ok(Vec::new()) };
+        let Some(me) = self.symbol(method_id)? else {
+            return Ok(Vec::new());
+        };
+        let Some(owner) = self.enclosing_type(method_id)? else {
+            return Ok(Vec::new());
+        };
 
         let mut stmt = self.conn.prepare_cached(
             r#"
@@ -418,8 +428,15 @@ impl Store {
             if !same_rpc(&rpc, &me.name) {
                 continue;
             }
-            let Some(symbol) = self.symbol(caller_id)? else { continue };
-            out.push(RpcCaller { pkg, service, rpc, symbol });
+            let Some(symbol) = self.symbol(caller_id)? else {
+                continue;
+            };
+            out.push(RpcCaller {
+                pkg,
+                service,
+                rpc,
+                symbol,
+            });
         }
         Ok(out)
     }
@@ -487,8 +504,15 @@ impl Store {
             if !names.iter().any(|n| same_rpc(n, &rpc)) {
                 continue;
             }
-            let Some(symbol) = self.symbol(caller_id)? else { continue };
-            out.push(RpcCaller { pkg, service, rpc, symbol });
+            let Some(symbol) = self.symbol(caller_id)? else {
+                continue;
+            };
+            out.push(RpcCaller {
+                pkg,
+                service,
+                rpc,
+                symbol,
+            });
         }
         out.sort_by(|a, b| (&a.rpc, a.symbol.id).cmp(&(&b.rpc, b.symbol.id)));
         Ok(out)
@@ -518,8 +542,14 @@ impl Store {
         let mut out = Vec::new();
         for row in rows {
             let (pkg, service, id) = row?;
-            let Some(symbol) = self.symbol(id)? else { continue };
-            out.push(CrossLink { pkg, service, symbol });
+            let Some(symbol) = self.symbol(id)? else {
+                continue;
+            };
+            out.push(CrossLink {
+                pkg,
+                service,
+                symbol,
+            });
         }
         Ok(out)
     }
@@ -572,7 +602,10 @@ pub struct RpcCaller {
 /// spellings are the generator's rendering of the same proto RPC.
 fn same_rpc(a: &str, b: &str) -> bool {
     let norm = |s: &str| -> String {
-        s.chars().filter(|c| *c != '_').flat_map(|c| c.to_lowercase()).collect()
+        s.chars()
+            .filter(|c| *c != '_')
+            .flat_map(|c| c.to_lowercase())
+            .collect()
     };
     norm(a) == norm(b)
 }
@@ -587,9 +620,18 @@ mod tests {
 
     #[test]
     fn classifies_both_sides_of_the_boundary() {
-        assert_eq!(c("AuthServiceBase"), Some(("AuthService".into(), ServiceRole::Serves)));
-        assert_eq!(c("AuthServiceStub"), Some(("AuthService".into(), ServiceRole::Calls)));
-        assert_eq!(c("AuthServiceClient"), Some(("AuthService".into(), ServiceRole::Calls)));
+        assert_eq!(
+            c("AuthServiceBase"),
+            Some(("AuthService".into(), ServiceRole::Serves))
+        );
+        assert_eq!(
+            c("AuthServiceStub"),
+            Some(("AuthService".into(), ServiceRole::Calls))
+        );
+        assert_eq!(
+            c("AuthServiceClient"),
+            Some(("AuthService".into(), ServiceRole::Calls))
+        );
         assert_eq!(
             c("RegisterAuthServiceServer"),
             Some(("AuthService".into(), ServiceRole::Serves))
@@ -618,7 +660,10 @@ mod tests {
     fn classifies_the_go_serving_side() {
         // The half that was missing: grpc-go binds a server by embedding the generated
         // interface, so these names are how a Go service says "I implement this".
-        assert_eq!(c("AuthServiceServer"), Some(("AuthService".into(), ServiceRole::Serves)));
+        assert_eq!(
+            c("AuthServiceServer"),
+            Some(("AuthService".into(), ServiceRole::Serves))
+        );
         assert_eq!(
             c("UnimplementedAuthServiceServer"),
             Some(("AuthService".into(), ServiceRole::Serves))
@@ -665,7 +710,10 @@ mod tests {
         );
         // The layout name is not assumed: these are the shapes other repositories use,
         // and they used to yield nothing at all.
-        assert_eq!(package_of("gen/go/billing_v1/service.pb.go"), Some("billing_v1"));
+        assert_eq!(
+            package_of("gen/go/billing_v1/service.pb.go"),
+            Some("billing_v1")
+        );
         assert_eq!(package_of("pb/orders/orders_pb2.py"), Some("orders"));
         assert_eq!(package_of("x.py"), None); // no directory to take a name from
 

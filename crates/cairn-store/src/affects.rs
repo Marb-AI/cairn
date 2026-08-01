@@ -2,7 +2,7 @@
 //!
 //! Every part of this already existed as a separate command — `runs` for the in-process
 //! side, `reaches` for one gRPC hop, `topology` for what starts a container. Measured
-//! (eval/RESULTS.md, task E), assembling them by hand cost an agent 39 tool calls and a
+//! (the measurement record, task E), assembling them by hand cost an agent 39 tool calls and a
 //! third more tokens than working with no tool at all, across three rounds in which the
 //! tool got steadily better and the run got steadily dearer.
 //!
@@ -88,7 +88,7 @@ impl Store {
         // command that costs seconds gets used as a fallback rather than as the answer.
         // One walk per service, then set membership — not one walk per symbol. The
         // difference stopped mattering when membership edges made the walks large enough
-        // that a measured run gave up waiting (eval/RESULTS.md, task E).
+        // that a measured run gave up waiting (the measurement record, task E).
         let sets = self.reachable_by_service(depth)?;
         let mut runs_memo: HashMap<i64, Vec<String>> = HashMap::new();
         let mut runs = |store: &Store, id: i64| -> Result<Vec<String>> {
@@ -155,8 +155,7 @@ impl Store {
                 }
                 // Everything that reaches this symbol inside its own process. The hop
                 // starts wherever that closure meets an RPC handler.
-                let walk =
-                    self.walk(root, EdgeKind::Calls, Direction::In, depth, fanout, true)?;
+                let walk = self.walk(root, EdgeKind::Calls, Direction::In, depth, fanout, true)?;
                 for node in &walk.nodes {
                     if !handlers.contains(&node.symbol.id) {
                         continue;
@@ -212,12 +211,18 @@ impl Store {
             "#,
         )?;
         let rows = stmt.query_map(params![symbol_id], |r| {
-            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
         })?;
         let mut out = Vec::new();
         for row in rows {
             let (pkg, service, via_id) = row?;
-            let Some(via) = self.symbol(via_id)? else { continue };
+            let Some(via) = self.symbol(via_id)? else {
+                continue;
+            };
             // Who serves it: the non-generated implementors, then which deployment runs
             // them. Named where the topology can say, left empty rather than guessed.
             let mut servers = self.conn.prepare(
@@ -243,7 +248,12 @@ impl Store {
                     }
                 }
             }
-            out.push(Outgoing { pkg, service, served_by, via });
+            out.push(Outgoing {
+                pkg,
+                service,
+                served_by,
+                via,
+            });
         }
         Ok(out)
     }
