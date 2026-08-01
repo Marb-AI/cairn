@@ -15,6 +15,7 @@ use std::time::Instant;
 
 /// Exit codes are part of the contract: an agent must be able to tell "nothing is
 /// there" from "I cannot see" (architecture 6.1.1).
+mod docker;
 mod index;
 mod skill;
 mod track;
@@ -538,56 +539,105 @@ fn report_skill(installed: skill::Installed) {
     }
 }
 
-/// Run the indexers for whatever the tree contains, and return the SCIP files produced.
+/// The index directory, relative to the repository root.
 ///
-/// Reports per language rather than stopping at the first gap. A repository whose Go is
-/// indexable and whose Python is not should get its Go answers plus a plain statement that
-/// the Python ones are absent — the same contract every query here follows, applied to the
-/// build step.
-fn produce_indexes(repo: &Path, out_dir: &Path) -> Result<Vec<PathBuf>> {
+/// Relative because the indexers run inside a container where the repository is mounted at
+/// a fixed path: an absolute host path would mean nothing there.
+fn index_dir_rel(db: &Path, repo: &Path) -> PathBuf {
+    db.parent()
+        .and_then(|d| d.strip_prefix(repo).ok())
+        .map(|d| d.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from(".cairn"))
+}
+
+/// Index whatever the tree contains, and return the SCIP files produced.
+///
+/// Reports per language rather than stopping at the first gap, and says plainly when a
+/// language is present that cairn cannot read — an index that silently covers half a
+/// repository is the same confident incompleteness every answer here is built to avoid.
+fn produce_indexes(repo: &Path, out_rel: &Path) -> Result<Vec<PathBuf>> {
     use std::io::Write;
 
-    let found = index::scan(repo)?;
-    if found.is_empty() {
+    let survey = index::scan(repo)?;
+    if survey.found.is_empty() && survey.unsupported.is_empty() {
         anyhow::bail!(
-            "found no Go or Python sources under {}.\n\
-             Those are the two languages cairn indexes today; if the code is elsewhere, \
-             run this from that directory.",
-            repo.display()
+            "found no source files under {} ({} looked at).\n\
+             If the code is somewhere else, run this from that directory.",
+            repo.display(),
+            survey.total
         );
     }
 
     println!("repository: {}", repo.display());
+    for f in &survey.found {
+        println!(
+            "  {:<8} {:>6} files  ({:.0}%)",
+            f.language.name,
+            f.files,
+            f.share * 100.0
+        );
+    }
+    for (language, files, share) in &survey.unsupported {
+        println!(
+            "  {:<8} {:>6} files  ({:.0}%)  not indexed",
+            language.to_lowercase(),
+            files,
+            share * 100.0
+        );
+    }
+
+    if survey.found.is_empty() {
+        let names: Vec<&str> = survey.unsupported.iter().map(|(l, _, _)| *l).collect();
+        anyhow::bail!(
+            "this looks like a {} repository, and cairn indexes Go and Python only.",
+            names.join(" and ")
+        );
+    }
+
+    if !docker::available() {
+        anyhow::bail!("{}", docker::NO_DOCKER);
+    }
+    if matches!(docker::ensure_image()?, docker::Image::Built) {
+        println!(
+            "indexers: built {} (once per cairn version, shared by every repository)",
+            docker::image_tag()
+        );
+    }
+
     let mut produced = Vec::new();
-    let mut missing = Vec::new();
-    for f in &found {
-        print!("  {:<7} {:>6} files  ", f.language.name, f.files);
+    let mut failed = Vec::new();
+    for f in &survey.found {
+        print!("  {:<8} indexing  ", f.language.name);
         let _ = std::io::stdout().flush();
-        match index::run_indexer(f, out_dir) {
+        match index::run_indexer(f, repo, out_rel) {
             index::Outcome::Indexed { scip, seconds } => {
                 println!("{seconds:.1}s");
                 produced.push(scip);
             }
-            index::Outcome::NoIndexer => {
-                println!("{} is not installed", f.language.indexer);
-                println!("{:>16}install it with: {}", "", f.language.install);
-                missing.push(f.language.name);
-            }
             index::Outcome::Failed(e) => {
-                println!("{} failed: {e}", f.language.indexer);
-                missing.push(f.language.name);
+                println!("failed: {e}");
+                failed.push(f.language.name);
             }
         }
     }
 
     if produced.is_empty() {
-        anyhow::bail!("nothing could be indexed - install the indexer(s) above and try again");
+        anyhow::bail!("no language could be indexed");
     }
-    if !missing.is_empty() {
+
+    // The warning is loud on purpose. Everything downstream reports what it cannot see,
+    // and a whole language missing from the index is the largest thing it cannot see.
+    let mut absent: Vec<String> = survey
+        .unsupported
+        .iter()
+        .map(|(l, _, _)| l.to_string())
+        .collect();
+    absent.extend(failed.iter().map(|s| s.to_string()));
+    if !absent.is_empty() {
         println!(
-            "unknown:  {} is present but was not indexed, so answers about it will be \
-             incomplete rather than empty",
-            missing.join(" and ")
+            "\nWARNING: {} is in this repository and is not in the index. Answers will be\n\
+             \x20        incomplete rather than empty - nothing here can see that code.",
+            absent.join(", ")
         );
     }
     Ok(produced)
@@ -672,7 +722,10 @@ fn run() -> Result<u8> {
 
             // Nothing was named, so work out what is here and produce it.
             let indexes = if indexes.is_empty() {
-                produce_indexes(repo.as_deref().unwrap(), &index::index_dir(&db)?)?
+                produce_indexes(
+                    repo.as_deref().unwrap(),
+                    &index_dir_rel(&db, repo.as_deref().unwrap()),
+                )?
             } else {
                 indexes
             };

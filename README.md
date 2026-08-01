@@ -60,16 +60,13 @@ curl -fsSL https://raw.githubusercontent.com/Marb-AI/cairn/main/install.sh | sh
 
 Linux and macOS. Drops a binary in `~/.cairn/bin` and links it onto your PATH; re-run to
 upgrade. On Windows, take the `.exe` from the
-[releases page](https://github.com/Marb-AI/cairn/releases). No runtime dependencies, no
-Docker.
+[releases page](https://github.com/Marb-AI/cairn/releases).
 
-cairn does not parse code itself — it stands on each language's own indexer, and does not
-ship them:
-
-```
-go install github.com/scip-code/scip-go/cmd/scip-go@latest   # for Go
-npm install -g @sourcegraph/scip-python                      # for Python
-```
+**You also need Docker**, and that is the whole list. cairn does not parse code itself —
+it stands on each language's own indexer, and those need a Go toolchain and Node. Rather
+than making that your problem, cairn keeps them in an image it builds itself, once, and
+shares across every repository on the machine. Nothing is downloaded from a registry and
+nothing lands on your host.
 
 ## Use it
 
@@ -85,26 +82,32 @@ That is the whole setup. It does two things:
   is what makes an agent reach for cairn instead of grepping. Without it nothing changes,
   because nothing knows to ask. `cairn index --without-skill` skips this; `cairn skill`
   does it on its own.
-- **Builds the index.** It walks the tree, sees which languages are actually there — by
-  what the files are, not by whether someone left a `go.mod` in the root — runs the
-  matching indexers, and writes everything into `.cairn/`, which it also makes
-  uncommittable. There is no flag for the repository: where you are standing is what you
-  meant.
+- **Builds the index.** It walks the tree and counts what is there — by what the files
+  are, not by whether someone left a `go.mod` in the root, and by weight, so one stray
+  script does not make a language. It runs the matching indexers in the image and writes
+  everything into `.cairn/`, which it also makes uncommittable. There is no flag for the
+  repository: where you are standing is what you meant.
+
+If the repository contains a language cairn cannot read, it says so loudly rather than
+quietly indexing half of it — a partial index that does not admit it is worse than none.
 
 Then you are done. Ask your agent a question about the codebase and it will use cairn to
 answer it. Nothing to start, nothing to keep running — a file watcher comes up by itself
 so answers stay honest about edits made since the index was built.
 
-**The first run is slow, and nearly all of it is the language indexers.** Measured on a
-codebase of roughly 71k symbols:
+**The first run on a machine is slow twice over**: once to build the indexer image, and
+once for the indexers themselves. The image is built only once per cairn version, so the
+second repository you index skips straight to the second row. Measured on a codebase of
+roughly 71k symbols:
 
-| step | wall time | peak memory |
-|---|---|---|
-| Go | 29 s | 0.6 GB |
-| Python | 2 m 28 s | 2.6 GB |
-| building the index | ~36 s | modest |
+| step | wall time | peak memory | how often |
+|---|---|---|---|
+| building the indexer image | ~1 m | — | once per cairn version |
+| Go | 29 s | 0.6 GB | per index |
+| Python | 2 m 28 s | 2.6 GB | per index |
+| building the index | ~36 s | modest | per index |
 
-About three and a half minutes cold. The memory is the part to plan for: 2.6 GB is enough
+About four and a half minutes the very first time, three and a half after that. The memory is the part to plan for: 2.6 GB is enough
 to be killed inside a small container. After that, queries are milliseconds, and a rebuild
 never takes the index away from whoever is reading it.
 
