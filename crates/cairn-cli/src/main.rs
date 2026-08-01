@@ -571,7 +571,7 @@ fn produce_indexes(repo: &Path, out_rel: &Path) -> Result<Vec<PathBuf>> {
     println!("repository: {}", repo.display());
     for f in &survey.found {
         println!(
-            "  {:<8} {:>6} files  ({:.0}%)",
+            "  {:<10} {:>6} files  ({:.0}%)",
             f.language.name,
             f.files,
             f.share * 100.0
@@ -579,7 +579,7 @@ fn produce_indexes(repo: &Path, out_rel: &Path) -> Result<Vec<PathBuf>> {
     }
     for (language, files, share) in &survey.unsupported {
         println!(
-            "  {:<8} {:>6} files  ({:.0}%)  not indexed",
+            "  {:<10} {:>6} files  ({:.0}%)  not indexed",
             language.to_lowercase(),
             files,
             share * 100.0
@@ -607,7 +607,7 @@ fn produce_indexes(repo: &Path, out_rel: &Path) -> Result<Vec<PathBuf>> {
     let mut produced = Vec::new();
     let mut failed = Vec::new();
     for f in &survey.found {
-        print!("  {:<8} indexing  ", f.language.name);
+        print!("  {:<10} indexing  ", f.language.name);
         let _ = std::io::stdout().flush();
         match index::run_indexer(f, repo, out_rel) {
             index::Outcome::Indexed { scip, seconds } => {

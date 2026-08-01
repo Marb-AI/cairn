@@ -76,40 +76,60 @@ Stand in the root of the codebase and run:
 cairn index
 ```
 
-That is the whole setup. It does two things:
+That is the whole setup, and it does four things.
 
-- **Tells your agent the tool exists.** The guide goes into `.claude/skills/cairn/`, which
-  is what makes an agent reach for cairn instead of grepping. Without it nothing changes,
-  because nothing knows to ask. `cairn index --without-skill` skips this; `cairn skill`
-  does it on its own.
-- **Builds the index.** It walks the tree and counts what is there — by what the files
-  are, not by whether someone left a `go.mod` in the root, and by weight, so one stray
-  script does not make a language. It runs the matching indexers in the image and writes
-  everything into `.cairn/`, which it also makes uncommittable. There is no flag for the
-  repository: where you are standing is what you meant.
+**Installs the guide your agent reads.** It goes into `.claude/skills/cairn/`, and it is
+what makes an agent reach for cairn instead of grepping. Without it nothing changes,
+because nothing knows to ask. `cairn index --without-skill` skips it; `cairn skill` does
+it on its own.
 
-If the repository contains a language cairn cannot read, it says so loudly rather than
-quietly indexing half of it — a partial index that does not admit it is worse than none.
+**Works out what is in the tree.** Every file extension is counted, and a language is
+indexed when it clears both a floor and a share of the total — so a lone build script in a
+Go repository does not cost you a Python index. What decides is what the files *are*; a
+`pyproject.toml` next to no Python is not a Python project. Marker files like `go.mod` are
+still read, but only to choose *where* to run an indexer, never whether to.
+
+Anything cairn cannot read is counted too, and named:
+
+```
+  go             41 files  (59%)
+  python         19 files  (28%)
+  typescript      9 files  (13%)  not indexed
+
+WARNING: TypeScript is in this repository and is not in the index. Answers will be
+         incomplete rather than empty - nothing here can see that code.
+```
+
+A partial index that does not admit it is worse than none, so this is loud on purpose.
+
+**Starts the container.** The indexers, and later the language servers, run inside it — one
+per repository, started once and left running. Nothing is installed on your machine.
+
+**Builds the index**, into `.cairn/`, which it also makes uncommittable. There is no flag
+for the repository: where you are standing is what you meant. The one place it refuses is
+the directory cairn itself is installed in.
 
 Then you are done. Ask your agent a question about the codebase and it will use cairn to
-answer it. Nothing to start, nothing to keep running — a file watcher comes up by itself
-so answers stay honest about edits made since the index was built.
+answer it. Nothing to start and nothing to keep running: a file watcher and the language
+servers come up by themselves the first time you query, so answers stay honest about edits
+made since the index was built.
 
 **The first run on a machine is slow twice over**: once to build the indexer image, and
-once for the indexers themselves. The image is built only once per cairn version, so the
-second repository you index skips straight to the second row. Measured on a codebase of
-roughly 71k symbols:
+once for the indexers themselves. The image is built once per cairn version and shared by
+every repository, so the second repository skips that row entirely. Measured on a codebase
+of roughly 71k symbols:
 
 | step | wall time | peak memory | how often |
 |---|---|---|---|
-| building the indexer image | ~1 m | — | once per cairn version |
+| building the indexer image | 1-2 m | — | once per cairn version |
 | Go | 29 s | 0.6 GB | per index |
 | Python | 2 m 28 s | 2.6 GB | per index |
 | building the index | ~36 s | modest | per index |
 
-About four and a half minutes the very first time, three and a half after that. The memory is the part to plan for: 2.6 GB is enough
-to be killed inside a small container. After that, queries are milliseconds, and a rebuild
-never takes the index away from whoever is reading it.
+About four and a half minutes the very first time, three and a half after that. The memory
+is the part to plan for: 2.6 GB is enough to be killed inside a small container. After
+that, queries are milliseconds, and a rebuild never takes the index away from whoever is
+reading it.
 
 Re-run `cairn index` whenever you want it current again.
 
