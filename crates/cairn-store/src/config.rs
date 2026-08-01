@@ -26,14 +26,16 @@ pub struct Config {
     pub tracking: bool,
     /// Report peak resident memory on stderr when a command finishes.
     pub memory_peak: bool,
-    /// Ceiling on resident memory, in megabytes. Defaults to a quarter of the machine's
-    /// RAM.
+    /// Resident memory above which a finished command says so. Defaults to a quarter of
+    /// the machine's RAM.
     ///
-    /// Indexing is the only path that can grow without bound — a repository ten times the
-    /// size of the one this was built against would try. A quarter leaves the machine
-    /// usable, and exceeding it aborts the build rather than letting the OS decide which
-    /// process dies. Aborting is safe: a build assembles a staging file and the live index
-    /// is untouched until it is promoted.
+    /// A **report, not a limit**: nothing is enforced and nothing is aborted. The check
+    /// runs once the command has already finished, compares its peak against this number,
+    /// and prints a line when it was higher. Indexing is the only path that can grow
+    /// without bound, so it is the one this is worth knowing about.
+    ///
+    /// Said plainly because the doc here used to claim the build was aborted, which was
+    /// never true of any version of this code.
     pub memory_limit_mb: Option<u64>,
     /// Default ceiling on an answer, in tokens, when `--budget` is not given.
     pub default_budget: Option<usize>,
@@ -69,7 +71,7 @@ pub const SETTINGS: &[(&str, &str)] = &[
     ),
     (
         "memory_limit_mb",
-        "abort an index build above this; default is a quarter of RAM",
+        "say so when a command used more than this; default is a quarter of RAM",
     ),
     (
         "default_budget",
@@ -180,9 +182,9 @@ impl Config {
 /// is the honest answer rather than a guessed number.
 ///
 /// Asked per platform rather than through one portable call, because there isn't one.
-/// Getting this wrong is not cosmetic: the answer sets the default ceiling that aborts an
-/// index build, so a silent `None` on macOS or Windows would quietly remove the guard
-/// instead of applying it.
+/// Getting this wrong is not cosmetic: the answer sets the default figure a finished
+/// command is reported against, so a silent `None` on macOS or Windows means nobody is
+/// ever told that indexing used more memory than the machine could comfortably spare.
 #[cfg(target_os = "linux")]
 fn total_ram_bytes() -> Option<u64> {
     let meminfo = std::fs::read_to_string("/proc/meminfo").ok()?;

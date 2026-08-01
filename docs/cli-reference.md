@@ -32,6 +32,7 @@ Usage: cairn [OPTIONS] <COMMAND>
 
 Commands:
   index      Index the repository you are standing in
+  skill      Install the agent guide into this repository's .claude/skills/
   context    Entry point by concept: turn "the OAuth stuff" into symbols to start from
   unreached  Symbols under a path that production code never calls
   outline    What a module or directory contains, and how used each thing is
@@ -84,6 +85,29 @@ Options:
 
       --repo <REPO>
           Repository root. Defaults to the working directory
+
+      --budget <BUDGET>
+          Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+
+      --without-skill
+          Do not install the agent guide into .claude/skills/
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## cairn skill
+
+```
+Install the agent guide into this repository's .claude/skills/.
+
+Done for you by `cairn index`; this is here for the case where that was skipped, or where the guide has moved on since.
+
+Usage: cairn skill [OPTIONS]
+
+Options:
+      --db <DB>
+          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
 
       --budget <BUDGET>
           Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again

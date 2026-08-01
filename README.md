@@ -60,34 +60,18 @@ curl -fsSL https://raw.githubusercontent.com/Marb-AI/cairn/main/install.sh | sh
 
 Linux and macOS. Drops a binary in `~/.cairn/bin` and links it onto your PATH; re-run to
 upgrade. On Windows, take the `.exe` from the
-[releases page](https://github.com/Marb-AI/cairn/releases).
+[releases page](https://github.com/Marb-AI/cairn/releases). No runtime dependencies, no
+Docker.
 
-Builds are published for Linux (x86-64, arm64), macOS (Apple Silicon) and Windows
-(x86-64, arm64). No runtime dependencies, no Docker.
-
-Indexing needs the indexer for each language you have. cairn runs them for you but does
-not ship them:
+cairn does not parse code itself — it stands on each language's own indexer, and does not
+ship them:
 
 ```
 go install github.com/scip-code/scip-go/cmd/scip-go@latest   # for Go
 npm install -g @sourcegraph/scip-python                      # for Python
 ```
 
-## Set up
-
-```
-cairn config memory_peak=on     # print peak memory when a command finishes
-cairn config                    # show everything in effect
-```
-
-Settings belong to the installation, not to a repository — one binary serves every
-checkout on the machine. `cairn config` lists what exists and where it is stored; the
-one worth knowing about is the memory ceiling, since indexing is the only thing here that
-can grow without bound. It defaults to a quarter of the machine's RAM, and exceeding it
-aborts the build rather than letting the OS pick a process to kill. Aborting is safe: the
-live index is untouched until a rebuild finishes.
-
-## Index a repository
+## Use it
 
 Stand in the root of the codebase and run:
 
@@ -95,10 +79,21 @@ Stand in the root of the codebase and run:
 cairn index
 ```
 
-That is the whole command. It walks the tree, sees which languages are actually there —
-by what the files are, not by whether someone left a `go.mod` in the root — runs the
-matching indexers, and builds the index into `.cairn/`, which it also makes uncommittable.
-There is no flag for the repository: where you are standing is what you meant.
+That is the whole setup. It does two things:
+
+- **Tells your agent the tool exists.** The guide goes into `.claude/skills/cairn/`, which
+  is what makes an agent reach for cairn instead of grepping. Without it nothing changes,
+  because nothing knows to ask. `cairn index --without-skill` skips this; `cairn skill`
+  does it on its own.
+- **Builds the index.** It walks the tree, sees which languages are actually there — by
+  what the files are, not by whether someone left a `go.mod` in the root — runs the
+  matching indexers, and writes everything into `.cairn/`, which it also makes
+  uncommittable. There is no flag for the repository: where you are standing is what you
+  meant.
+
+Then you are done. Ask your agent a question about the codebase and it will use cairn to
+answer it. Nothing to start, nothing to keep running — a file watcher comes up by itself
+so answers stay honest about edits made since the index was built.
 
 **The first run is slow, and nearly all of it is the language indexers.** Measured on a
 codebase of roughly 71k symbols:
@@ -107,28 +102,26 @@ codebase of roughly 71k symbols:
 |---|---|---|
 | Go | 29 s | 0.6 GB |
 | Python | 2 m 28 s | 2.6 GB |
-| building the index | ~36 s | bounded by the setting above |
+| building the index | ~36 s | modest |
 
-About three and a half minutes cold. The memory is the part to plan for — 2.6 GB will be
-killed in a small container. After that, queries are milliseconds, and a rebuild never
-takes the index away from whoever is reading it.
+About three and a half minutes cold. The memory is the part to plan for: 2.6 GB is enough
+to be killed inside a small container. After that, queries are milliseconds, and a rebuild
+never takes the index away from whoever is reading it.
 
-If an indexer is missing, cairn says which, tells you how to install it, and indexes the
-rest — then states plainly that answers about the missing language will be incomplete
-rather than empty.
+Re-run `cairn index` whenever you want it current again.
 
-Then just ask:
+### If you want to change something
+
+Little should need changing, but nothing is hidden either:
 
 ```
-cairn symbol RateLimiter       # -> a short handle
-cairn usage <handle>           # where it is used, grouped by file
-cairn affects <handle>         # which deployed services a change reaches
-cairn unreached srcpy/billing  # what production never calls
+cairn config                    # every setting, its value, and where it came from
+cairn config memory_peak=on     # e.g. report memory use after each command
 ```
 
-Nothing else to run. A file watcher starts itself the first time you use cairn in a
-repository, so answers stay honest about edits made since the index was built; you never
-have to know it exists.
+Conventions — what a start command looks like, how a protobuf generator names things, what
+marks a file as generated — are per repository and live in a rule pack you can dump and
+edit with `cairn rules`. Adding a language is meant to be a pack rather than a patch.
 
 ## Does it actually help?
 

@@ -16,6 +16,7 @@ use std::time::Instant;
 /// Exit codes are part of the contract: an agent must be able to tell "nothing is
 /// there" from "I cannot see" (architecture 6.1.1).
 mod index;
+mod skill;
 mod track;
 
 mod exit {
@@ -108,7 +109,15 @@ enum Cmd {
         /// Repository root. Defaults to the working directory.
         #[arg(long)]
         repo: Option<PathBuf>,
+        /// Do not install the agent guide into .claude/skills/.
+        #[arg(long)]
+        without_skill: bool,
     },
+    /// Install the agent guide into this repository's .claude/skills/.
+    ///
+    /// Done for you by `cairn index`; this is here for the case where that was skipped,
+    /// or where the guide has moved on since.
+    Skill,
     /// Entry point by concept: turn "the OAuth stuff" into symbols to start from.
     Context {
         query: String,
@@ -351,8 +360,10 @@ fn report(argv: &[String], code: u8, elapsed: std::time::Duration) {
             eprintln!("cairn: peak memory {:.1} MB", kb as f64 / 1024.0);
         }
     }
-    // Said after the fact, because by now the command has finished: the ceiling is
-    // enforced during indexing, which is the only path that can grow without bound.
+    // After the fact, and that is all it is: nothing here interrupts anything. Reporting
+    // it is still worth doing — indexing a repository far larger than any this has been
+    // run against is the case where the number matters, and finding out afterwards beats
+    // not finding out.
     if let (Some(kb), Some(limit)) = (track::peak_rss_kb(), cfg.memory_limit_bytes()) {
         if kb * 1024 > limit {
             eprintln!(
@@ -517,6 +528,16 @@ fn spawn_daemon(db: &Path) {
     let _ = cmd.spawn();
 }
 
+/// Say what installing the guide did, in one line or none.
+fn report_skill(installed: skill::Installed) {
+    match installed {
+        skill::Installed::Written(p) => println!("skill:    {} (agent guide)", p.display()),
+        // Silent when nothing changed: a line every single build saying a file is the same
+        // as it was is noise, and noise in a build log is how real notices get missed.
+        skill::Installed::AlreadyCurrent => {}
+    }
+}
+
 /// Run the indexers for whatever the tree contains, and return the SCIP files produced.
 ///
 /// Reports per language rather than stopping at the first gap. A repository whose Go is
@@ -616,7 +637,11 @@ fn run() -> Result<u8> {
     }
 
     match cli.cmd {
-        Cmd::Index { indexes, repo } => {
+        Cmd::Index {
+            indexes,
+            repo,
+            without_skill,
+        } => {
             // The working directory is the repository. No check for `.git`: standing
             // somewhere is the intent, and a monorepo subtree or a plain directory of
             // sources is a perfectly good thing to want indexed.
@@ -624,12 +649,29 @@ fn run() -> Result<u8> {
                 Some(r) => r,
                 None => std::env::current_dir().context("reading the working directory")?,
             };
+            // Before anything is written, including the guide: this is the one directory
+            // where the whole command is a mistake.
+            index::refuse_own_directory(&repo)?;
             ensure_index_dir(&db)?;
             let repo = Some(repo);
 
+            // An index nothing knows how to use is half a setup, so one command leaves the
+            // repository ready rather than leaving a second step written down somewhere
+            // the person who needs it will not look.
+            //
+            // Before indexing, not after: indexing is the part that can fail — a missing
+            // indexer, a language nobody has installed the toolchain for — and the guide
+            // is still worth having when it does.
+            if !without_skill {
+                match skill::install(repo.as_deref().unwrap()) {
+                    Ok(what) => report_skill(what),
+                    // Never fatal. A read-only checkout should still get an index.
+                    Err(e) => eprintln!("cairn: could not install the agent guide: {e:#}"),
+                }
+            }
+
             // Nothing was named, so work out what is here and produce it.
             let indexes = if indexes.is_empty() {
-                index::refuse_own_directory(repo.as_deref().unwrap())?;
                 produce_indexes(repo.as_deref().unwrap(), &index::index_dir(&db)?)?
             } else {
                 indexes
@@ -949,6 +991,11 @@ fn run() -> Result<u8> {
             })
         }
 
+        Cmd::Skill => {
+            let repo = std::env::current_dir().context("reading the working directory")?;
+            report_skill(skill::install(&repo)?);
+            Ok(exit::FOUND)
+        }
         Cmd::Config { assignment } => {
             let mut cfg = cairn_store::Config::load()?;
             match assignment {
