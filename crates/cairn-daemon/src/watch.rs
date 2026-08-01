@@ -104,11 +104,20 @@ impl DirtyTracker {
                 Err(_) => removed.push(rel.clone()),
             }
         }
+        // And the other direction: files on disk the index has never seen. Without this
+        // the scan only ever compared the index against itself, so anything added since
+        // the last build stayed invisible until something happened to touch it again —
+        // `stale:` would say nothing while a whole new module sat there unindexed.
+        let mut created = Vec::new();
+        walk_new(&repo, &repo, &indexed, &mut created);
+
         modified.sort();
         removed.sort();
+        created.sort();
         let mut st = self.inner.lock().unwrap();
         st.dirty.modified = modified;
         st.dirty.removed = removed;
+        st.dirty.created = created;
         st.dirty.generation += 1;
         st.dirty.complete = true;
     }
@@ -218,6 +227,32 @@ fn relativise(root: &Path, p: &Path) -> Option<String> {
         .ok()
         .map(|r| r.to_string_lossy().replace('\\', "/"))
         .filter(|s| !s.is_empty())
+}
+
+/// Files present on disk that the index does not know about.
+///
+/// Bounded by the same ignore rules the watcher uses, so a `node_modules` does not turn a
+/// startup scan into a minute of walking.
+fn walk_new(
+    root: &Path,
+    dir: &Path,
+    indexed: &HashMap<String, [u8; 16]>,
+    out: &mut Vec<String>,
+) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(rel) = path.strip_prefix(root) else { continue };
+        let rel = rel.to_string_lossy().to_string();
+        if is_ignored(&rel) {
+            continue;
+        }
+        if path.is_dir() {
+            walk_new(root, &path, indexed, out);
+        } else if !indexed.contains_key(&rel) {
+            out.push(rel);
+        }
+    }
 }
 
 pub fn is_ignored(rel: &str) -> bool {

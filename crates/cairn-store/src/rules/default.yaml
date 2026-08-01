@@ -1,25 +1,3 @@
-# Operator settings. Conventions are below; these change what cairn does rather than what
-# it understands.
-config:
-  # Append one line per command to .cairn/sessions/<id>.jsonl: what was asked, how it went,
-  # how long it took. Never the answer itself - names, counts and timings only, so the log
-  # stays small and carries nothing you would not want to keep.
-  #
-  # Off by default. A tool that starts recording what you searched for without being asked
-  # is one people stop trusting.
-  tracking: false
-  # Print peak resident memory to stderr when a command finishes.
-  memory_peak: false
-
-# cairn's built-in conventions.
-#
-# Everything here was once an `if` chain in the crate. It is data so that a repository that
-# does not follow these conventions can say so without a rebuild, and so that adding a
-# language is a pack rather than a patch (architecture D16).
-#
-# Copy this file to `.cairn/rules.yaml` and edit to override. It is all-or-nothing: the
-# file you provide replaces this one entirely.
-
 generated:
   # Matched case-insensitively, in the leading comment block only.
   markers:

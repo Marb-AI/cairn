@@ -24,10 +24,6 @@ const DEFAULT: &str = include_str!("rules/default.yaml");
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Rules {
-    /// Operator settings, as opposed to conventions. Kept in the same file so a
-    /// deployment has one thing to place, not two.
-    #[serde(default)]
-    pub config: Config,
     pub generated: GeneratedRules,
     pub tests: TestRules,
     /// Ordered: the first rule that matches a command wins, so `Register`-style prefixes
@@ -35,21 +31,6 @@ pub struct Rules {
     pub commands: Vec<CommandRule>,
     pub proto: ProtoRules,
     pub on_demand: OnDemandRules,
-}
-
-/// Settings that change what cairn does rather than what it understands.
-#[derive(Debug, Clone, Deserialize, Default)]
-pub struct Config {
-    /// Append a line per command to `.cairn/sessions/<id>.jsonl`.
-    ///
-    /// Off by default, including for internal builds: a tool that starts recording what
-    /// you searched for without being asked is a tool people stop trusting. Turning it on
-    /// should be a decision someone made.
-    #[serde(default)]
-    pub tracking: bool,
-    /// Report peak resident memory on stderr when a command finishes.
-    #[serde(default)]
-    pub memory_peak: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

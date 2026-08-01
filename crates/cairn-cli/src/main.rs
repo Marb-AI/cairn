@@ -322,15 +322,29 @@ fn report(argv: &[String], code: u8, elapsed: std::time::Duration) {
         .nth(1)
         .map(PathBuf::from)
         .unwrap_or_else(default_db);
-    let rules_path = db.parent().map(|d| d.join("rules.yaml"));
-    let Ok(rules) = cairn_store::Rules::load(rules_path.as_deref()) else { return };
+    // Installation settings, not repository ones: one binary serves every checkout on the
+    // machine, and whether it records sessions should not depend on which directory you
+    // are standing in.
+    let Ok(cfg) = cairn_store::Config::load() else { return };
 
-    if rules.config.memory_peak {
+    if cfg.memory_peak {
         if let Some(kb) = track::peak_rss_kb() {
             eprintln!("cairn: peak memory {:.1} MB", kb as f64 / 1024.0);
         }
     }
-    if !rules.config.tracking {
+    // Said after the fact, because by now the command has finished: the ceiling is
+    // enforced during indexing, which is the only path that can grow without bound.
+    if let (Some(kb), Some(limit)) = (track::peak_rss_kb(), cfg.memory_limit_bytes()) {
+        if kb * 1024 > limit {
+            eprintln!(
+                "cairn: used {:.1} MB, above the {:.1} MB ceiling - raise memory_limit_mb \
+                 in the installation config if this is expected",
+                kb as f64 / 1024.0,
+                limit as f64 / (1024.0 * 1024.0)
+            );
+        }
+    }
+    if !cfg.tracking {
         return;
     }
     // The first non-flag argument is the command; the second, when there is one, is the

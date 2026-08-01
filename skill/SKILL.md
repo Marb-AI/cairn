@@ -16,6 +16,17 @@ it, what does production never reach, which tests cover it, how does A get to B.
 - prose, comments, config, string literals, docs → grep
 - the code is not in this repo → nothing is indexed for it
 
+## One index per repository, found from where you are
+
+cairn resolves the index from the working directory: it looks upward for the repository
+root and reads `.cairn/index.sqlite` there. **Run it inside the repository you are asking
+about.** With `repo1/` and `repo2/` checked out side by side, the same command gives
+different answers depending on where you stand, and run from neither it reports no index
+rather than guessing.
+
+If you get `no index at ...` (exit 3), you are almost certainly in the wrong directory —
+check before concluding the tool is not set up.
+
 `cairn status` says what is indexed. Answers end with `unknown:` / `suppressed:` /
 `stale:` — read them, they are where the honesty lives.
 
