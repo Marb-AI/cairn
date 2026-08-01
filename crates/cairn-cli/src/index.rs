@@ -295,7 +295,7 @@ pub fn run_indexer(found: &Found, repo: &Path, out_rel: &Path) -> Outcome {
         other => return Outcome::Failed(format!("no invocation known for {other}")),
     };
 
-    let result = crate::docker::run(repo, &found.root, &args);
+    let result = crate::docker::exec(repo, &found.root, &args);
     let on_host = repo
         .join(out_rel)
         .join(format!("{}.scip", found.language.name));

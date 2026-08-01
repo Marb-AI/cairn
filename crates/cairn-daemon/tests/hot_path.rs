@@ -44,7 +44,11 @@ fn a_server_that_is_not_installed_is_recorded_rather_than_fatal() {
     // The normal state for most people who install cairn. It must cost them a missing
     // live view and nothing else.
     let root = scratch("missing-server");
-    let mut pool = Pool::new(&root, &[("nosuchlang".to_string(), "src".to_string())]);
+    let mut pool = Pool::new(
+        &root,
+        &[("nosuchlang".to_string(), "src".to_string())],
+        None,
+    );
     let langs = pool.languages();
     assert!(
         !langs.contains(&"nosuchlang".to_string()),

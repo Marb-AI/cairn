@@ -12,7 +12,8 @@
 # scip-go needs a recent Go toolchain to build itself.
 FROM golang:1.26-bookworm AS gobuild
 ENV CGO_ENABLED=0
-RUN go install github.com/scip-code/scip-go/cmd/scip-go@latest
+RUN go install github.com/scip-code/scip-go/cmd/scip-go@latest \
+ && go install golang.org/x/tools/gopls@latest
 
 # Python is the base, not an afterthought: scip-python shells out to `pip` to enumerate the
 # environment and fails outright without one. Learned by building this the other way round
@@ -28,12 +29,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Node, for scip-python, which is an npm package built on pyright.
 COPY --from=node:22-bookworm-slim /usr/local/bin/node /usr/local/bin/node
 COPY --from=node:22-bookworm-slim /usr/local/lib/node_modules /usr/local/lib/node_modules
+#
+# pyright as well as scip-python: the indexer bundles its own analysis but does not ship
+# `pyright-langserver`, and that is what the daemon drives to answer about a file that has
+# been edited since the index was built.
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
- && npm install -g @sourcegraph/scip-python@latest
+ && npm install -g @sourcegraph/scip-python@latest pyright@latest
 
 # The Go toolchain as well as the indexer: scip-go runs `go list` against the module it is
-# indexing, so the compiler has to be here too.
+# indexing, so the compiler has to be here too. gopls is the Go half of the live overlay.
 COPY --from=gobuild /go/bin/scip-go /usr/local/bin/scip-go
+COPY --from=gobuild /go/bin/gopls /usr/local/bin/gopls
 COPY --from=golang:1.26-bookworm /usr/local/go /usr/local/go
 
 # Caches under /tmp because the container runs as the calling user, who owns nothing else

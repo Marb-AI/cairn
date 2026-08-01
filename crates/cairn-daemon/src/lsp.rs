@@ -39,10 +39,19 @@ pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 #[derive(Debug, Clone)]
 pub struct ServerSpec {
     pub lang: String,
+    /// Words placed before `command`. Empty means "run it on this machine"; the daemon
+    /// fills it with a `docker exec` into the repository's container, which is where the
+    /// language servers actually live — nobody installs gopls or pyright to use cairn.
+    pub launcher: Vec<String>,
     pub command: Vec<String>,
     /// Root the server is initialised at — the language's source root, not the repo
     /// root: pyright wants `srcpy/`, gopls wants `srcgo/`.
     pub root: PathBuf,
+    /// The same directory as the *server* sees it. Identical to `root` when the server
+    /// runs on this machine, and the path inside the container when it does not — a
+    /// server told to open `/tmp/ct/srcpy` when its filesystem has `/repo/srcpy` finds
+    /// nothing and says so in a way that reads like an empty file.
+    pub view_root: PathBuf,
     pub language_id: String,
 }
 
@@ -63,7 +72,9 @@ impl ServerSpec {
         };
         Some(ServerSpec {
             lang: lang.to_string(),
+            launcher: Vec::new(),
             command,
+            view_root: root.clone(),
             root,
             language_id: language_id.to_string(),
         })
@@ -137,12 +148,40 @@ fn resolve_program(name: &str) -> std::ffi::OsString {
 
 impl Server {
     pub fn start(spec: ServerSpec) -> Result<Server> {
-        let mut child = Command::new(resolve_program(&spec.command[0]))
-            .args(&spec.command[1..])
-            .current_dir(&spec.root)
+        // With a launcher the working directory belongs to the container, and setting one
+        // here would be setting it for `docker` rather than for the server.
+        let (program, rest): (String, Vec<String>) = if spec.launcher.is_empty() {
+            (spec.command[0].clone(), spec.command[1..].to_vec())
+        } else {
+            let mut rest = spec.launcher[1..].to_vec();
+            rest.extend(spec.command.iter().cloned());
+            (spec.launcher[0].clone(), rest)
+        };
+        // Recorded because it is the first thing anyone needs when a server will not
+        // start, and it is not otherwise recoverable: the launcher is assembled here.
+        eprintln!(
+            "cairn daemon: starting {} server: {program} {}",
+            spec.lang,
+            rest.join(" ")
+        );
+        let mut command = Command::new(resolve_program(&program));
+        command.args(&rest);
+        if spec.launcher.is_empty() {
+            command.current_dir(&spec.root);
+        }
+        let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            // Kept, not discarded. A server that will not start says why on stderr, and
+            // throwing that away left "broken pipe" as the only symptom.
+            .stderr(
+                std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(std::env::temp_dir().join(format!("cairn-{}-server.log", spec.lang)))
+                    .map(Stdio::from)
+                    .unwrap_or_else(|_| Stdio::inherit()),
+            )
             .spawn()
             .with_context(|| format!("spawning {:?}", spec.command))?;
 
@@ -218,9 +257,18 @@ impl Server {
     }
 
     fn initialize(&mut self) -> Result<()> {
-        let root_uri = format!("file://{}", self.spec.root.display());
+        let root_uri = format!("file://{}", self.spec.view_root.display());
+        // Null when the server runs elsewhere. A language server watches `processId` and
+        // exits when that process disappears; a host pid means nothing inside a container,
+        // so pyright would start, report itself ready, and be gone before the first query
+        // — which is exactly what it did.
+        let process_id = if self.spec.launcher.is_empty() {
+            serde_json::json!(std::process::id())
+        } else {
+            serde_json::Value::Null
+        };
         let params = serde_json::json!({
-            "processId": std::process::id(),
+            "processId": process_id,
             "rootUri": root_uri,
             "workspaceFolders": [{"uri": root_uri, "name": "w"}],
             "capabilities": {
@@ -281,7 +329,12 @@ impl Server {
     /// The text is passed in rather than read here: the caller already has it, and on
     /// the dirty path what matters is the buffer as it stands, not what is on disk.
     pub fn document_symbols(&mut self, abs_path: &Path, text: &str) -> Result<Vec<LiveSymbol>> {
-        let uri = format!("file://{}", abs_path.display());
+        // Rebased onto the server's view of the tree, for the same reason as `rootUri`.
+        let seen_as = match abs_path.strip_prefix(&self.spec.root) {
+            Ok(rel) => self.spec.view_root.join(rel),
+            Err(_) => abs_path.to_path_buf(),
+        };
+        let uri = format!("file://{}", seen_as.display());
         let version = self.open.entry(uri.clone()).or_insert(0);
         *version += 1;
         let version = *version;
@@ -329,10 +382,37 @@ pub struct Pool {
 }
 
 impl Pool {
-    pub fn new(repo: &Path, roots: &[(String, String)]) -> Pool {
+    /// `container` is the repository's running container, when there is one. The servers
+    /// are then started inside it with the repository at `mount`, so a language server sees
+    /// the same paths the indexer recorded.
+    pub fn new(repo: &Path, roots: &[(String, String)], container: Option<(&str, &str)>) -> Pool {
         let specs = roots
             .iter()
-            .filter_map(|(lang, rel)| ServerSpec::for_lang(lang, repo.join(rel)))
+            .filter_map(|(lang, rel)| {
+                let mut spec = ServerSpec::for_lang(lang, repo.join(rel))?;
+                if let Some((name, mount)) = container {
+                    spec.view_root = PathBuf::from(format!(
+                        "{}/{}",
+                        mount.trim_end_matches('/'),
+                        rel.trim_start_matches('/')
+                    ));
+                    // `-i` because the protocol is stdio, and the process has to stay
+                    // attached for as long as the server lives.
+                    spec.launcher = vec![
+                        "docker".into(),
+                        "exec".into(),
+                        "-i".into(),
+                        "--workdir".into(),
+                        format!(
+                            "{}/{}",
+                            mount.trim_end_matches('/'),
+                            rel.trim_start_matches('/')
+                        ),
+                        name.to_string(),
+                    ];
+                }
+                Some(spec)
+            })
             .collect();
         Pool {
             repo: repo.to_path_buf(),

@@ -25,6 +25,16 @@ pub fn image_tag() -> String {
     format!("cairn-indexers:{}", env!("CARGO_PKG_VERSION"))
 }
 
+/// The container serving one repository.
+///
+/// Named from the repository's own path rather than from the directory name, so two
+/// checkouts of the same project do not collide, and stable across runs so the container
+/// started an hour ago is the one found now.
+pub fn container_name(repo: &Path) -> String {
+    let digest = blake3::hash(repo.to_string_lossy().as_bytes());
+    format!("cairn-{}", &digest.to_hex()[..12])
+}
+
 /// Is there a working Docker to talk to?
 ///
 /// `docker version` rather than `--version`: the second answers from the client alone and
@@ -102,40 +112,101 @@ fn build_context() -> Result<PathBuf> {
     Ok(dir)
 }
 
-/// Run one command in the image, with `repo` mounted and `workdir` as the directory to run
-/// it in (relative to the repository root).
-pub fn run(repo: &Path, workdir: &Path, args: &[&str]) -> Result<std::process::Output> {
+/// Where the repository is mounted inside the container. Fixed, so the paths an indexer
+/// records do not depend on where the repository lives on this machine.
+pub const MOUNT: &str = "/repo";
+
+/// Is the repository's container up?
+fn running(name: &str) -> bool {
+    Command::new("docker")
+        .args(["inspect", "--format", "{{.State.Running}}", name])
+        .output()
+        .map(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).trim() == "true")
+        .unwrap_or(false)
+}
+
+/// Start the repository's container if it is not already up, and return its name.
+///
+/// One container per repository, started once and left running — **not** a fresh
+/// `docker run` per call. Language servers are the reason: gopls and pyright are
+/// expensive to start and only earn their keep warm, and a container that came and went
+/// with each request would throw that away every time. Indexing rides on the same
+/// container rather than paying container startup twice for no reason.
+///
+/// It holds no state of its own. The repository is a mount and the process inside is a
+/// sleep, so losing the container costs a restart and nothing else.
+pub fn ensure_container(repo: &Path) -> Result<String> {
     let repo =
         std::fs::canonicalize(repo).with_context(|| format!("resolving {}", repo.display()))?;
-    // The container sees the repository at a fixed path, so the paths recorded in the SCIP
-    // output do not depend on where the repository happens to live on this machine.
-    let rel = workdir.strip_prefix(&repo).unwrap_or(Path::new(""));
-    let container_workdir = Path::new("/repo").join(rel);
+    let name = container_name(&repo);
+    if running(&name) {
+        return Ok(name);
+    }
+    // Present but stopped: start it rather than rebuilding. It holds no state, but
+    // recreating it would throw away whatever the language servers have cached.
+    if Command::new("docker")
+        .args(["start", &name])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+    {
+        return Ok(name);
+    }
 
     let mut cmd = Command::new("docker");
-    cmd.arg("run")
-        .arg("--rm")
+    cmd.args(["run", "--detach", "--name", &name])
         .arg("--volume")
-        .arg(format!("{}:/repo", repo.display()))
+        .arg(format!("{}:{MOUNT}", repo.display()))
         .arg("--workdir")
-        .arg(&container_workdir);
+        .arg(MOUNT);
 
-    // Run as the caller, so the .scip files it writes belong to them rather than to root
-    // and a later `cairn index` without sudo can replace them.
+    // Run as the caller, so files written inside belong to them rather than to root.
     #[cfg(unix)]
     {
         let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
         cmd.arg("--user").arg(format!("{uid}:{gid}"));
     }
 
-    cmd.arg(image_tag())
+    // `sleep infinity` is the whole job: a container needs a process to stay up, and this
+    // one exists only to be `docker exec`-ed into.
+    let out = cmd
+        .arg(image_tag())
+        .args(["sleep", "infinity"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .context("running `docker run`")?;
+    if out.status.success() {
+        return Ok(name);
+    }
+
+    // Someone else created it between the check and the create — two commands in the same
+    // repository at once is ordinary, not exceptional. Their container is as good as ours.
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if stderr.contains("already in use") && running(&name) {
+        return Ok(name);
+    }
+    bail!("could not start the indexer container: {}", stderr.trim());
+}
+
+/// Run one command inside the repository's container.
+pub fn exec(repo: &Path, workdir: &Path, args: &[&str]) -> Result<std::process::Output> {
+    let name = ensure_container(repo)?;
+    let repo = std::fs::canonicalize(repo)?;
+    let rel = workdir.strip_prefix(&repo).unwrap_or(Path::new(""));
+
+    Command::new("docker")
+        .args(["exec", "--workdir"])
+        .arg(Path::new(MOUNT).join(rel))
+        .arg(&name)
         .args(args)
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .output()
-        .context("running `docker run`")
+        .context("running `docker exec`")
 }
-
 /// What to tell someone who has not got Docker.
 pub const NO_DOCKER: &str = "\
 cairn needs Docker to index, and cannot reach one.

@@ -1424,7 +1424,22 @@ fn run() -> Result<u8> {
                         .join(" ")
                 }
             );
-            cairn_daemon::Daemon::new(&repo, &socket, indexed, &roots).run()?;
+            // The language servers live in the repository's container, not on this
+            // machine. Failing to start it is not fatal: the watcher is still worth having
+            // on its own, and the pool already reports a server it could not reach.
+            let container = match docker::ensure_container(&repo) {
+                Ok(name) => Some(name),
+                Err(e) => {
+                    eprintln!("cairn daemon: no container, so no live overlay: {e:#}");
+                    None
+                }
+            };
+            let container = container.as_deref().map(|n| (n, docker::MOUNT));
+
+            cairn_daemon::Daemon::new(&repo, &socket, indexed, &roots, container).run()?;
+            // The container is deliberately left running. It costs a sleeping process and
+            // a mount, and tearing it down on every daemon exit raced the next daemon
+            // starting one — which is how a restart ended up with no live overlay at all.
             Ok(exit::FOUND)
         }
 

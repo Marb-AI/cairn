@@ -28,18 +28,22 @@ pub struct Daemon {
 }
 
 impl Daemon {
+    /// `container` names the repository's running container and where the repository is
+    /// mounted inside it, when the language servers are to be run there rather than on
+    /// this machine.
     pub fn new(
         repo: &Path,
         socket: &Path,
         indexed: HashMap<String, [u8; 16]>,
         roots: &[(String, String)],
+        container: Option<(&str, &str)>,
     ) -> Daemon {
         Daemon {
             repo: repo.to_path_buf(),
             socket: socket.to_path_buf(),
             tracker: Arc::new(DirtyTracker::new(repo, indexed)),
             started: Instant::now(),
-            pool: Arc::new(std::sync::Mutex::new(Pool::new(repo, roots))),
+            pool: Arc::new(std::sync::Mutex::new(Pool::new(repo, roots, container))),
         }
     }
 
