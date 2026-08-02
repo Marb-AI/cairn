@@ -1472,7 +1472,7 @@ fn run() -> Result<u8> {
         Cmd::Status => {
             if !db.exists() {
                 println!("no index at {}", db.display());
-                println!("degraded: nothing indexed yet - run `cairn index <file.scip>`");
+                println!("degraded: nothing indexed yet - run `cairn index` in this repository");
                 return Ok(exit::DEGRADED);
             }
             let store = open(&db)?;
@@ -1642,7 +1642,13 @@ fn resolve(store: &Store, handle: &str) -> Result<i64> {
 fn open(db: &Path) -> Result<Store> {
     if !db.exists() {
         anyhow::bail!(
-            "no index at {} - run `cairn index <file.scip> --repo <dir>` first",
+            // The commonest cause by far is standing in the wrong place — a workspace
+            // holding two checkouts, say — so that is named before the fix that assumes
+            // the tool was never set up at all.
+            "no index at {}.\n\
+             cairn reads the index of the repository you are standing in. If you are above \
+             it, or beside it, cd into the repository and try again.\n\
+             If it has never been indexed: run `cairn index` there.",
             db.display()
         );
     }
