@@ -114,6 +114,28 @@ answer it. Nothing to start and nothing to keep running: a file watcher and the 
 servers come up by themselves the first time you query, so answers stay honest about edits
 made since the index was built.
 
+### If your agent does not run in the repository
+
+The above assumes your agent's working directory *is* the repository, which is the usual
+case. Sometimes it is not — a workspace holding two checkouts side by side, say. Then the
+two halves go to two places: the guide where the agent looks for it, the index in each
+repository.
+
+```
+cd ~/work                                  # where the agent runs
+cairn skill                                # the guide, once
+
+cd ~/work/api && cairn index --without-skill
+cd ~/work/web && cairn index --without-skill
+```
+
+`--without-skill` because the agent will not read a guide buried inside a checkout, so
+putting one there just leaves a file in someone's repository.
+
+This works because the guide already tells the agent to `cd` into the repository before
+asking about it. One index per repository, found from where you stand; ask from above them
+and cairn says it has no index rather than guessing which one you meant.
+
 **The first run on a machine is slow twice over**: once to build the indexer image, and
 once for the indexers themselves. The image is built once per cairn version and shared by
 every repository, so the second repository skips that row entirely. Measured on a codebase
