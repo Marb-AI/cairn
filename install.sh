@@ -3,22 +3,34 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/Marb-AI/cairn/main/install.sh | sh
 #
-# Downloads the release binary for your OS/arch into ~/.cairn/bin and symlinks it onto
-# your PATH. Re-run any time to upgrade. Windows: download the .exe from the releases
-# page — this script does not cover it.
+# Downloads the release binary for your OS/arch and symlinks it onto your PATH: into
+# ~/.cairn/bin for a user install, /usr/local/lib/cairn/bin when run as root, since a
+# root install has to be readable by the people who will actually use it.
+# Re-run any time to upgrade. Windows: download the .exe from the releases page — this
+# script does not cover it.
 #
 # Env overrides:
 #   CAIRN_VERSION    tag to install (default: latest)
-#   CAIRN_HOME       where the binary lives (default: ~/.cairn)
+#   CAIRN_HOME       where the binary lives (default: ~/.cairn, or
+#                    /usr/local/lib/cairn when run as root)
 #   CAIRN_LINK_DIR   PATH dir to symlink into (default: /usr/local/bin)
 set -eu
 
 REPO="Marb-AI/cairn"
 BIN="cairn"
-CAIRN_HOME="${CAIRN_HOME:-$HOME/.cairn}"
-INSTALL_DIR="$CAIRN_HOME/bin"
 LINK_DIR="${CAIRN_LINK_DIR:-/usr/local/bin}"
 VERSION="${CAIRN_VERSION:-latest}"
+
+# Installing as root is a *system* install, and `$HOME` is then `/root`, which is mode 700
+# on every distribution worth naming. Putting the binary there and linking it into
+# /usr/local/bin produces a link that looks perfect and that nobody but root can follow —
+# every other user gets "Permission denied" from a command that appears to be installed.
+# So root installs somewhere readable instead.
+if [ -z "${CAIRN_HOME:-}" ] && [ "$(id -u)" = 0 ]; then
+	CAIRN_HOME=/usr/local/lib/cairn
+fi
+CAIRN_HOME="${CAIRN_HOME:-$HOME/.cairn}"
+INSTALL_DIR="$CAIRN_HOME/bin"
 
 # --- detect platform -------------------------------------------------------
 case "$(uname -s)" in
@@ -56,6 +68,9 @@ fi
 # --- download --------------------------------------------------------------
 echo "cairn: installing $VERSION for $OS/$ARCH"
 mkdir -p "$INSTALL_DIR"
+# Traversable by everyone: a system install is for every user on the machine, and a
+# directory only its creator can enter is the same failure as installing into /root.
+chmod 755 "$CAIRN_HOME" "$INSTALL_DIR" 2>/dev/null || true
 TARGET="$INSTALL_DIR/$BIN"
 # Download beside the target rather than over it, so a failed upgrade leaves the working
 # binary in place instead of a truncated one.
@@ -108,6 +123,19 @@ else
 	echo
 	echo "cairn: could not write $LINK_DIR — add the binary to your PATH, e.g.:"
 	echo "         export PATH=\"$INSTALL_DIR:\$PATH\""
+fi
+
+# --- check it is really usable ----------------------------------------------
+# Not paranoia: the failure this catches shipped. A link into an unreadable directory
+# passes every check above — the file is there, it is executable by its owner, the symlink
+# resolves — and still leaves `cairn` unrunnable for the person who installed it.
+if [ -n "$LINK" ] && ! [ -x "$LINK" ]; then
+	echo >&2
+	echo "cairn: $LINK is not executable by you." >&2
+	echo "       The binary is at $TARGET; something between here and there is not" >&2
+	echo "       readable. Re-run this installer as the user who will use cairn, or set" >&2
+	echo "       CAIRN_HOME to somewhere they can read." >&2
+	exit 1
 fi
 
 # --- done ------------------------------------------------------------------
