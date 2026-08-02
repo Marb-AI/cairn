@@ -121,3 +121,18 @@
   exit: 0
   not_contains: ["unable to open database", "-knowledge.sqlite"]
   max_seconds: 5
+
+# ── a reference is not automatically a call site ─────────────────────────────────────
+# srcpy/alerting/rules.py::summarise_open imports AlertStore on one line and calls it two
+# lines later. Both are references from the same function, and the graph shows one site
+# per neighbour — so it has to be the call. It used to be whichever row the grouping
+# happened to keep, which was the import, and an audit copied that line into a fix.
+#
+# Handle-based, so this needs updating if the corpus changes; `cairn symbol
+# summarise_open` gives the current one.
+- name: the call site of a locally imported symbol is the call, not the import
+  args: [graph, 3z3, --aspect, calls, --depth, "1"]
+  contains:
+    - "@ srcpy/alerting/rules.py:93"
+    - "@ srcpy/alerting/rules.py:94"
+  max_seconds: 5

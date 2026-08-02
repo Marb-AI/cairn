@@ -80,3 +80,15 @@ def worst(judgements: list[Judgement]) -> Judgement | None:
     if not judgements:
         return None
     return max(judgements, key=lambda j: severity_rank(j.severity))
+
+
+def summarise_open(store_module_name: str = "alerting.models") -> int:
+    """Import inside the body, then call on a later line.
+
+    The import and the call are two references to the same symbol from the same
+    function. Only the second is a call site, and the first must not be offered as one.
+    """
+    from alerting.models import AlertStore
+
+    store = AlertStore()
+    return len(store.open_alerts())

@@ -112,8 +112,20 @@ impl Store {
         Ok(walk)
     }
 
-    /// Direct neighbours plus the total count, so truncation can be reported.
     /// Direct neighbours plus the total, so truncation can be reported.
+    ///
+    /// One row per neighbour, so a caller that references the same symbol several times
+    /// gets one line and one site. Which site used to be whichever row the grouping
+    /// happened to keep — undefined, and in practice the first. For a Python function
+    /// that imports a name locally and then calls it, the first reference is the `import`
+    /// statement, so cairn reported the import line as the place the call happens.
+    /// Reported from an audit, where that line was copied into a fix for a document whose
+    /// bug was a wrong line reference.
+    ///
+    /// `MAX` makes the choice defined instead of incidental, and picks the last reference
+    /// rather than the first: a local import always precedes the use it exists for, so the
+    /// last one is the call. Where a symbol is genuinely called more than once, any of them
+    /// is a true call site and the last is as good as the first.
     ///
     /// `exclude_tests` exists because it is the commonest filter there is when asking
     /// "does anything actually use this": a symbol called only from tests is dead in
@@ -156,7 +168,7 @@ impl Store {
         };
         let sql = format!(
             r#"
-            SELECT e.{to_col}, e.source, p.s, e.line
+            SELECT e.{to_col}, e.source, p.s, MAX(e.line)
               FROM edges e
               LEFT JOIN files   f ON f.id = e.file_id
               LEFT JOIN strings p ON p.id = f.path_id

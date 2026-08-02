@@ -154,14 +154,33 @@ pub fn symbol_line(s: &SymbolRow) -> String {
     )
 }
 
-pub fn symbols(rows: &[SymbolRow], query: &str, coverage: &str, budget: &mut Budget) -> Envelope {
+/// `complete` is false when `--limit` may have cut the list. See `concentration_note`:
+/// without it, a truncated set that happens to share a file is announced as all of them.
+pub fn symbols(
+    rows: &[SymbolRow],
+    query: &str,
+    coverage: &str,
+    complete: bool,
+    budget: &mut Budget,
+) -> Envelope {
     let mut body = String::new();
-    let _ = writeln!(body, "{} matches for \"{}\"", rows.len(), query);
+    if complete {
+        let _ = writeln!(body, "{} matches for \"{}\"", rows.len(), query);
+    } else {
+        // The count is the header, and a bare number reads as the whole answer. Saying it
+        // is a first page costs four words.
+        let _ = writeln!(
+            body,
+            "{} matches for \"{}\" (--limit reached, there may be more)",
+            rows.len(),
+            query
+        );
+    }
     let defined_in: Vec<&str> = rows
         .iter()
         .filter_map(|r| r.def.as_ref().map(|d| d.path.as_str()))
         .collect();
-    if let Some(note) = concentration_note(&defined_in, "matches") {
+    if let Some(note) = concentration_note(&defined_in, complete, "matches") {
         let _ = writeln!(body, "{note}");
     }
     let mut shown = 0;
@@ -227,14 +246,25 @@ pub fn references_with_context(
     if let Some(def) = &sym.def {
         let _ = writeln!(body, "  defined at {}", def.location());
     }
-    let _ = writeln!(
-        body,
-        "{} references                    [L0, exact]",
-        refs.len()
-    );
+    // Everything the filters matched is here, and nothing was hidden: only then is this
+    // list the answer rather than a page of it.
+    let complete = refs.len() as i64 == total && suppressed_generated == 0;
+    if complete {
+        let _ = writeln!(
+            body,
+            "{} references                    [L0, exact]",
+            refs.len()
+        );
+    } else {
+        let _ = writeln!(
+            body,
+            "{} of {total} references              [L0, exact, partial]",
+            refs.len()
+        );
+    }
 
     let paths: Vec<&str> = refs.iter().map(|r| r.path.as_str()).collect();
-    if let Some(note) = concentration_note(&paths, "references") {
+    if let Some(note) = concentration_note(&paths, complete, "references") {
         let _ = writeln!(body, "{note}");
     }
 
@@ -1116,17 +1146,25 @@ pub fn outline(
     }
 }
 
-/// Where a symbol is used, grouped by file rather than listed flat.
-/// When an answer turns out to be concentrated in one file, say so.
+/// Say when every use of something sits in one file — but only when that is *known*.
 ///
-/// The measured losses were all tasks whose answer lived in a single file: the agent
-/// paid for the skill, then for a query, then read the file anyway. The tool can see
-/// this - it knows the paths - so it should say it rather than let the caller discover
-/// it after paying.
+/// The measured losses were all tasks whose answer lived in a single file: the agent paid
+/// for the skill, then for a query, then read the file anyway. The tool can see this, so
+/// it should say it rather than let the caller discover it after paying.
 ///
-/// Deliberately advisory and cheap: one line, and the results still print. Refusing to
-/// answer would be worse than answering with a hint.
-pub fn concentration_note(paths: &[&str], noun: &str) -> Option<String> {
+/// `complete` is the whole of the contract. This sentence begins with ALL and ends by
+/// telling the reader to stop querying, so it is only allowed to exist when the paths it
+/// was given are every path there is. Reported from a real audit: a symbol with 52
+/// references across several files was cut to 40 by `--limit`, the 40 that survived
+/// happened to share a file, and cairn announced that ALL of them were in it and advised
+/// against looking further. The references it had dropped were the production callers.
+///
+/// A caller that cannot prove completeness must pass `false` and get silence. Silence
+/// costs a caller one more query; this sentence, when wrong, costs them the answer.
+pub fn concentration_note(paths: &[&str], complete: bool, noun: &str) -> Option<String> {
+    if !complete {
+        return None;
+    }
     // Was three. Measured (task A, three losses): a symbol whose one or two use sites sit
     // in the file that defines it is the exact case SKILL.md's "the answer is in one file
     // you already know" describes, and the threshold meant the tool never said so for the
@@ -1183,7 +1221,13 @@ fn attribute_caveat(sym: &SymbolRow) -> Option<String> {
     })
 }
 
-pub fn usage(sym: &SymbolRow, rows: &[(String, i64, bool)], budget: &mut Budget) -> Envelope {
+/// `complete` is false when `--limit` may have cut the file list.
+pub fn usage(
+    sym: &SymbolRow,
+    rows: &[(String, i64, bool)],
+    complete: bool,
+    budget: &mut Budget,
+) -> Envelope {
     let mut body = String::new();
     if let Some(note) = routing_note(sym) {
         let _ = writeln!(body, "{note}\n");
@@ -1196,7 +1240,9 @@ pub fn usage(sym: &SymbolRow, rows: &[(String, i64, bool)], budget: &mut Budget)
         sym.qualified(),
         rows.len()
     );
-    if rows.len() == 1 && !rows[0].1.eq(&0) {
+    // One file in a list that may have been cut is one file *so far*, which is not what
+    // this sentence says.
+    if complete && rows.len() == 1 && !rows[0].1.eq(&0) {
         let _ = writeln!(
             body,
             "ALL USES ARE IN ONE FILE: {}. Reading it is probably cheaper than further \
@@ -1603,6 +1649,29 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_truncated_set_is_never_announced_as_all_of_them() {
+        // Reported from a real audit: 52 references cut to 40 by --limit, the survivors
+        // shared a file, and cairn said ALL of them were in it and advised against looking
+        // further. The ones it dropped were the production callers.
+        let same_file = ["a/b.py", "a/b.py", "a/b.py"];
+        assert!(
+            concentration_note(&same_file, false, "references").is_none(),
+            "claimed to know where every reference is, from a partial list"
+        );
+        assert!(
+            concentration_note(&same_file, true, "references").is_some(),
+            "a complete set that really is in one file should still say so"
+        );
+    }
+
+    #[test]
+    fn the_claim_needs_one_file_as_well_as_completeness() {
+        let spread = ["a/b.py", "a/c.py"];
+        assert!(concentration_note(&spread, true, "references").is_none());
+        assert!(concentration_note(&[], true, "references").is_none());
+    }
 
     #[test]
     fn envelope_always_has_all_sections() {

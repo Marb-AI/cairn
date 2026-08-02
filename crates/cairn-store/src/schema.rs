@@ -465,7 +465,17 @@ fn derive_call_edges(conn: &Connection) -> Result<()> {
                AND s.def_end_line IS NOT NULL
                AND s.def_line   <= o.line
                AND s.def_end_line >= o.line
+             -- Not definitions (role 1), and not imports (role 2). An import is not a
+             -- call, so it should not produce a call edge.
+             --
+             -- Note that this does not fix the local-import case on its own: measured
+             -- against scip-python 0.6.6, which marks every reference `ReadAccess` and
+             -- never sets the import bit, so a local `from m import X` is indistinguishable
+             -- from a use of X here. The site chosen for display is what fixes that, in
+             -- `graph::neighbours`. This stays because it is correct for any indexer that
+             -- does set the bit, and costs nothing where none does.
              WHERE (o.role & 1) = 0
+               AND (o.role & 2) = 0
                AND s.id <> o.symbol_id
         ) WHERE rn = 1;
 

@@ -889,7 +889,10 @@ fn run() -> Result<u8> {
             let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
             let rows = store.usage_by_file(symbol_id, include_tests, limit)?;
             let found = !rows.is_empty();
-            print!("{}", cairn_fmt::usage(&sym, &rows, &mut budget).render());
+            print!(
+                "{}",
+                cairn_fmt::usage(&sym, &rows, rows.len() < limit, &mut budget).render()
+            );
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
@@ -909,7 +912,7 @@ fn run() -> Result<u8> {
             let paths = paths_of(rows.iter().map(|r| r.def.as_ref()));
             print!(
                 "{}",
-                cairn_fmt::symbols(&rows, &query, &coverage, &mut budget)
+                cairn_fmt::symbols(&rows, &query, &coverage, rows.len() < limit, &mut budget)
                     .mark_stale(dirty.as_deref(), &paths)
                     .render()
             );
