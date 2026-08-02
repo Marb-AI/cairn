@@ -38,6 +38,9 @@ pub fn build_fixture_index(root: &Path, bin: &Path, label: &str) -> Option<PathB
         .arg(&py)
         .arg("--repo")
         .arg(fixtures.join("corpus"))
+        // Without this every test run writes the agent guide into the fixture, which is a
+        // source directory. It did, and the file was committed before anyone noticed.
+        .arg("--without-skill")
         .output()
         .ok()?;
     assert!(
