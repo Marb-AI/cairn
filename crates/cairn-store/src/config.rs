@@ -44,16 +44,54 @@ pub struct Config {
     pub max_budget: Option<usize>,
 }
 
-/// Where the installation's settings live: beside the binary, unless told otherwise.
-pub fn config_path() -> Option<PathBuf> {
-    if let Some(explicit) = std::env::var_os("CAIRN_CONFIG") {
-        return Some(PathBuf::from(explicit));
-    }
+/// Settings that came with the installation, if there are any.
+///
+/// Beside the binary, which is where a machine-wide default belongs: an administrator can
+/// drop one there and every user gets it. Read-only as far as anyone but them is
+/// concerned — see `config_path` for why writes do not go here.
+fn system_config_path() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     // Resolve symlinks: a binary on the PATH is usually a link into a versioned
     // directory, and the settings belong with the real thing.
     let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
     Some(exe.parent()?.join("cairn.yaml"))
+}
+
+/// Where *this user's* settings live, and where `cairn config` writes.
+///
+/// Not beside the binary. That was the original design, on the reasoning that one binary
+/// serves every repository on the machine — true, but it assumed the binary sits somewhere
+/// its user can write. Installed system-wide it does not, and `cairn config tracking=on`
+/// failed with a permission error on a perfectly ordinary install.
+pub fn config_path() -> Option<PathBuf> {
+    if let Some(explicit) = std::env::var_os("CAIRN_CONFIG") {
+        return Some(PathBuf::from(explicit));
+    }
+    if let Some(home) = std::env::var_os("CAIRN_HOME") {
+        return Some(PathBuf::from(home).join("cairn.yaml"));
+    }
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)?;
+    Some(home.join(".cairn").join("cairn.yaml"))
+}
+
+/// Every file that contributes, nearest last: the system default first, then this user's,
+/// so a personal setting wins over one the machine came with.
+fn config_sources() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    // Skipped when the caller named a file: an explicit path means "use this one".
+    if std::env::var_os("CAIRN_CONFIG").is_none() {
+        if let Some(p) = system_config_path() {
+            out.push(p);
+        }
+    }
+    if let Some(p) = config_path() {
+        if !out.contains(&p) {
+            out.push(p);
+        }
+    }
+    out
 }
 
 /// One setting, as the CLI sees it: a name, what it means, and how to render it.
@@ -165,16 +203,29 @@ impl Config {
         total_ram_bytes().map(|total| total / 4)
     }
 
+    /// Read the settings in effect: the machine's, then this user's on top.
+    ///
+    /// A later file replaces an earlier one wholesale rather than merging field by field.
+    /// Merging would mean a user could not turn off something the machine switched on
+    /// without knowing which file said it, and `cairn config` writes every field, so the
+    /// user's file is complete whenever it exists.
     pub fn load() -> Result<Config> {
-        let Some(path) = config_path() else {
-            return Ok(Config::default());
-        };
-        if !path.exists() {
-            return Ok(Config::default());
+        let mut cfg = Config::default();
+        for path in config_sources() {
+            if !path.exists() {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path)
+                .with_context(|| format!("reading {}", path.display()))?;
+            cfg = serde_yaml::from_str(&text)
+                .with_context(|| format!("parsing {}", path.display()))?;
         }
-        let text = std::fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
-        serde_yaml::from_str(&text).with_context(|| format!("parsing {}", path.display()))
+        Ok(cfg)
+    }
+
+    /// The file `load` last took its values from, for saying where a setting came from.
+    pub fn source() -> Option<PathBuf> {
+        config_sources().into_iter().rev().find(|p| p.exists())
     }
 }
 

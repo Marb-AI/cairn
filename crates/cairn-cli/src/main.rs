@@ -1053,8 +1053,7 @@ fn run() -> Result<u8> {
             let mut cfg = cairn_store::Config::load()?;
             match assignment {
                 None => {
-                    let where_from = cairn_store::config::config_path()
-                        .filter(|p| p.exists())
+                    let where_from = cairn_store::Config::source()
                         .map(|p| p.display().to_string())
                         .unwrap_or_else(|| "defaults (nothing has been set yet)".to_string());
                     println!("# from: {where_from}");

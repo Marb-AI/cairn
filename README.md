@@ -161,8 +161,19 @@ Little should need changing, but nothing is hidden either:
 
 ```
 cairn config                    # every setting, its value, and where it came from
-cairn config memory_peak=on     # e.g. report memory use after each command
+cairn config tracking=on        # record one line per command, for reading a session back
+cairn config memory_peak=on     # report memory use when a command finishes
 ```
+
+Settings live in `~/.cairn/cairn.yaml`, written for you by that command. Absent is the
+normal state and means the defaults, so there is nothing to create on a fresh install. A
+file beside the binary, if an administrator put one there, supplies machine-wide defaults
+that yours overrides.
+
+`tracking` is off unless you ask for it, and it is the one worth knowing about while this
+is pre-alpha: it appends a line per command to `<repo>/.cairn/sessions/<id>.jsonl` —
+command, subject, flags, exit code, duration. No answers and no source, only the shape of
+the asking. That file is what a bug report should carry.
 
 Conventions — what a start command looks like, how a protobuf generator names things, what
 marks a file as generated — are per repository and live in a rule pack you can dump and
