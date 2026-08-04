@@ -680,3 +680,98 @@ command and gained 0.15; round three edited a document and gained 0.08, with no 
 at all. That is not an argument against building — scenario 8 went 11 → 3 because `for find`
 exists — but it is a measured statement that a tool with a badly ordered guide gives back
 most of what it earned.
+
+---
+
+## Round four: five root causes, three fixed — 2026-08-04
+
+Round three's traces were near-identical across runs, so the causes were readable rather
+than inferred. Three of the five were fixed; `SCENARIOS.md` says which two were left and
+why, and carries the predictions.
+
+| # | grep | r3 | **r4** | predicted | ratio |
+|---|---|---|---|---|---|
+| 6 | 15 | 1 | **1** (1,1,1) | 1 | **0.07** |
+| 3 | 8 | 1 | **1** (1,1,1) | 1 | **0.12** |
+| 5 | 14 | 7 | **3** (3,3,4) | 7 | **0.21** |
+| 8 | 4 | 3 | **1** (1,1,3) | 1 | **0.25** |
+| 9 | 3 | 4 | **1** (1,1,1) | 2 | **0.33** |
+| 10 | 5 | 3 | **3** (3,3,4) | 3 | 0.60 |
+| 2 | 7 | 6 | **5** (5,5,5) | 6 | 0.71 |
+| 7 | 4 | 3 | 3 (2,3,3) | 1-2 | 0.75 |
+| 4 | 10 | 9 | 9 (8,9,13) | 4 | 0.90 |
+| 1 | 4 | 5 | 6 (5,6,7) | 5 | 1.50 |
+| | **74** | 42 | **33** | ~31 | **0.45** |
+
+### What the fixes bought
+
+- **`for change` on a symbol the index does not hold** now searches the tree and says why
+  the graph cannot answer. Scenario 9: **4 → 1**, all three runs identical, and it beats
+  grep's 3. Predicted 2; the arms did better, because the redirect's output was the whole
+  answer and none of them opened the file afterwards.
+- **`for find` carrying ±2 lines** per hit. Scenario 8: **3 → 1**, exactly as predicted —
+  the arm no longer opens three compose files to see whether a `ports:` key sits above the
+  match.
+- **`reaches --outgoing`**, which returned zero for any function that *uses* a generated
+  client rather than being one: now 3 handlers where it had 0, in 17 ms.
+
+### Two predictions failed, and one of them is a named falsifier
+
+**Scenario 4 did not move: 9, against a predicted 4.** The pre-registration said this
+would falsify the diagnosis. Reading the traces, it half does:
+
+- Run 1 got the entire chain in **three turns** using the fixed `--outgoing`, then spent
+  six more re-reading the files it had already been pointed at and re-confirming with
+  `affects` and `runs`.
+- Run 2 (13 turns) never got a clean first hop: `--outgoing` on the *Python endpoint*
+  returns nothing, because the call goes through `env.clients.share` — attribute access on
+  a client registry, which the index cannot resolve to the generated stub. So the fix
+  answers the middle of the chain and not its entry, and the question always starts at the
+  entry.
+
+So the missing direction was *a* cost and not *the* cost. The remaining ones are an
+unresolvable attribute call and, again, elaboration after the answer.
+
+**Scenario 7 did not move either: 3, against a predicted 1-2.** The context lines were
+supposed to remove the file read; two of three runs still read `client.py`. The diagnosis
+was right for scenario 8 and wrong for 7, and the difference is probably that 8's answer
+is a value (which a line shows) while 7's is a set of call sites (which it does not).
+
+**Scenario 1 got slightly worse, 5 → 6**, on causes deliberately left unfixed. Within its
+spread, but pointing the wrong way.
+
+**Scenario 5 improved to 3 from 7, and nothing was aimed at it.** Its runs across four
+rounds: 5, 8, 7, 3 — with spreads of [3,5,8], [7,8,9], [3,7,8], [3,3,4]. The last is the
+tightest and the lowest, but three rounds of overlap say most of that history is spread,
+not signal.
+
+### Where the whole measurement now stands
+
+| | round trips | ratio | rule met |
+|---|---|---|---|
+| pilot, 1 run/arm | 97 : 100 | 0.97 | — |
+| round 1, 3 runs | 59 : 74 | 0.80 | 4/10 |
+| round 2, `for` built | 48 : 74 | 0.65 | 2/10 |
+| round 3, skill retuned | 42 : 74 | 0.57 | 3/10 |
+| round 4, three defects fixed | **33 : 74** | **0.45** | **6/10** |
+
+**Cairn wins 9 of 10 scenarios and the acceptance rule is met on 6** — the first round in
+which the rule and the total moved the same way, and the first in which more than four
+scenarios clear it. The single loss is scenario 1, at 6 against 4.
+
+Answer quality is unchanged: equivalent on nine, and scenario 10 still stops at the SQL
+without reaching the Go handler, which remains the one place a grep answer is better.
+
+### What is left, stated so it is not read as finished
+
+- **Scenario 1's two causes are untouched by choice.** An ambiguous name costs a whole
+  turn (`for change get_quota_status` → exit 2 → `for change wes`, in every run of every
+  round), and `for change` gives call sites without their source, does not follow the
+  module-level `a = wrap(f)` binding one hop, and does not state the dynamic-dispatch
+  check — so the arm runs `refs`, `refs`, `weaklinks` after it.
+- **The first hop of a chain is invisible** when the client is reached by attribute access.
+  That is the same class as the ORM-attribute limit the tool already declines to guess at,
+  and it is what keeps scenario 4 at 9.
+- **Elaboration is still the largest single cost** in the runs that lose. Scenario 4 run 1
+  had the answer at turn 3 and stopped at turn 9. Three rounds of skill edits have moved
+  this and not solved it.

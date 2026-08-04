@@ -1044,7 +1044,57 @@ fn run() -> Result<u8> {
                         );
                         return Ok(exit::ERROR);
                     }
-                    let Some(symbol_id) = subject(&store, &subj, cli_budget)? else {
+                    // Resolved here rather than through `subject`, which bails on a
+                    // miss — so the redirect below could never run. Measured: three runs
+                    // asked `for change` about a function added seconds earlier, got a
+                    // bare failure, and spent two more turns working out that the index
+                    // was stale. The tree knows. Answer from it in the turn that would
+                    // otherwise have been spent failing.
+                    let resolved = match store.resolve_handle(&subj)? {
+                        Some(id) => Some(id),
+                        None => {
+                            let named = store.symbols_named(&subj)?;
+                            match named.len() {
+                                1 => Some(named[0].id),
+                                0 => None,
+                                _ => {
+                                    let coverage = store.coverage_summary()?;
+                                    emit(cairn_fmt::symbols(
+                                        &named, &subj, &coverage, true, &mut budget,
+                                    )
+                                    .unknown(format!(
+                                        "'{subj}' names {} symbols, so this cannot tell \
+                                         which you mean. Run it again with one of the \
+                                         handles above",
+                                        named.len()
+                                    )));
+                                    return Ok(exit::ERROR);
+                                }
+                            }
+                        }
+                    };
+                    let Some(symbol_id) = resolved else {
+                        let root = repo
+                            .or_else(|| {
+                                db.parent().and_then(|d| d.parent()).map(|p| p.to_path_buf())
+                            })
+                            .unwrap_or_else(|| PathBuf::from("."));
+                        let (env, found) = purpose::find(&store, &root, &subj, limit, &mut budget)?;
+                        if found {
+                            eprintln!(
+                                "cairn: no symbol '{subj}' in the index, so the graph \
+                                 cannot answer about it - but the working tree contains \
+                                 the text. `for find` ran instead; if this is code you \
+                                 just wrote, that is why."
+                            );
+                            emit(env);
+                            return Ok(exit::FOUND);
+                        }
+                        eprintln!(
+                            "cairn: nothing called '{subj}' in the index or the working \
+                             tree. Check the spelling, or `cairn symbol {subj}` for a \
+                             partial-name search."
+                        );
                         return Ok(exit::ERROR);
                     };
                     let (env, found) = purpose::change(&store, symbol_id, &mut budget)?;
@@ -1579,6 +1629,16 @@ fn run() -> Result<u8> {
             // Answer from those rather than from the handler-wide convention: it is the
             // narrower and the stronger claim, and it is the narrowing an agent otherwise
             // does by hand (the measurement record, task E).
+            // The outgoing direction, answered from real call edges rather than from the
+            // client-artefact binding. Without this it reported zero for every function
+            // that *uses* a generated client, which is every function anyone asks about.
+            if outgoing {
+                let precise = store.rpc_targets(symbol_id)?;
+                if !precise.is_empty() {
+                    emit(cairn_fmt::rpc_targets(&sym, &precise, &mut budget));
+                    return Ok(exit::FOUND);
+                }
+            }
             if !outgoing {
                 // A handler type: answer for all of its RPCs at once rather than making
                 // the caller ask once per method (the measurement record, task D).

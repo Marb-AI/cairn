@@ -600,6 +600,105 @@ pub struct RpcCaller {
 
 /// Method names across the boundary differ only in case and underscores, because both
 /// spellings are the generator's rendering of the same proto RPC.
+impl Store {
+    /// What this function calls across a service boundary, and which handler serves it.
+    ///
+    /// The mirror of `rpc_callers`, and it did not exist. `cross_language_targets` answers
+    /// only for a symbol that *is* a client artefact, because `service_links` binds the
+    /// generated client type — not the function that uses it. So asked what a Go handler
+    /// calls into Python, the outgoing direction returned nothing while the incoming
+    /// direction on the same symbol was exact.
+    ///
+    /// Measured: agents reached for `--outgoing` in three separate rounds, always on the
+    /// chain question ("where does this land"), always got zero, and rebuilt the chain by
+    /// hand. It is the one direction the tool advertises and does not deliver.
+    ///
+    /// The walk is the reverse of the incoming one: this symbol's calls, to a member of a
+    /// generated client, to the service that client speaks, to the handler serving it, to
+    /// the handler method of the same RPC. The last step crosses the naming convention
+    /// (`GetFolder` ↔ `get_folder`), which is why the result is labelled conventional.
+    pub fn rpc_targets(&self, symbol_id: i64) -> Result<Vec<RpcCaller>> {
+        // Two steps on purpose. Done as one join it was 11.8 s on a hot symbol and the
+        // sweep caught it: the last hop expands every method of every serving type and
+        // then throws most away, so the cost is the caller's fan-out times the size of
+        // each handler's file. Asking first *which RPCs this calls* keeps that expansion
+        // to the handful of services actually involved.
+        let mut calls = self.conn.prepare_cached(
+            r#"
+            SELECT DISTINCT ps.id, ps.pkg, ps.name, rpc_name.s
+              FROM edges e
+              JOIN symbols rpc ON rpc.id = e.dst_symbol
+              JOIN strings rpc_name ON rpc_name.id = rpc.name_id
+              JOIN symbols art ON art.def_file_id = rpc.def_file_id AND art.id <> rpc.id
+                              AND rpc.container_leaf_id = art.name_id AND art.kind = 1
+              JOIN service_links theirs ON theirs.via_symbol = art.id AND theirs.role = 1
+              JOIN proto_services ps ON ps.id = theirs.service_id
+             WHERE e.src_symbol = ?1 AND e.kind = 0
+            "#,
+        )?;
+        let rows = calls.query_map(params![symbol_id], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+            ))
+        })?;
+        let mut wanted = Vec::new();
+        for row in rows {
+            wanted.push(row?);
+        }
+
+        // The normalisation the convention needs (`GetFolder` <-> `get_folder`) done in
+        // SQL, so the join filters instead of returning every method for Rust to sift.
+        let mut serve = self.conn.prepare_cached(
+            r#"
+            SELECT DISTINCT hm.id
+              FROM service_links mine
+              JOIN symbols handler ON handler.id = mine.symbol_id AND handler.kind = 1
+              JOIN symbols hm ON hm.def_file_id = handler.def_file_id
+                             AND hm.container_leaf_id = handler.name_id
+                             AND hm.id <> handler.id
+              JOIN strings hm_name ON hm_name.id = hm.name_id
+              JOIN files hf ON hf.id = hm.def_file_id AND hf.generated = 0
+             WHERE mine.service_id = ?1 AND mine.role = 0
+               AND replace(lower(hm_name.s), '_', '') = replace(lower(?2), '_', '')
+            "#,
+        )?;
+
+        // Both sides of a boundary can be registered as servers of a service the
+        // convention spells the same way, so the join returns the caller itself and its
+        // same-language siblings alongside the real targets. This command answers "where
+        // does this land, in the other language"; a row in the caller's own language is
+        // not that, and a row that is the caller is nothing at all.
+        let me = self.symbol(symbol_id)?;
+        let mut out = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for (service_id, pkg, service, rpc) in wanted {
+            let ids = serve.query_map(params![service_id, rpc], |r| r.get::<_, i64>(0))?;
+            for id in ids {
+                let id = id?;
+                if id == symbol_id || !seen.insert(id) {
+                    continue;
+                }
+                let Some(symbol) = self.symbol(id)? else {
+                    continue;
+                };
+                if me.as_ref().is_some_and(|m| m.lang == symbol.lang) {
+                    continue;
+                }
+                out.push(RpcCaller {
+                    pkg: pkg.clone(),
+                    service: service.clone(),
+                    rpc: rpc.clone(),
+                    symbol,
+                });
+            }
+        }
+        Ok(out)
+    }
+}
+
 fn same_rpc(a: &str, b: &str) -> bool {
     let norm = |s: &str| -> String {
         s.chars()

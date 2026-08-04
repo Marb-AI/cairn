@@ -20,6 +20,13 @@ pub struct Hit {
     /// One-based, as every other line number this tool prints.
     pub line: usize,
     pub text: String,
+    /// Lines around the match, each with its own number.
+    ///
+    /// Measured: the arm got the line in turn 1 and then opened the file anyway — three
+    /// runs on a compose variable read three compose files to see whether a `ports:` key
+    /// sat above the match. The line says where; the lines around it say what it is part
+    /// of, and that is the second half of every question asked here.
+    pub context: Vec<(usize, String)>,
 }
 
 /// Files above this are almost certainly not what anyone is searching for by hand, and
@@ -37,6 +44,12 @@ pub struct Found {
 }
 
 /// Case-insensitive substring search over every file under `root` the walker will read.
+/// How many lines either side. Spent like `refs --context auto`: a handful of hits can
+/// afford surroundings, a flood cannot, and the caller learns which case it is from the
+/// count rather than from a guess.
+pub const CONTEXT_LINES: usize = 2;
+const CONTEXT_UP_TO_HITS: usize = 30;
+
 pub fn search(root: &Path, needle: &str, limit: usize) -> Found {
     let needle = needle.to_lowercase();
     let mut out = Found {
@@ -46,6 +59,11 @@ pub fn search(root: &Path, needle: &str, limit: usize) -> Found {
         files_read: 0,
     };
     walk(root, root, &needle, limit, &mut out);
+    if out.hits.len() > CONTEXT_UP_TO_HITS {
+        for h in &mut out.hits {
+            h.context.clear();
+        }
+    }
     out
 }
 
@@ -88,16 +106,24 @@ fn walk(root: &Path, dir: &Path, needle: &str, limit: usize, out: &mut Found) {
             continue;
         };
         out.files_read += 1;
-        for (i, line) in text.lines().enumerate() {
+        let lines: Vec<&str> = text.lines().collect();
+        for (i, line) in lines.iter().enumerate() {
             if line.to_lowercase().contains(needle) {
                 if out.hits.len() >= limit {
                     out.truncated = true;
                     return;
                 }
+                let lo = i.saturating_sub(CONTEXT_LINES);
+                let hi = (i + CONTEXT_LINES + 1).min(lines.len());
+                let context = (lo..hi)
+                    .filter(|n| *n != i)
+                    .map(|n| (n + 1, lines[n].trim_end().to_string()))
+                    .collect();
                 out.hits.push(Hit {
                     path: rel.clone(),
                     line: i + 1,
                     text: line.trim_end().to_string(),
+                    context,
                 });
             }
         }

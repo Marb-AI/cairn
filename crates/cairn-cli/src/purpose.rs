@@ -41,6 +41,7 @@ pub fn find(
             line: h.line,
             text: h.text.clone(),
             context: store.line_context(&h.path, h.line as i64)?,
+            around: h.context.clone(),
         });
     }
     let any = !lines.is_empty();

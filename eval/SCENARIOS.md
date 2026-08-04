@@ -329,3 +329,53 @@ of them:
   written for. Answers get graded, not just counted.
 - **Everything improving by a similar margin.** That would point at length rather than
   position, and would say the skill is simply too long — a different fix.
+
+
+---
+
+# Round four: five root causes, read from the round-three logs — pre-registered 2026-08-04
+
+Round three's runs were unusually uniform — three identical traces per scenario on both
+losses — so the causes are readable rather than inferred. Each fix below names the turns it
+is meant to remove.
+
+| # | root cause | evidence | fix |
+|---|---|---|---|
+| 1 | **`reaches --outgoing` returned zero** for any function that *uses* a generated client. `service_links` binds the client *type*, not the call site, so the outgoing direction only ever answered for the artefact itself. | agents reached for it in three separate rounds, always on the chain question, always got 0, and rebuilt the chain by hand | `rpc_targets`: this symbol's calls → the client member → the service → the handler serving it. 3 handlers where it had 0, in 17 ms |
+| 2 | **`for change` on a symbol the index does not hold dead-ended.** `subject` bails on a miss, so the redirect written for it could never run. | s09 turns 1-2, identical in all three runs: `for change` fails, then `symbol` + `status` to find out why | resolve inline; on a miss, search the tree, say the graph cannot answer and why, and return the find result |
+| 3 | **`for find` gave the line without its surroundings**, so the arm opened files to see what the line was part of. | s08 read three compose files after the answer; s07 read `client.py` in all three runs | ±2 lines per hit, dropped above 30 hits — the same "spend it where it fits" rule `refs --context auto` uses |
+| 4 | an ambiguous name costs a whole turn (`for change get_quota_status` → exit 2 → `for change wes`) | s01 turn 1, all three runs | **not fixed** — see below |
+| 5 | `for change` is under-assembled: no call-site source, does not follow the module-level `a = wrap(f)` binding one hop, does not state the dynamic-dispatch check | s01 turns 3-5, all three runs: `refs wes`, `refs np5`, `weaklinks wes` | **not fixed** |
+
+Causes 4 and 5 are left alone deliberately. Both are in scenario 1, both would need
+judgement calls about what to fold into an assembled answer, and fixing them in the same
+round as three others would leave five changes and no way to attribute the result. They are
+the next round's work.
+
+## Predictions
+
+| # | grep | r3 | predicted | why |
+|---|---|---|---|---|
+| 4 | 10 | 9 | **4** | the chain is `for change`/`reaches --outgoing` per hop; the direction that returned zero now answers |
+| 8 | 4 | 3 | **1** | the hits now carry the `ports:` line above them |
+| 7 | 4 | 3 | **1-2** | the enclosing function was already there; the surrounding lines are what sent it to the file |
+| 9 | 3 | 4 | **2** | one turn saved by the redirect, not two: the arm still reads the file it was told about |
+| 1 | 4 | 5 | 5 | causes 4 and 5 untouched |
+| 2 | 7 | 6 | 6 | unaffected |
+| 3 | 8 | 1 | 1 | unaffected |
+| 5 | 14 | 7 | 7 | unaffected |
+| 6 | 15 | 1 | 1 | unaffected |
+| 10 | 5 | 3 | 3 | unaffected |
+| | **74** | 42 | **~31** | ratio ~0.42 |
+
+## What would falsify it
+
+- **Scenario 4 not moving.** Then the chain's cost was never the missing direction, and
+  three rounds of agents reaching for `--outgoing` were reaching for the wrong thing.
+- **Any answer getting worse**, particularly scenario 4: `--outgoing` is convention-matched,
+  so a wrong handler in that list is worse than no list. The rows are graded, not counted.
+- **Scenario 8 or 7 not moving.** Then the file reads were not about surrounding context and
+  the diagnosis of causes 3 was wrong.
+- **A new latency regression.** The first form of `rpc_targets` took 11.8 s and the sweep
+  caught it; the rewritten form is 17 ms. If the sweep fails again, the fix is not free and
+  the trade has to be stated rather than assumed.

@@ -1383,6 +1383,67 @@ pub fn usage(
 /// asked to believe it.
 /// Callers of one RPC, which is a stronger claim than callers of its handler: these are
 /// real call sites, not a naming convention, so they are labelled exact.
+/// What this symbol calls across a service boundary — the answer to "where does this land".
+///
+/// Separate from `rpc_reaches` because the sentence is different: one names who arrives
+/// here, the other where you go next. The chain question is asked with the *start* in
+/// hand and the end unknown, so this is the row an agent walking a chain needs, and the
+/// row it kept rebuilding by hand when the command returned nothing.
+pub fn rpc_targets(
+    sym: &SymbolRow,
+    targets: &[cairn_store::RpcCaller],
+    budget: &mut Budget,
+) -> Envelope {
+    let mut body = String::new();
+    let _ = writeln!(
+        body,
+        "[{}] {} — calls {} handler(s) across gRPC        [L1, convention]",
+        sym.handle,
+        sym.qualified(),
+        targets.len()
+    );
+    let _ = writeln!(
+        body,
+        "  where this lands, in the other language. Each row is the handler that serves \
+         the RPC this code calls"
+    );
+    let mut shown = 0usize;
+    for t in targets {
+        let def = t
+            .symbol
+            .def
+            .as_ref()
+            .map(|d| format!("{}:{}", d.path, d.line))
+            .unwrap_or_default();
+        if !budget.push(
+            &mut body,
+            &format!(
+                "  [{}] {:<40} {:<3} {}  [{}.{}.{}]",
+                t.symbol.handle,
+                t.symbol.qualified(),
+                t.symbol.lang.tag(),
+                def,
+                t.pkg,
+                t.service,
+                t.rpc
+            ),
+        ) {
+            break;
+        }
+        shown += 1;
+    }
+    let mut env = Envelope::new(body).rows(shown);
+    if shown < targets.len() {
+        env = env.suppressed(budget.cut_note(targets.len() - shown, "targets"));
+    }
+    env.unknown(
+        "the handler is matched to the RPC by the generator's naming convention \
+         (`GetFolder` <-> `get_folder`), so this is exact where the convention holds. A \
+         call made through a hand-written transport or a queue is not here, and a branch \
+         the caller only takes conditionally is still listed",
+    )
+}
+
 pub fn rpc_reaches(
     sym: &SymbolRow,
     callers: &[cairn_store::RpcCaller],
@@ -2319,6 +2380,8 @@ pub struct FoundLine {
     pub line: usize,
     pub text: String,
     pub context: cairn_store::attribute::LineContext,
+    /// Lines either side of the match, numbered.
+    pub around: Vec<(usize, String)>,
 }
 
 /// A text search, with whose line each hit is.
@@ -2409,11 +2472,19 @@ pub fn found(
         } else {
             format!("  <- {}", whose.join(", "))
         };
+        // Context above, the match, context below — the match marked so the eye finds it
+        // without counting lines.
+        for (n, line) in h.around.iter().filter(|(n, _)| *n < h.line) {
+            let _ = budget.push(&mut body, &format!("  {n:>5} | {}", line.trim_end()));
+        }
         if !budget.push(
             &mut body,
-            &format!("  {:>5} | {}{whose}", h.line, h.text.trim()),
+            &format!("  {:>5} > {}{whose}", h.line, h.text.trim()),
         ) {
             break;
+        }
+        for (n, line) in h.around.iter().filter(|(n, _)| *n > h.line) {
+            let _ = budget.push(&mut body, &format!("  {n:>5} | {}", line.trim_end()));
         }
         shown += 1;
     }
