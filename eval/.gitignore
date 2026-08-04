@@ -1,0 +1,10 @@
+# Per-run tool-call logs. Kept out of the repository for two reasons: they record
+# commands issued against a private checkout, symbol names and all, and they carry
+# absolute paths from whatever machine produced them. RESULTS.md states the numbers and
+# how to reproduce them; the raw logs stay local.
+runs/
+
+# Machine-specific scaffolding: a wrapper pointing at an extracted binary, and the arm
+# prompt assembled from a preamble plus SKILL.md at run time.
+armbin/
+arms/cairn_full.md

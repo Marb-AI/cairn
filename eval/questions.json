@@ -1,0 +1,12 @@
+{
+  "1": "In srcpy/domains/assistant/repository/quota.py I want to add a required argument to get_quota_status. Which call sites would I have to update?",
+  "2": "Where is the Client model that belongs to folders, and which code writes to it?",
+  "3": "Which Go code ends up calling the Python FolderServiceHandler, and through which RPCs?",
+  "4": "The Python endpoint get_shared_object - what serves it, and where does that land?",
+  "5": "What under srcpy/domains/assistant/lib/due_diligence does production never call?",
+  "6": "I am changing FolderServiceHandler. Which deployed services does that touch?",
+  "7": "Where is the X-Api-Key header set, and which client sends it?",
+  "8": "Which services publish MCP_SERVER_PORT, and what is the default?",
+  "9": "I just added a function called quota_headroom to the quota repository (srcpy/domains/assistant/repository/quota.py). Is anything calling it yet?",
+  "10": "Which SQL under tools/sql/geoplatform/estate_ranking produces the ranked results, and what does 04_rank_distance_inversions.sql measure?"
+}

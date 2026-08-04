@@ -1,0 +1,682 @@
+# Measured results
+
+Numbers, with what they do and do not support. A withdrawn result stays here rather than
+being deleted — the point of writing them down is that a later run can contradict an
+earlier one, and that only works if the earlier one is still readable.
+
+**Acceptance rule.** Same answer as the baseline → at most half the tokens *or* half the
+wall clock. A better answer → no more than the baseline. A worse answer fails at any
+price.
+
+---
+
+## An agent with cairn against an agent with grep — 2026-08-04 (pilot, one run per arm)
+
+Pre-registered in `eval/SCENARIOS.md`: ten scenarios, answer keys and a predicted
+round-trip count per arm, all written before any arm was run. Nothing below was chosen
+after seeing a number.
+
+**Metric.** Round trips — one inference, one tool call, one result. Several calls issued
+together in one turn count as one, because they cost one inference. Reconstructed from a
+`PreToolUse` hook log by timing (`eval/hook_log.py`, `eval/cluster.py`): within-turn gaps
+never exceeded 0.97 s, between-turn gaps were 1.8-2.6 s, and the threshold sits at 1.0 s
+in the empty band between. Wall clock is first to last logged call, so it includes
+inference.
+
+**Arms.** `cairn`: the skill loaded, the binary on PATH, all content search denied.
+`grep`: `grep`/`rg`/the Grep tool, no cairn, no skill. Both could read files and list
+directories. Compliance was audited from the log afterwards — no violation in either arm
+in any of the 20 runs.
+
+### Result
+
+| # | class | expected | cairn | grep | turns | wall |
+|---|---|---|---|---|---|---|
+| 1 | edges — who calls this | cairn | 8 | 7 | 1.14 | 1.26 |
+| 2 | identity — the right `Client` | cairn | 15 | 11 | 1.36 | 0.95 |
+| 3 | boundary — Go into a Python handler | cairn | **6** | 16 | **0.38** | 0.69 |
+| 4 | the name changes shape across the hop | cairn | 16 | 9 | 1.78 | 1.99 |
+| 5 | sets — what production never calls | cairn | **9** | 18 | **0.50** | 0.47 |
+| 6 | completeness — which services a change touches | cairn | **4** | 24 | **0.17** | 0.11 |
+| 7 | a string literal | grep | 7 | 4 | 1.75 | 1.35 |
+| 8 | configuration | grep | 17 | 3 | 5.67 | 9.52 |
+| 9 | a file I just edited | grep | 8 | 5 | 1.60 | 2.42 |
+| 10 | nothing indexed for it | grep | 7 | 3 | 2.33 | 3.25 |
+| | **total** | | **97** | **100** | **0.97** | 0.93 |
+
+Ratios are cairn ÷ grep; below 1 is cairn cheaper. Medians are 8 turns for both arms.
+
+**Answer grading against the pre-registered keys: cairn was never worse.** Same answer in
+8 scenarios, better in 1 (scenario 5, where it also named `OkoliTyp` and the
+`__aenter__`/`__aexit__` pair that static reachability reports and grep's enumeration
+missed), worse in 0. The grep arm was marginally better in scenario 2, finding a mass
+delete in a data migration that cascades to the model — a write the index cannot see
+because the migration names the parent, not the child.
+
+### What this supports
+
+**On the three questions the tool is built for, it wins by a lot.** Scenario 6 — the whole
+blast radius of a handler class — cost 4 round trips and 15 seconds against 24 and 133.
+Scenario 3, the cross-language boundary, 6 against 16. Scenario 5, a set question, 9
+against 18. All three meet the acceptance rule on round trips and on wall clock, with
+room to spare.
+
+**The answers held up.** Ten scenarios, no case where the cairn arm's answer was worse
+than the baseline's. That half of the stated goal is met in this pilot.
+
+### What it does not
+
+**Over the ten scenarios together the tool is a wash: 97 round trips against 100, medians
+identical.** Three large wins are paid for by seven losses, four of them substantial. The
+per-scenario spread runs from 0.17× to 5.67×, so an aggregate over a scenario mix is
+mostly a statement about the mix.
+
+**"Never worse" fails on cost.** The cairn arm spent more round trips in 7 of 10
+scenarios. Scenario 8 (which service publishes a port, what is the default) is the worst:
+17 against 3, and 75 seconds against 8, because with content search denied the arm read
+every compose file in the repository by hand. That is partly an artefact of the arm
+design — a real agent has both tools — but the skill tells it to prefer cairn, and the
+question is one the skill's own "not for config" line should have deflected in one call.
+
+**Four of the six scenarios predicted as cairn wins were losses.** Scenarios 1, 2, 4 went
+to grep. The prediction was wrong in a consistent direction: the cairn arm keeps querying
+after it has the answer. Scenario 4 is the clearest — 16 round trips to trace a chain that
+`path` and `reaches` answer, because the FastAPI endpoint has no static caller, so
+`affects`, `runs` and `entrypoints --reaches` all returned nothing and the arm rebuilt the
+chain by hand. This is task E's failure mode from the earlier measurement, unfixed: the
+tool got better and the run did not get cheaper.
+
+**Single runs.** One run per arm, as agreed for a pilot. An earlier baseline varied 1.79×
+on an open-ended question, so scenario 1 (1.14×) and scenario 2 (1.36×) say nothing on
+their own, and even scenario 5 (0.50×) sits close enough to the rule's boundary to need
+the three-run protocol before it is quoted. Scenarios 6, 8 and 10 are outside any
+plausible noise band.
+
+**The instruction sheets are not the same size.** The cairn arm reads 10 106 characters of
+preamble, the grep arm 1 106. The skill's 2 391 tokens are excluded from the per-question
+numbers as a training asymmetry, but a longer instruction sheet plausibly encourages more
+tool use, and this pilot cannot separate that from the tool's own effect. For the full
+protocol the grep arm should get a preamble of comparable length, or the cairn arm a
+shorter one.
+
+**Both arms were told not to stop early.** "An incomplete answer counts against this arm
+harder than an extra command does" is in both preambles. It is the right instruction for
+grading answers and it inflates round trips in both arms; the comparison survives it, the
+absolute numbers do not transfer to an agent under time pressure.
+
+### Three defects the runs found
+
+None was reported; all three came out of building the answer keys or reading a run.
+
+1. **`affects` on a handler class reported one deployed service where its methods reported
+   three.** The hop walk goes inward through callers and a type's own methods are not
+   among them, so the class expanded into none of its RPCs. `reaches` had had this fix
+   since task D; `affects`, the command whose stated purpose is to be the complete answer,
+   had not. Fixed before scenario 6 ran, so that scenario measures the fixed tool — and
+   would have failed a day earlier.
+2. **A hop row named the wrong file.** Rows were grouped without the call site's path and
+   kept whichever came first, printing `in folder.go` for a route that lives in
+   `share.go`. A row of that answer is a place to go and look.
+3. **`usage` silently dropped test files while reporting `suppressed: none`.** Found by
+   the scenario 1 cairn arm, which cross-checked against `graph --aspect callers`, got
+   four call sites against `usage`'s two, and said so in its answer. The filter is the
+   right default; claiming nothing was filtered is not. Now stated in the envelope, with
+   the `--include-tests` command to see them.
+
+The tool was frozen after fix 3 and before scenario 2, so scenarios 2-10 all ran against
+one build. Scenario 1's cairn arm was re-run on the fixed build; its pre-fix run is kept
+as `runs/DISCARDED-s01-cairn-prefix-usage-bug.jsonl`.
+
+### One more defect, not yet fixed
+
+`cairn status` reports the daemon's view as `590 created ... reindex due: too many files
+differ`, in a tree where `cairn verify --repo .` correctly finds exactly one changed file.
+The watcher counts files that were never in the index — docs, YAML, proto — as newly
+created, so it advises a 37-second reindex on a clean tree. Recorded during scenario 9 and
+left alone to keep the build frozen for the run.
+
+---
+
+## What the pilot's findings were worth — 2026-08-04, after the fixes
+
+Three changes, then a re-measurement of the two worst cairn losses. **Single runs after a
+fix, not a second pilot.** The grep numbers they are compared against are the pilot's,
+which is fair because nothing in the grep arm changed.
+
+**The changes.**
+
+1. **The watcher's false staleness is fixed.** `walk_new` reported every file absent from
+   the index as newly created, and only Python and Go are ever in it. On the same clean
+   tree the daemon now says **17 created** instead of 590, and `reindex due` is gone — 1700
+   Python and Go files on disk against 1683 indexed, so the 17 are real.
+2. **`affects` and `runs` no longer answer a confident zero for a framework route
+   handler.** Both said `0 deployed service(s) — (no service entrypoint reaches it)` about
+   a live public endpoint, because FastAPI registers routes by decorator and no call
+   reaches them. Both now fall back to the file the symbol sits in and label the weaker
+   claim: `runs` prints `[L1 + L0-D, via the file, not a call path]` in the header rather
+   than only in a note, and `affects` marks the service `~`. The `exact` label is now
+   earned by the direct answer alone.
+3. **The skill gained a "stop when you have the answer" section**, and a line sending
+   environment variables, ports and compose files to grep.
+
+### Re-measurement
+
+| | pilot cairn | after | grep (pilot) |
+|---|---|---|---|
+| 4 — where a chain lands | 16 | **16** (v3) / 4 (v2) | 9 |
+| 8 — which service publishes a port | 17 | 11 | 3 |
+
+**The scenario 4 result is the one that matters, and it is not the flattering one.**
+
+- **v2**, with the stop rule as first written: **4 round trips**, down from 16. It also
+  stopped at the first hop and never followed the handler's branch, so it missed the
+  estate/folder fan-out that both the pilot run and the grep arm reported. **A worse
+  answer, which under the rule fails at any price.** The saving was not a better route to
+  the answer; it was less answer.
+- **v3**, after adding the carve-out that the rule is about repetition and not depth:
+  **16 round trips again**, and the most complete answer any arm gave — it found a
+  second-order hop (`FolderTransformer` calling `ListEstates`) that neither the pilot nor
+  grep reached, and a nil `principal` passed at `share.go:78` that would panic the proxy
+  on any shared folder holding an estate.
+
+So, stated plainly: **once completeness is held fixed, the stop rule buys nothing on this
+question.** The pilot's diagnosis — "the arm keeps querying after it has the answer" — was
+wrong for scenario 4. It was not re-querying; the chain really is that long, and 16 turns
+is what following it costs. What the earlier run wasted was smaller than it looked.
+
+Scenario 8 improved from 17 to 11 and is still 3.7× grep. It cannot get much better in
+this arm: the question is answered by reading compose and `.env` files, the arm is denied
+content search, so it enumerates them by filename and reads each in full. The skill's new
+"config → grep" line cannot help an arm that has no grep. **That gap is mostly an artefact
+of the arm design**, and the honest reading is that a real agent — which has both tools —
+would grep and spend 3.
+
+### What this does and does not change
+
+Unchanged: fixes 1 and 2 remove two confident-and-wrong outputs, which is the failure
+class this project exists to prevent, and neither was measured for speed because neither
+was about speed.
+
+Changed: the pilot's main causal claim is now doubtful. "The cairn arm spends its saved
+round trips on extra queries" survives as a description of scenarios 1 and 2 at best; on
+scenario 4 the extra turns were the work. Before the three-run protocol is worth running,
+the losing scenarios need re-reading run by run to separate re-querying from depth —
+counting turns cannot tell them apart, and this pair of runs shows what happens when the
+distinction is guessed at.
+
+---
+
+## Repetition against depth: every cairn turn classified — 2026-08-04
+
+The separation the section above says is needed, done from `eval/runs/*.jsonl` by grouping
+calls into turns and reading what each turn asked. Categories:
+
+- **resolve** — orientation and getting a handle. Almost always batched into turn 1, so it
+  costs about one turn per run and is not where the money goes.
+- **answer** — the turn that produced the answer.
+- **depth** — a *different* subject: the next hop of a chain, another symbol, a file read
+  to confirm. Legitimate; the question was that big.
+- **repetition** — the *same* question asked a second way, or another attempt after the
+  tool has already reported a miss.
+- **off-question** — a command nobody asked for.
+- **tool-gap** — a turn spent because the tool answered wrongly or emptily, since fixed.
+
+| # | turns | resolve | answer | depth | repetition | off-question | tool-gap |
+|---|---|---|---|---|---|---|---|
+| 1 | 8 | 1 | 1 | 3 | **3** | 1 | (1) |
+| 2 | 15 | 1 | 1 | 10 | **1** | **2** | – |
+| 3 | 6 | 1 | 1 | 4 | – | – | – |
+| 4 | 16 | 1 | 1 | 11 | – | – | **3** |
+| 5 | 9 | 1 | 1 | 7 | – | – | – |
+| 6 | 4 | 1 | 1 | 2 | – | – | – |
+| 7 | 7 | 1 | 1 | 3 | **2** | – | – |
+| 8 | 17 | 1 | – | 11 | **5** | – | – |
+| 9 | 8 | 1 | 1 | 5 | **1** | – | – |
+| 10 | 7 | 1 | 1 | 5 | – | – | – |
+| | **97** | 10 | 9 | 61 | **12** | **3** | **4** |
+
+**About 19 of 97 turns — a fifth — is removable. Four fifths is depth.** Remove every
+identified waste turn and the arm reads 78 against grep's 100: a real edge, and nothing
+like the acceptance rule's half.
+
+### The three shapes
+
+**Scenario 7 is the clean case of the pilot's original claim.** `cairn literal "X-Api-Key"`
+returned the line, the enclosing function and its handle **in turn 1**, complete. The
+remaining six turns were elaboration — `outline`, `usage`, `refs`, then the same question
+twice more as `literal "KONTOMATIK_API_KEY"` and `symbol KONTOMATIK_API_KEY`. The tool won
+the question and the run lost it. Grep took 4.
+
+**Scenario 8 is repetition of a different kind: probing a stated miss.** `literal
+"MCP_SERVER_PORT"` missed, because `literal` covers Python and Go source only and the
+answer lives in compose and `.env`. The arm then tried `literal "MCP_SERVER"`, `literal
+"MCP"`, `literal "mcp"`, `symbol mcp_server_port`, `symbol MCP_PORT`, `docs --about`, and
+two forms of `usage` — five turns spread across the run, each re-asking a tool that had
+already said it does not cover this. The skill's "a miss reports what *is* indexed, that
+is not an invitation to try three more spellings" is aimed exactly here.
+
+**Scenario 4 was never repetition.** Eleven of its sixteen turns were distinct hops of a
+three-service chain with a fan-out; three were spent on `affects`, `runs` and
+`entrypoints --reaches` all returning confident zeros for a framework route handler, which
+is fixed. Nothing in it asked the same question twice.
+
+### What each arm's cost actually scales with
+
+Reading the two extremes side by side answers this better than the totals do.
+
+- **Grep's cost scales with how scattered the answer is.** Scenario 6 took it 24 turns:
+  it found the handler in two, then rebuilt the deployment graph from proto files,
+  `clients.py`, the Go transform layer, `cmd/` directories, the MCP package, nginx configs
+  and deploy workflows — eight places, none of which names the others.
+- **Cairn's cost scales with how deep the chain is**, plus a floor of about one turn to
+  resolve a handle before it can answer anything.
+- **So cairn wins exactly where one command is the whole answer** — `affects` (scenario 6,
+  4 turns), `reaches` (3, 6 turns), `unreached` (5, 9 turns). All three are set-shaped.
+- **And loses where the answer is one grep away.** Scenario 8's entire answer came out of
+  a single `grep -rn MCP_SERVER_PORT .` — every occurrence, every file type, three turns
+  including the confirming reads.
+
+The honest summary of the tool's position: it is not a general replacement and the
+aggregate was never going to show one. It converts a scattered question into one command,
+and it charges a handle-resolution turn for the privilege. Whether that is worth it is
+decided per question, and the skill is the only place that decision can be made.
+
+---
+
+## The full protocol: 3 runs per arm, 60 runs — 2026-08-04
+
+Same ten scenarios and the same pre-registered keys. What changed since the pilot:
+
+1. **Both arms now get a real tool guide of comparable length.** The pilot's confound was
+   10 505 characters against 1 106; the grep arm's guide was written up to 10 002 against
+   cairn's 12 241 (1.22×). It is a genuine ripgrep guide — search shapes, narrowing,
+   generated-code exclusion, import aliases, tracing a chain by hand, registration-based
+   wiring — and it carries the same stop-rule the cairn skill has. A weak baseline guide
+   would have been a subtler way of handicapping the baseline than no guide at all.
+2. **The three fixes** — the `usage` test-filter disclosure, `affects`/`runs` on framework
+   route handlers, and the skill's stop rule with its depth carve-out.
+3. **Runs are parallel**, keyed by the `agent_id` the hook payload carries. Turn
+   reconstruction is unaffected: within-turn gaps stayed ≤ 0.99 s and the result is flat
+   across thresholds from 0.8 s to 2.0 s (ratio 0.81 / 0.80 / 0.78 / 0.78). Wall clock is
+   *not* reported — under concurrency it measures the machine, not the arm. Round trips
+   carry the wall-clock claim, which is the argument the metric was chosen on.
+
+### Result — round trips, median of 3
+
+| # | class | cairn | grep | ratio | pilot ratio |
+|---|---|---|---|---|---|
+| 6 | which services a change touches | **1** (1,1,1) | 15 (15,15,15) | **0.07** | 0.17 |
+| 3 | Go into a Python handler | **1** (1,1,2) | 8 (7,8,11) | **0.12** | 0.38 |
+| 5 | what production never calls | **5** (3,5,8) | 14 (11,14,18) | **0.36** | 0.50 |
+| 7 | a string literal | **2** (2,2,3) | 4 (4,4,4) | **0.50** | 1.75 |
+| 10 | nothing indexed for it | 4 (4,4,4) | 5 (4,5,8) | 0.80 | 2.33 |
+| 4 | where a chain lands | 11 (7,11,17) | 10 (9,10,11) | 1.10 | 1.78 |
+| 2 | the right `Client` | 9 (8,9,9) | 7 (6,7,9) | 1.29 | 1.36 |
+| 1 | who calls this | 6 (5,6,7) | 4 (4,4,5) | 1.50 | 1.14 |
+| 8 | which service publishes a port | 11 (9,11,21) | 4 (4,4,5) | 2.75 | 5.67 |
+| 9 | a file I just edited | 9 (8,9,11) | 3 (3,3,3) | 3.00 | 1.60 |
+| | **sum of medians** | **59** | **74** | **0.80** | 0.97 |
+
+**Both arms got faster; cairn got faster by more.** Against the pilot the grep arm went
+from 100 round trips to 74 (−26%) on the strength of its new guide alone, and the cairn arm
+from 97 to 59 (−39%). The ratio moved from 0.97 — a dead heat — to **0.80**.
+
+**The acceptance rule is met on 4 of 10 scenarios** (≤ half the round trips at equal
+answer): 6, 3, 5, and 7 exactly at 0.50. In the pilot it was 3.
+
+### What the fixes bought, scenario by scenario
+
+- **Scenario 6: 4 → 1 round trip, all three runs identical.** `cairn affects` answers it,
+  and the skill now says to stop there. Against 15 for grep.
+- **Scenario 7 reversed, 7 → 2, from a 1.75 loss to a 0.50 win.** This was the pilot's
+  clearest case of a tool that had already won being made to lose by elaboration. The
+  answer arrived in turn 1 both times; the difference is that the arm now stops.
+- **Scenario 3: 6 → 1.** Two of three runs answered in a single command.
+- **Scenario 10: 7 → 4**, from a loss to a marginal win — the arm stops probing an index
+  that has already said it holds no SQL.
+- **Scenario 4: 16 → 11**, and the variance is the story: 7, 11, 17. The `affects`/`runs`
+  fix removes the confident zeros, but how far an arm walks a three-hop chain with a
+  fan-out is a judgement, and the three runs made it differently.
+
+### Where it still loses, and why each is different
+
+- **Scenario 9 (3.00) is the honest loss.** The index is behind the tree by construction,
+  so the arm spends turns establishing *what the index can still vouch for* — `verify
+  --repo` for the changed-file set, then reading the one dirty file. Grep needs one search.
+  This is the case flagged in the pre-registration as unfixable by shrinking output, and it
+  is unfixable: an index cannot answer about a file it has not read.
+- **Scenario 8 (2.75) is mostly the arm design.** Denied content search, the arm reads
+  every compose and `.env` file by name. A real agent greps and spends 4.
+- **Scenarios 1 and 2 (1.50, 1.29) are depth**, per the turn-by-turn classification above:
+  a signature change over an async wrapper, and an MTI model with three write paths.
+- **Scenario 4 (1.10) is now a tie inside the run-to-run spread.**
+
+### Answer quality
+
+Graded against the pre-registered keys. **Equivalent on 9 of 10.** The exception is
+scenario 10, and it goes against cairn: two of three grep runs found that the SQL scripts
+`SUM` the decay over every in-radius POI while the Go handler takes `MIN` over the nearest
+one, and that the scripts read table `poi` where the handler reads `poi_poi` — a real
+divergence between a script and the production code it claims to mirror. No cairn run
+found it, because none went looking at the Go handler. Cairn was 0.80 on cost there, so
+under the rule a *better* answer at no more cost wins: **grep takes scenario 10.**
+
+Two cairn answers were better than their grep counterparts without costing more: scenario
+4 run 1 found the nil `principal` at `share.go:78` that panics the proxy on a shared folder
+holding an estate, and scenario 5 correctly separated `source_label` (genuinely dead) from
+`OkoliTyp` and the `__aenter__`/`__aexit__` pair (static-analysis artifacts) where the grep
+runs reported only the first.
+
+### Compliance
+
+60 runs audited from the logs. No grep-arm run invoked cairn. One cairn-arm call matched
+the content-search filter: scenario 8 run 2 used `find . -name "*.env*" | grep -v "^./.git"`
+— grep as a filter over a filename list, searching no file contents. The run is kept and
+this is the disclosure. It matters which way the choice cuts: **keeping it flatters cairn**
+— excluding that run moves scenario 8's median from 11 to 15 and its ratio from 2.75 to
+3.75, and the total from 0.80 to 0.85.
+
+### What this supports, and what it does not
+
+**Supported.** On the three set-shaped questions the tool exists for, it is 7× to 14×
+cheaper in round trips than a competently-guided grep agent, at an equivalent answer, three
+runs each with no overlap between the arms' ranges. Scenario 6 is 1 against 15 with zero
+variance on either side.
+
+**Supported.** Across a ten-scenario mix chosen before the numbers, the tool is a 20%
+saving overall — real, and an order of magnitude smaller than its best cases, because the
+mix is half questions it is not for.
+
+**Not supported: "never worse".** Cairn costs more on five of ten scenarios, and on
+scenario 10 it also answered less completely. The stated goal is not met, and the two
+scenarios that fail worst (9 and 8) fail for reasons no output change fixes — a stale index
+and a question about files no indexer reads.
+
+**Not measured: tokens.** Round trips only, as pre-registered. The subagent token counts
+are visible in the transcript and were not collected systematically; on the runs where
+cairn wins on turns it also reads far less, but that is an impression, not a number.
+
+**One run per arm was the wrong resolution.** Scenario 4 spans 7 to 17 round trips across
+three identical prompts, and scenario 8 spans 9 to 21. The pilot's single-run figures for
+both sat inside those ranges and meant nothing on their own; only scenarios 6, 3 and 7 were
+tight enough that one run would have been honest.
+
+---
+
+## `cairn docs` against grep — 2026-08-04
+
+Reproduce: `docker compose run --rm dev python3 eval/measure_docs.py <repo> <cairn> <db>`
+
+**Metric.** Characters entering context, converted at 3.7 chars/token — cairn's own
+constant from `cairn-fmt/src/budget.rs`, so the accounting is the tool's rather than one
+invented for the occasion.
+
+**Arms.** Two baselines, because one of them flatters the tool being tested.
+
+| arm | what enters context |
+|---|---|
+| `whole` | `grep -rn` hits, then the file with most hits, read in full |
+| `window` | `grep -rn` hits, then 41 lines around the first hit only |
+| `cairn` | `cairn docs --about <term>` output, then its top-ranked line range |
+
+**Queries.** Chosen by a rule, not by hand: two-word phrases occurring literally in the
+text, excluding stopwords, ranked by document frequency. Reported in two bands, because
+one corpus is 61% templated reports whose boilerplate wins a document-frequency ranking
+outright — and a phrase in most of the corpus is not a "which document holds this?"
+question, which was the stated reason for using document frequency at all. Both bands are
+measured rather than one filtered out.
+
+- **discriminating** — in ≥3 documents and at most 10% of them
+- **ubiquitous** — in more than 25% of documents
+
+### Result
+
+| corpus | band | n | vs whole | vs window | cairn worse | rule met (window) |
+|---|---|---|---|---|---|---|
+| cairn's own docs, 10 files / 193k chars | discriminating | 8 | **0.12 (−88%)** | **0.89 (−11%)** | 3/8 | 1/8 |
+| | ubiquitous | 8 | 0.13 (−87%) | 0.77 (−23%) | 1/8 | 3/8 |
+| a private 205-file / 1.6M-char corpus | discriminating | 8 | **0.21 (−79%)** | **0.68 (−32%)** | 0/8 | 3/8 |
+| | ubiquitous | 1 | 0.65 | 1.35 (+35%) | 1/1 | 0/1 |
+
+Against the whole-file baseline the rule is met on **32/33** query-band combinations
+across both corpora. Against the window baseline it is met on **7/25** in the
+discriminating and ubiquitous bands combined.
+
+Query terms for the second corpus are deliberately not reproduced here: it is not this
+repository's code and its vocabulary does not belong in this repository's files. The
+harness prints them when run against it.
+
+### What this supports
+
+Against an agent that reads a whole document to answer a question about it, `cairn docs`
+costs a fifth to an eighth as much, on both corpora, in both bands.
+
+**The larger corpus did better, not worse.** The obvious worry was that ten documents is
+small enough for `grep -rn` to already answer "which file", so the win would shrink on a
+real repository. It went the other way: against the hard baseline the median improved from
+0.89 to 0.68 as the corpus grew twentyfold. Two corpora is not a trend, but it is the
+opposite of the feared direction.
+
+### What it does not
+
+**The acceptance rule is not met against the window baseline.** Median −32% at best,
+against a bar of −50%. The truth sits between the two baselines and this run does not say
+where, because *what an agent actually reads was not measured*. Both arms are fixed
+strategies, not observed behaviour.
+
+**Answer quality was not evaluated.** The rule distinguishes "same answer" from "better
+answer" and this measures neither; all that is verified is that the term appears inside
+what each arm read. A case can be made that a section is the better answer — a 41-line
+window can cut mid-explanation, and the first hit need not be the relevant one — and under
+the rule a better answer only has to cost no more than the baseline, which every median
+does meet. That is a reading, not a finding.
+
+**Ubiquitous phrases are where it loses.** A phrase in a quarter of the corpus has no
+single home, and `cairn docs` costs more than grep on several of them. The tool is for
+"which document holds this", and that question has to have an answer.
+
+**Three runs were not done.** Both arms are deterministic — three consecutive runs were
+byte-identical — so a median over runs is the same number. The three-run habit exists for
+agent runs, which vary. The spread reported is across queries.
+
+### Withdrawn
+
+Two earlier runs of this experiment are superseded. Both are listed because each was
+wrong in a way worth not repeating.
+
+**Run 1 — median 0.18 (−82%), rule met 7/10.** Had only the whole-file baseline. The
+window arm was added afterwards specifically to attack the result and cut the median win
+from −84% to −26%. It also exposed a real defect: for one query cairn returned
+`README.md:1-233`, the whole file, and cost 40% *more* than grep. Mentions were ranked by
+raw count, which systematically prefers long sections because longer text contains more of
+everything — a 1900-word preamble with three mentions beat a 94-word section with one.
+Ranking now uses density, tie-broken by the shorter range (`docs.rs`,
+`a_long_section_does_not_win_by_being_long`). **The fix was motivated by the measurement,
+which is the exact shape a flattering result takes**, so the pre-fix number stays here.
+
+**Run 2 — cairn corpus, median 0.16 / 0.74.** Right conclusion, broken query selection.
+Phrases were built by pairing adjacent *tokens*, so `srcpy/domains/assistant` produced the
+query "domains assistant", which occurs nowhere as text: half the queries matched nothing
+and were dropped. The replacement extracts phrases from the raw text with a real space
+between the words. A second bug in the same selector matched inside words, offering "ing
+product", "ring product" and "uring product" as three separate queries — three samples of
+one phrase, none of them a phrase.
+
+
+---
+
+## Round two: `cairn for` — 3 runs per scenario, 2026-08-04
+
+Cairn arm only. The grep arm is unchanged, so its 74 round trips carry over as the
+baseline. Predictions were written into `SCENARIOS.md` before any of these runs.
+
+### Result
+
+| # | grep | round 1 | round 2 | predicted | ratio |
+|---|---|---|---|---|---|
+| 6 | 15 | 1 | **1** (1,1,2) | 1 | **0.07** |
+| 3 | 8 | 1 | **1** (1,1,1) | 1 | **0.12** |
+| 5 | 14 | 5 | 8 (7,8,9) | 5 | 0.57 |
+| 10 | 5 | 4 | **3** (3,3,5) | 3-4 | 0.60 |
+| 8 | 4 | 11 | **3** (3,3,4) | 1-2 | 0.75 |
+| 4 | 10 | 11 | 10 (8,10,16) | 11 | 1.00 |
+| 7 | 4 | 2 | 4 (2,4,5) | 2 | 1.00 |
+| 1 | 4 | 6 | 5 (5,5,6) | 3-4 | 1.25 |
+| 2 | 7 | 9 | 9 (6,9,12) | 9 | 1.29 |
+| 9 | 3 | 9 | **4** (4,4,4) | 1-2 | 1.33 |
+| | **74** | **59** | **48** | ~40 | **0.65** |
+
+**The total improved from 0.80 to 0.65.** Predictions were right on 5 of 10, directionally
+right but too optimistic on 3 (8, 9, 1), and **wrong in direction on 2** — the two that got
+worse.
+
+### What `for find` bought
+
+- **Scenario 8: 11 → 3.** One `for find MCP_SERVER_PORT` carries the publishing service,
+  the default, and the prod/staging absence. It now beats grep, which the pilot lost 5.67×.
+- **Scenario 9: 9 → 4.** The tree is the truth, so the staleness that cost 3× is gone. All
+  three runs took exactly 4 and all three named the stale index as a *limit of the graph
+  commands* rather than as a doubt about the answer.
+- **Scenario 10: 4 → 3**, and it now beats grep.
+
+### The two regressions, which share one cause
+
+**Scenario 7 went 2 → 4, and that is a falsification criterion I wrote down in advance.**
+Reading the runs says why, and it is not the command:
+
+```
+1. cairn for find "X-Api-Key"      <- the complete answer, with `in _headers [mjd]`
+2. cairn expand mjd --detail body
+3. cairn usage mjd
+4. cairn refs mjd --context auto
+```
+
+**Scenario 5 went 5 → 8 on a code path that did not change at all.** Same shape: `unreached`
+answered in turn 2 in both rounds; round one stopped at turn 3, round two ran six more
+turns confirming each symbol one at a time.
+
+Both are the elaboration failure the stop rule fixed in round one — and the cause is my own
+edit. Putting `for` at the front of the skill pushed *Stop when you have the answer* further
+down the document, and on these two scenarios that rule was worth more than the new command.
+The mechanism did not change; the ordering of the instructions did.
+
+A second, smaller contributor: `for find` hands back a handle (`[mjd]`), and a handle is an
+invitation. The attribution that makes the row worth more than a grep line is also what
+gives the next query something to grab.
+
+### The acceptance rule went the other way from the total
+
+**Met on 2 of 10, down from 4** — scenarios 6 and 3 only. Scenarios 5 and 7 met it in round
+one and no longer do. So the headline number improved by 19% while the count of scenarios
+that clear the bar halved. Both statements are true and they are about different things:
+the total is dominated by fixing the worst losses, the rule is a per-scenario test that two
+former wins now fail.
+
+### Answer quality
+
+Equivalent to round one across all ten. Scenario 10's cairn runs still do not reach the Go
+handler, so the `SUM`/`MIN` divergence two grep runs found remains unfound by this arm —
+unchanged, and still the one place a grep answer is better.
+
+### What this says about the design
+
+**The intent-first entry point works where the mechanism was missing.** Scenarios 8, 9 and
+10 were coverage losses and all three are now wins or near-wins, at 3-4 round trips against
+grep's 3-5. That is the part of the thesis — the agent states its purpose well and picks its
+mechanism badly — holding up.
+
+**It says nothing yet about the assembly.** `for change` was built for scenario 1, which
+moved 6 → 5, inside the run-to-run spread. Two of the three round-two runs on that scenario
+did not use `for change` at all. Whether a purpose that *fuses* mechanisms pays is not
+answered here; only the purpose that *routes to a missing one* is.
+
+**And the skill is now the binding constraint, not the command surface.** Two scenarios
+regressed purely from where a paragraph sits in a 13 900-character document. That is a
+larger effect than most of what was built this session, and it is the cheapest thing left
+to fix — the next change to try is moving the stop rule above the command list, and
+measuring only that.
+
+---
+
+## Round three: the skill only — 2026-08-04
+
+**No code changed.** The binary is byte-identical to round two; only `skill/SKILL.md` was
+edited. It is a bundle of four changes, not one variable — position, consolidation, one new
+line about handles, and 13 907 → 12 069 characters — so nothing below can be attributed to
+position alone. `SCENARIOS.md` says which four and why.
+
+| # | grep | r1 | r2 | **r3** | predicted | ratio |
+|---|---|---|---|---|---|---|
+| 6 | 15 | 1 | 1 | **1** | 1 | **0.07** |
+| 3 | 8 | 1 | 1 | **1** | 1 | **0.12** |
+| 5 | 14 | 5 | 8 | **7** | 5 | **0.50** |
+| 10 | 5 | 4 | 3 | **3** | 3 | 0.60 |
+| 7 | 4 | 2 | 4 | **3** | 2 | 0.75 |
+| 8 | 4 | 11 | 3 | **3** | 3 | 0.75 |
+| 2 | 7 | 9 | 9 | **6** | 8 | 0.86 |
+| 4 | 10 | 11 | 10 | **9** | 10 | 0.90 |
+| 1 | 4 | 6 | 5 | **5** | 5 | 1.25 |
+| 9 | 3 | 9 | 4 | **4** | 4 | 1.33 |
+| | **74** | 59 | 48 | **42** | ~42 | **0.57** |
+
+**The total prediction was exact — and it was right for partly the wrong reasons.** Seven
+scenarios landed on their predicted number. The two the change was aimed at did not: 7
+recovered only to 3 (predicted 2), 5 only to 7 (predicted 5). What made the total come out
+right was scenario 2 improving to 6 when 8 was predicted. Two wrong predictions cancelling
+into a correct aggregate is exactly the coincidence that makes a headline number worth less
+than the rows under it.
+
+### The diagnosis was partly right, and the wrong part is instructive
+
+Round two blamed the regressions on the stop rule moving down the page. Reading all three
+rounds of scenario 5 together:
+
+| round | runs | median |
+|---|---|---|
+| 1 | 3, 5, 8 | 5 |
+| 2 | 7, 8, 9 | 8 |
+| 3 | 3, 7, 8 | 7 |
+
+Round two's *minimum* (7) sits above rounds one and three's minimum (3), so something real
+did shift and shifted back. But rounds one and three cover nearly the same range with
+medians of 5 and 7, which means **this scenario's spread is wide enough that a single
+median is a weak statement about it**. The pilot's habit of three runs was the right call
+and is still not quite enough here.
+
+Scenario 7 is tighter — 2,2,3 then 2,4,5 then 3,3,3 — and the recovery is real but partial.
+Position was a cause; it was not the only one.
+
+**No scenario got worse**, and scenario 4 stayed at 9 against a floor of 8 written into the
+pre-registration, so the shorter stop rule did not buy round trips by shortening a chain
+question. That falsifier did not fire.
+
+### Where this leaves the whole measurement
+
+| | round trips | ratio | rule met |
+|---|---|---|---|
+| pilot, 1 run/arm | 97 : 100 | 0.97 | — |
+| round 1, 3 runs | 59 : 74 | 0.80 | 4/10 |
+| round 2, `for` built | 48 : 74 | 0.65 | 2/10 |
+| round 3, skill retuned | **42 : 74** | **0.57** | 3/10 |
+
+**Cairn now wins or ties 8 of 10 scenarios.** The two losses are small and both understood:
+scenario 1 (5 against 4) is depth through an async wrapper, and scenario 9 (4 against 3) is
+the freshly-edited file, where the arm spends turns establishing that the tree search is the
+right instrument *because* the graph is stale.
+
+**The acceptance rule is met on 3 of 10** — 6, 3, and 5 at exactly 0.50. It has never been
+met on more than 4, in any round, while the total nearly halved. The rule is a per-scenario
+bar and the total is a mix; they have moved in opposite directions twice now, and both
+numbers stay in this table for that reason.
+
+**Answer quality is unchanged from round one across all ten.** Scenario 10's cairn runs
+still stop at the SQL and do not reach the Go handler, so the `SUM`/`MIN` divergence two
+grep runs found in the full protocol remains the one place a grep answer is better.
+
+### What the last two rounds actually taught
+
+**The instruction sheet moves the number about as much as the tool does.** Round two added a
+command and gained 0.15; round three edited a document and gained 0.08, with no code change
+at all. That is not an argument against building — scenario 8 went 11 → 3 because `for find`
+exists — but it is a measured statement that a tool with a badly ordered guide gives back
+most of what it earned.

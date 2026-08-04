@@ -47,6 +47,16 @@ pub struct Envelope {
     pub unknown: Vec<String>,
     pub suppressed: Vec<String>,
     pub stale: Vec<String>,
+    /// How many rows the body carried, where the answer is a list.
+    ///
+    /// What was *printed*, not what matched. The two differ whenever a limit or the
+    /// budget cut the list, and the part that did not arrive is already described by
+    /// `suppressed` — counting it here as well would make one number mean both things.
+    ///
+    /// `None` is for answers that are not lists (`status`, `verify`), and is not the
+    /// same as `Some(0)`: one says the question does not produce rows, the other says
+    /// it does and none came back.
+    pub rows: Option<usize>,
 }
 
 impl Envelope {
@@ -56,6 +66,7 @@ impl Envelope {
             unknown: Vec::new(),
             suppressed: Vec::new(),
             stale: Vec::new(),
+            rows: None,
         }
     }
 
@@ -67,6 +78,22 @@ impl Envelope {
     pub fn suppressed(mut self, msg: impl Into<String>) -> Self {
         self.suppressed.push(msg.into());
         self
+    }
+
+    /// Record how many rows reached the caller.
+    pub fn rows(mut self, n: usize) -> Self {
+        self.rows = Some(n);
+        self
+    }
+
+    /// True when the answer told the caller it had left something out.
+    ///
+    /// Read from `suppressed` rather than tracked beside it, so a record of the answer
+    /// can never disagree with the answer. Whatever made a caller widen `--budget` and
+    /// ask again is by definition something the `suppressed:` line said, and that is
+    /// the correlation the session log exists to support.
+    pub fn truncated(&self) -> bool {
+        !self.suppressed.is_empty()
     }
 
     /// Mark the answer stale where it touches files that have changed since indexing.
@@ -193,7 +220,7 @@ pub fn symbols(
     if rows.is_empty() {
         let _ = writeln!(body, "(nothing matched)");
     }
-    let mut env = Envelope::new(body);
+    let mut env = Envelope::new(body).rows(shown);
     if shown < rows.len() {
         env = env.suppressed(budget.cut_note(rows.len() - shown, "matches"));
     }
@@ -305,7 +332,7 @@ pub fn references_with_context(
         let _ = writeln!(body, "  (none outside generated code)");
     }
 
-    let mut env = Envelope::new(body);
+    let mut env = Envelope::new(body).rows(shown);
     let dropped = total - refs.len() as i64;
     if dropped > 0 {
         env = env.suppressed(format!(
@@ -350,7 +377,7 @@ pub fn references(
         let _ = writeln!(body, "  (none outside generated code)");
     }
 
-    let mut env = Envelope::new(body);
+    let mut env = Envelope::new(body).rows(refs.len());
     let dropped = total - refs.len() as i64;
     if dropped > 0 {
         env = env.suppressed(format!(
@@ -430,12 +457,16 @@ pub fn walk(
         }
     }
 
-    let mut env = Envelope::new(body);
+    let mut env = Envelope::new(body).rows(shown);
     for n in notes {
         env = env.suppressed(n);
     }
     if shown < w.nodes.len() {
-        env = env.suppressed(budget.cut_note(w.nodes.len() - shown, "nodes"));
+        env = env.suppressed(budget.cut_note_narrowable(
+            w.nodes.len() - shown,
+            "nodes",
+            "--depth, --fanout or --exclude-tests",
+        ));
     }
     if w.truncated > 0 {
         env = env.suppressed(format!("{} neighbours beyond --fanout", w.truncated));
@@ -491,12 +522,12 @@ pub fn path(
             break;
         }
     }
-    let mut env = Envelope::new(body);
+    let mut env = Envelope::new(body).rows(shown);
     for n in notes {
         env = env.suppressed(n);
     }
     if shown < hops.len() {
-        env = env.suppressed(budget.cut_note(hops.len() - shown, "hops"));
+        env = env.suppressed(budget.cut_note_narrowable(hops.len() - shown, "hops", "--max-depth"));
     }
     // Measured (task F): a correct three-hop path was returned as skeletons, and the agent
     // then opened every hop by hand — 37 tool calls where the same command with
@@ -533,9 +564,9 @@ pub fn tests(sym: &SymbolRow, rows: &[SymbolRow], budget: &mut Budget) -> Envelo
             "  (no test reaches this symbol through the call graph)"
         );
     }
-    let mut env = Envelope::new(body);
+    let mut env = Envelope::new(body).rows(shown);
     if shown < rows.len() {
-        env = env.suppressed(budget.cut_note(rows.len() - shown, "tests"));
+        env = env.suppressed(budget.cut_note_narrowable(rows.len() - shown, "tests", "--depth"));
     }
     env
 }
@@ -559,7 +590,7 @@ pub fn weak_links(sym: &SymbolRow, sites: &[(String, f64)], budget: &mut Budget)
     if sites.is_empty() {
         let _ = writeln!(body, "  (no literal in the repo spells this name)");
     }
-    let mut env = Envelope::new(body);
+    let mut env = Envelope::new(body).rows(shown);
     if shown < sites.len() {
         env = env.suppressed(budget.cut_note(sites.len() - shown, "sites"));
     }
@@ -734,7 +765,8 @@ pub fn asserted(
         sym.qualified()
     );
     let mut needs_review = 0;
-    for l in links {
+    let mut shown = 0usize;
+    for (i, l) in links.iter().enumerate() {
         let other = if l.src == sym.id { l.dst } else { l.src };
         let other_name = store
             .symbol(other)?
@@ -756,11 +788,15 @@ pub fn asserted(
         if !budget.push(&mut body, &line) {
             break;
         }
+        shown = i + 1;
     }
     if links.is_empty() {
         let _ = writeln!(body, "  (none)");
     }
-    let mut env = Envelope::new(body);
+    let mut env = Envelope::new(body).rows(shown);
+    if shown < links.len() {
+        env = env.suppressed(budget.cut_note(links.len() - shown, "links"));
+    }
     if needs_review > 0 {
         env = env.unknown(format!(
             "{needs_review} of these are anchored in code that changed after they were \
@@ -786,7 +822,8 @@ pub fn concept(
 
     let mut needs_review = 0;
     let mut unanchored = 0;
-    for l in links {
+    let mut shown = 0usize;
+    for (i, l) in links.iter().enumerate() {
         let label = if l.resolved {
             store
                 .symbol(l.symbol_id)?
@@ -816,12 +853,17 @@ pub fn concept(
         if !budget.push(&mut body, &format!("  {:<12} {label}{note}{flag}", l.rel)) {
             break;
         }
+        shown = i + 1;
     }
     if links.is_empty() {
         let _ = writeln!(body, "  (nothing linked yet)");
     }
 
-    let mut env = Envelope::new(body);
+    let mut env = Envelope::new(body).rows(shown);
+    // The header states the full link count, so a cut list contradicts it in silence.
+    if shown < links.len() {
+        env = env.suppressed(budget.cut_note(links.len() - shown, "links"));
+    }
     if needs_review > 0 {
         env = env.unknown(format!(
             "{needs_review} links are anchored in code that changed after they were \
@@ -840,7 +882,8 @@ pub fn concept(
 pub fn concept_list(list: &[cairn_store::Concept], budget: &mut Budget) -> Envelope {
     let mut body = String::new();
     let _ = writeln!(body, "{} concepts", list.len());
-    for c in list {
+    let mut shown = 0usize;
+    for (i, c) in list.iter().enumerate() {
         let note = if c.note.is_empty() {
             String::new()
         } else {
@@ -856,11 +899,16 @@ pub fn concept_list(list: &[cairn_store::Concept], budget: &mut Budget) -> Envel
         ) {
             break;
         }
+        shown = i + 1;
     }
     if list.is_empty() {
         let _ = writeln!(body, "  (none)");
     }
-    Envelope::new(body)
+    let mut env = Envelope::new(body).rows(shown);
+    if shown < list.len() {
+        env = env.suppressed(budget.cut_note(list.len() - shown, "concepts"));
+    }
+    env
 }
 
 /// The dirty overlay for one file: what the language server sees now, against what the
@@ -892,7 +940,8 @@ pub fn live_overlay(
 
     let mut added = 0;
     let mut moved = 0;
-    for (qualified, s) in &live_q {
+    let mut shown = 0usize;
+    for (i, (qualified, s)) in live_q.iter().enumerate() {
         let known = indexed.iter().find(|(n, _, _)| n == qualified);
         let (mark, note) = match known {
             None => {
@@ -916,17 +965,29 @@ pub fn live_overlay(
         ) {
             break;
         }
+        shown = i + 1;
     }
 
     let gone: Vec<&str> = indexed_names.difference(&live_names).copied().collect();
+    // Counted rather than stopped at, matching what this loop already did: each line is
+    // independent, so one that does not fit does not mean the next cannot.
+    let mut gone_shown = 0usize;
     for name in &gone {
-        let _ = budget.push(
+        if budget.push(
             &mut body,
             &format!("- {name}   (in the index, not in the file now)"),
-        );
+        ) {
+            gone_shown += 1;
+        }
     }
 
-    let mut env = Envelope::new(body);
+    // Both halves of the comparison count: a symbol the index still lists and the file
+    // no longer has is as much a row of this answer as one that is present.
+    let mut env = Envelope::new(body).rows(shown + gone_shown);
+    let dropped = (live_q.len() - shown) + (gone.len() - gone_shown);
+    if dropped > 0 {
+        env = env.suppressed(budget.cut_note(dropped, "symbols"));
+    }
     if added + moved + gone.len() > 0 {
         env.stale.push(format!(
             "the index is behind for this file: {added} new, {moved} moved, {} gone",
@@ -1024,7 +1085,8 @@ pub fn context(
     if !r.concepts_matched.is_empty() {
         let _ = writeln!(body, "matched concepts: {}", r.concepts_matched.join(", "));
     }
-    for s in &r.seeds {
+    let mut shown = 0usize;
+    for (i, s) in r.seeds.iter().enumerate() {
         let why = s
             .sources
             .iter()
@@ -1034,6 +1096,7 @@ pub fn context(
         if !budget.push(&mut body, &format!("{}  [{why}]", symbol_line(&s.symbol))) {
             break;
         }
+        shown = i + 1;
     }
     if r.seeds.is_empty() {
         let _ = writeln!(body, "  (nothing matched)");
@@ -1042,7 +1105,10 @@ pub fn context(
         let _ = writeln!(body, "{note}");
     }
 
-    let mut env = Envelope::new(body);
+    let mut env = Envelope::new(body).rows(shown);
+    if shown < r.seeds.len() {
+        env = env.suppressed(budget.cut_note(r.seeds.len() - shown, "seeds"));
+    }
     if r.low_confidence {
         // Handing over weak guesses dressed as answers is how a tool teaches an agent
         // to stop trusting it. Say the seed is thin, say what is covered, name the
@@ -1074,7 +1140,8 @@ pub fn unreached(
         "{} symbols under {prefix} with no production caller       [L1, exact]",
         rows.len()
     );
-    for r in rows {
+    let mut shown = 0usize;
+    for (i, r) in rows.iter().enumerate() {
         let why = match r.why {
             cairn_store::Unreached::TestsOnly => format!("tests only ({})", r.test_callers),
             cairn_store::Unreached::Never => "no callers".to_string(),
@@ -1085,14 +1152,21 @@ pub fn unreached(
         ) {
             break;
         }
+        shown = i + 1;
     }
     if rows.is_empty() {
         let _ = writeln!(body, "  (everything here has a production caller)");
     }
-    Envelope::new(body).unknown(
+    let mut env = Envelope::new(body).rows(shown).unknown(
         "reachability is static: a symbol invoked by name at runtime looks unreached. \
          Check `cairn weaklinks <handle>` before deleting anything",
-    )
+    );
+    // The header counts every unreached symbol, so a budget cut leaves a list shorter
+    // than the number above it. Unsaid, that reads as a miscount rather than as a page.
+    if shown < rows.len() {
+        env = env.suppressed(budget.cut_note(rows.len() - shown, "symbols"));
+    }
+    env
 }
 
 /// What a module contains, and how used each thing is.
@@ -1104,7 +1178,8 @@ pub fn outline(
 ) -> Envelope {
     let mut body = String::new();
     let _ = writeln!(body, "{prefix}   {} of {total} definitions", rows.len());
-    for r in rows {
+    let mut shown = 0usize;
+    for (i, r) in rows.iter().enumerate() {
         let use_note = if r.production_callers > 0 {
             format!("{} prod", r.production_callers)
         } else if r.dispatched {
@@ -1122,6 +1197,7 @@ pub fn outline(
         ) {
             break;
         }
+        shown = i + 1;
     }
     if rows.is_empty() {
         // "Nothing indexed" and "everything here is generated, and I exclude that" are
@@ -1134,13 +1210,19 @@ pub fn outline(
         );
     }
     {
-        let mut env = Envelope::new(body);
+        let mut env = Envelope::new(body).rows(shown);
         let dropped = total - rows.len() as i64;
         if dropped > 0 {
             env = env.suppressed(format!(
                 "{dropped} definitions beyond --limit. Whole files can be missing from \
                  this list; raise --limit or narrow the path"
             ));
+        }
+        // A second, independent cut: `--limit` decides what the store returned, the
+        // budget decides how much of that got printed. Reporting only the first left
+        // the header promising rows the body never contained.
+        if shown < rows.len() {
+            env = env.suppressed(budget.cut_note(rows.len() - shown, "definitions"));
         }
         env
     }
@@ -1226,6 +1308,9 @@ pub fn usage(
     sym: &SymbolRow,
     rows: &[(String, i64, bool)],
     complete: bool,
+    // Sites in test files the query filtered out, when tests were not asked for. Zero
+    // when `--include-tests` was given, because then nothing was filtered.
+    tests_filtered: (i64, usize),
     budget: &mut Budget,
 ) -> Envelope {
     let mut body = String::new();
@@ -1250,16 +1335,40 @@ pub fn usage(
             rows[0].0
         );
     }
-    for (path, n, is_test) in rows {
+    let mut shown = 0usize;
+    for (i, (path, n, is_test)) in rows.iter().enumerate() {
         let tag = if *is_test { "  [test]" } else { "" };
         if !budget.push(&mut body, &format!("  {n:>4}x  {path}{tag}")) {
             break;
         }
+        shown = i + 1;
     }
     if rows.is_empty() {
         let _ = writeln!(body, "  (no uses outside its own definition)");
     }
-    let mut env = Envelope::new(body);
+    let mut env = Envelope::new(body).rows(shown);
+    // `complete` covers `--limit`; the budget can cut the printed list independently of
+    // it, and a file list that stops early is exactly the case the ALL-IN-ONE-FILE
+    // sentence above must never be read against.
+    if shown < rows.len() {
+        env = env.suppressed(budget.cut_note(rows.len() - shown, "files"));
+    }
+    // Measured: an agent asked which call sites a signature change would break was told
+    // "2 sites in 2 files", with `suppressed: none` and `unknown: none`, while `graph
+    // --aspect callers` on the same symbol returned four call sites - the two missing
+    // ones were in a test file. The filter is the right default (the question is usually
+    // about production), but an answer that drops rows and then states it dropped none is
+    // the failure this envelope exists to prevent. The agent caught it, cross-checked
+    // with `graph`, and said so in its answer; the cost was the round trips it took to
+    // stop trusting the first number.
+    let (test_sites, test_files) = tests_filtered;
+    if test_sites > 0 {
+        env = env.unknown(format!(
+            "{test_sites} more site(s) in {test_files} test file(s) are not counted above. \
+             `cairn usage {} --include-tests` includes them",
+            sym.handle
+        ));
+    }
     if let Some(note) = attribute_caveat(sym) {
         env = env.unknown(note);
     }
@@ -1314,7 +1423,7 @@ pub fn rpc_reaches(
         }
         shown = i + 1;
     }
-    let mut env = Envelope::new(body);
+    let mut env = Envelope::new(body).rows(shown);
     if shown < callers.len() {
         env = env.suppressed(budget.cut_note(callers.len() - shown, "callers"));
     }
@@ -1375,7 +1484,7 @@ pub fn cross_language(
         let _ = writeln!(body, "  (nothing on the other side of a service boundary)");
     }
 
-    let mut env = Envelope::new(body);
+    let mut env = Envelope::new(body).rows(shown);
     if shown < links.len() {
         env = env.suppressed(budget.cut_note(links.len() - shown, "links"));
     }
@@ -1397,7 +1506,8 @@ pub fn topology(rows: &[cairn_store::DeployServiceRow], budget: &mut Budget) -> 
         rows.len()
     );
     let mut unresolved = Vec::new();
-    for (name, command, entry_path, ports, ok) in rows {
+    let mut shown = 0usize;
+    for (i, (name, command, entry_path, ports, ok)) in rows.iter().enumerate() {
         let where_ =
             entry_path
                 .clone()
@@ -1421,8 +1531,12 @@ pub fn topology(rows: &[cairn_store::DeployServiceRow], budget: &mut Budget) -> 
         ) {
             break;
         }
+        shown = i + 1;
     }
-    let mut env = Envelope::new(body);
+    let mut env = Envelope::new(body).rows(shown);
+    if shown < rows.len() {
+        env = env.suppressed(budget.cut_note(rows.len() - shown, "services"));
+    }
     if !unresolved.is_empty() {
         // An unresolved entrypoint makes everything that service runs look unreachable.
         // That silently reclassifies live code as dead, so it is stated, not counted.
@@ -1436,31 +1550,544 @@ pub fn topology(rows: &[cairn_store::DeployServiceRow], budget: &mut Budget) -> 
     env
 }
 
+/// String literals, with the code around each and whose code it is.
+///
+/// The source comes by default rather than on request. A location alone forces a second
+/// call to decide anything, and a second call costs an inference — seconds — against the
+/// milliseconds this query takes. Cheap to send, expensive to make someone ask for.
+pub fn literals(
+    rows: &[cairn_store::LiteralSite],
+    needle: &str,
+    source: Option<&mut Source>,
+    ctx: SiteContext,
+    budget: &mut Budget,
+) -> Envelope {
+    let mut body = String::new();
+    let attributed = rows.iter().filter(|l| l.enclosing.is_some()).count();
+    let _ = writeln!(
+        body,
+        "{} literals containing \"{needle}\", {attributed} inside a function   [L0, exact]",
+        rows.len()
+    );
+
+    let mut source = source;
+    let mut shown = 0usize;
+    for (i, l) in rows.iter().enumerate() {
+        let whose = match &l.enclosing {
+            // The handle is the product: it turns "found it here" into a question you can
+            // ask next, without going back to `symbol` first.
+            Some(s) => format!("  in {} [{}]", s.qualified(), s.handle),
+            None => "  (module level)".to_string(),
+        };
+        let lines = source
+            .as_deref_mut()
+            .map(|src| src.site(&l.path, l.line, ctx))
+            .unwrap_or_default();
+        let inline = if lines.len() == 1 {
+            format!("   |  {}", lines[0].1.trim())
+        } else {
+            String::new()
+        };
+        let head = format!("  {}:{}{whose}{inline}", l.path, l.line + 1);
+        if !budget.push(&mut body, &head) {
+            break;
+        }
+        if lines.len() > 1 {
+            for (n, text) in &lines {
+                let marker = if *n as i64 == l.line + 1 { ">" } else { " " };
+                if !budget.push(&mut body, &format!("      {marker}{n:>5} | {text}")) {
+                    break;
+                }
+            }
+        }
+        shown = i + 1;
+    }
+    if rows.is_empty() {
+        let _ = writeln!(
+            body,
+            "  (no literal contains that. Only Python and Go are scanned, comments are \
+             skipped, and nothing outside a string is here - for those, grep)"
+        );
+    }
+
+    let mut env = Envelope::new(body).rows(shown);
+    if shown < rows.len() {
+        env = env.suppressed(budget.cut_note(rows.len() - shown, "literals"));
+    }
+    env = env.unknown(
+        "string literals only, from the languages that are indexed. A name built at run \
+         time - concatenated, formatted, or read from config - is not a literal and is \
+         not here",
+    );
+    env
+}
+
+/// The documentation map: what exists, and roughly what each one covers.
+///
+/// The question this answers is which document to open, and the numbers are there for
+/// exactly that. A reader deciding between four files needs to know what each would cost
+/// before paying it — which is the decision that goes wrong today, silently, every time.
+pub fn documents(rows: &[cairn_store::DocumentRow], budget: &mut Budget) -> Envelope {
+    let mut body = String::new();
+    let words: usize = rows.iter().map(|d| d.words).sum();
+    let _ = writeln!(
+        body,
+        "{} documents, {} sections, ~{words} words        [L0-M, exact]",
+        rows.len(),
+        rows.iter().map(|d| d.sections).sum::<usize>()
+    );
+    let mut shown = 0usize;
+    for (i, d) in rows.iter().enumerate() {
+        let title = d.title.as_deref().unwrap_or("(no title)");
+        let mut block = format!(
+            "  {:<44} {:>5}w  {}",
+            truncate(&d.path, 44),
+            d.words,
+            truncate(title, 40)
+        );
+        if !d.top.is_empty() {
+            // The top-level headings are the summary. Written by whoever wrote the
+            // document, which makes them a better description than anything derived.
+            let _ = write!(block, "\n{:<46}   {}", "", truncate(&d.top.join(" · "), 90));
+        }
+        if !budget.push(&mut body, &block) {
+            break;
+        }
+        shown = i + 1;
+    }
+    if rows.is_empty() {
+        let _ = writeln!(
+            body,
+            "  (no markdown indexed - run `cairn index` in the repository)"
+        );
+    }
+    let mut env = Envelope::new(body).rows(shown);
+    if shown < rows.len() {
+        env = env.suppressed(budget.cut_note(rows.len() - shown, "documents"));
+    }
+    env = env.unknown(
+        "headings and spans only, never the prose. This says which document and which \
+         lines; what they say is in the file",
+    );
+    env
+}
+
+/// One document's sections, as a skeleton to descend through.
+pub fn doc_sections(rows: &[cairn_store::SectionRow], budget: &mut Budget) -> Envelope {
+    let mut body = String::new();
+    let words: usize = rows.iter().map(|s| s.words).sum();
+    let _ = writeln!(
+        body,
+        "{} sections, ~{words} words        [L0-M, exact]",
+        rows.len()
+    );
+    let mut shown = 0usize;
+    for (i, s) in rows.iter().enumerate() {
+        let indent = "  ".repeat(s.level.saturating_sub(1));
+        // The range is the answer: read exactly this, not the file.
+        let line = format!(
+            "  {:<52} {:>5}w  {}:{}-{}",
+            format!(
+                "{indent}{}",
+                truncate(&s.heading, 50 - indent.len().min(40))
+            ),
+            s.words,
+            s.path,
+            s.start_line,
+            s.end_line
+        );
+        if !budget.push(&mut body, &line) {
+            break;
+        }
+        shown = i + 1;
+    }
+    if rows.is_empty() {
+        let _ = writeln!(
+            body,
+            "  (no such document indexed - `cairn docs` lists what there is)"
+        );
+    }
+    let mut env = Envelope::new(body).rows(shown);
+    if shown < rows.len() {
+        env = env.suppressed(budget.cut_note(rows.len() - shown, "sections"));
+    }
+    env
+}
+
+/// Sections that answer a search, strongest claim first.
+pub fn doc_search(
+    rows: &[(cairn_store::SectionRow, cairn_store::Hit)],
+    query: &str,
+    budget: &mut Budget,
+) -> Envelope {
+    use cairn_store::Hit;
+    let mut body = String::new();
+    let named = rows.iter().filter(|(_, h)| *h == Hit::Heading).count();
+    let _ = writeln!(
+        body,
+        "{} sections for \"{query}\": {named} are about it, {} mention it   [L0-M, exact]",
+        rows.len(),
+        rows.len() - named
+    );
+    let _ = writeln!(
+        body,
+        "  Each is a range to read, not a file to open. `about` means a heading names it."
+    );
+
+    let mut shown = 0usize;
+    for (i, (s, hit)) in rows.iter().enumerate() {
+        let mark = match hit {
+            Hit::Heading => "about".to_string(),
+            Hit::Body(n) => format!("{n}x"),
+        };
+        let line = format!(
+            "  {:<8} {:<48} {:>5}w  {}:{}-{}",
+            mark,
+            truncate(&s.trail, 48),
+            s.words,
+            s.path,
+            s.start_line,
+            s.end_line
+        );
+        if !budget.push(&mut body, &line) {
+            break;
+        }
+        shown = i + 1;
+    }
+    if rows.is_empty() {
+        let _ = writeln!(
+            body,
+            "  (nothing. `cairn docs` lists what is indexed - if the documentation for \
+             this lives outside the repository, nothing here can see it)"
+        );
+    }
+
+    let mut env = Envelope::new(body).rows(shown);
+    if shown < rows.len() {
+        env = env.suppressed(budget.cut_note(rows.len() - shown, "sections"));
+    }
+    env = env.unknown(
+        "a plain substring, case-insensitive: this finds where a subject is written \
+         about, not what is said about it. Synonyms and paraphrases are not matched, and \
+         nothing here reads the prose for meaning",
+    );
+    env
+}
+
+/// Claims put to a judgement, with the evidence and what would falsify each.
+///
+/// Written to be worked through rather than read: every check names where to look and how
+/// to record the answer, because a plan that leaves the reader to work out the next step
+/// is a plan that gets skimmed and confirmed wholesale.
+pub fn verification_plan(
+    checks: &[(cairn_store::Check, cairn_store::Standing)],
+    head: Option<&str>,
+    dirty: bool,
+    budget: &mut Budget,
+) -> Envelope {
+    use cairn_store::Standing;
+    let mut body = String::new();
+    let open = checks
+        .iter()
+        .filter(|(_, s)| *s != Standing::Current)
+        .count();
+    let _ = writeln!(
+        body,
+        "{open} of {} claims need a judgement        [asserted, not derived]",
+        checks.len()
+    );
+    let _ = writeln!(
+        body,
+        "  These are the places being indexed does not settle: a pass can produce output \
+         that\n  counts correctly and means nothing. Settle one by looking, then record it."
+    );
+    match head {
+        Some(sha) => {
+            let _ = writeln!(body, "  commit    {}", &sha[..sha.len().min(12)]);
+        }
+        None => {
+            let _ = writeln!(
+                body,
+                "  commit    unknown - a verdict recorded now cannot be aged, so it will \
+                 read as expired"
+            );
+        }
+    }
+    if dirty {
+        let _ = writeln!(
+            body,
+            "  tree      has uncommitted changes, so what you look at is not what the \
+             commit describes"
+        );
+    }
+
+    let mut shown = 0usize;
+    for (i, (c, standing)) in checks.iter().enumerate() {
+        if *standing == Standing::Current {
+            continue;
+        }
+        let mut block = format!("\n  [{}] {}\n    claim:     {}", c.id, c.area, c.claim);
+        for e in &c.evidence {
+            let _ = write!(block, "\n    look at:   {e}");
+        }
+        let _ = write!(block, "\n    wrong if:  {}", c.falsifier);
+        let _ = write!(
+            block,
+            "\n    record:    cairn llm verify --check {} --holds\n\
+             \x20              cairn llm verify --check {} --broken --note \"<what is wrong>\"",
+            c.id, c.id
+        );
+        if *standing == Standing::Broken {
+            let _ = write!(
+                block,
+                "\n    standing:  judged wrong, and still recorded so"
+            );
+        } else if *standing == Standing::Expired {
+            let _ = write!(
+                block,
+                "\n    standing:  judged against a different commit - look again"
+            );
+        }
+        if !budget.push(&mut body, &block) {
+            break;
+        }
+        shown = i + 1;
+    }
+
+    if open == 0 {
+        let _ = writeln!(
+            body,
+            "\n  (every claim has been judged against this commit)"
+        );
+    }
+    if checks.is_empty() {
+        let _ = writeln!(
+            body,
+            "\n  (nothing here needs judging: no entrypoint resolved and no service \
+             boundary was recovered)"
+        );
+    }
+
+    let mut env = Envelope::new(body).rows(shown);
+    if shown < checks.len() && open > shown {
+        env = env.suppressed(budget.cut_note(open - shown, "claims"));
+    }
+    env = env.unknown(
+        "a verdict recorded here is an opinion, not a derivation. Nothing acts on it, no \
+         exit code changes, and it can be recorded again",
+    );
+    env
+}
+
+/// The coverage axis: what each mechanism produced, area by area.
+///
+/// Plain text rather than an envelope because `status` is not an answer about the code —
+/// it is the report an agent reads to decide whether to believe the answers. Returned as
+/// a block so the layout lives here with every other layout.
+pub fn coverage(areas: &[cairn_store::Area]) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "\ncoverage   what each mechanism produced, against the tree it was built from"
+    );
+    // The ladder, said once at the top. `indexed` is two counts agreeing; `verified` is
+    // the rung above and needs a check that runs the query, so it can only ever apply to
+    // something already indexed.
+    let _ = writeln!(
+        out,
+        "           indexed -> verified -> verify stale -> verified. `indexed` is the pass\n\
+         \x20          having run and matched the tree, which is counting; the rungs above\n\
+         \x20          are judgements recorded by `cairn llm verify` and expire with the tree"
+    );
+    for a in areas {
+        // Severity in the gutter rather than in the state's spelling. The table is
+        // skimmed, so it needs a mark at row level; the footer below names the same rows
+        // for anyone reading rather than scanning.
+        let _ = writeln!(
+            out,
+            "{} {:<14} {:<13} {}",
+            if a.state.is_trouble() { "!" } else { " " },
+            truncate(&a.name, 14),
+            a.state.label(),
+            a.detail
+        );
+    }
+    let trouble: Vec<&str> = areas
+        .iter()
+        .filter(|a| a.state.is_trouble())
+        .map(|a| a.name.as_str())
+        .collect();
+    if !trouble.is_empty() {
+        // Repeated at the bottom on purpose: the rows above are a table, and a table is
+        // skimmed. The one line that says "do not trust answers about these" is not.
+        let _ = writeln!(
+            out,
+            "  -> answers that rest on {} are incomplete or empty, and will not say so",
+            trouble.join(", ")
+        );
+    }
+    out
+}
+
+/// Every way into the codebase: what starts code, and where that lands.
+///
+/// The unit is the entrypoint, not the service, because the question this answers is how
+/// code gets run and a container with three cron jobs offers four different answers to
+/// it. Each row ends in a path so the next question is `cairn outline <path>` — the point
+/// of listing entrypoints is to have somewhere to descend from.
+pub fn entrypoints(
+    rows: &[cairn_store::Entrypoint],
+    reaches: Option<&SymbolRow>,
+    blind: &[String],
+    budget: &mut Budget,
+) -> Envelope {
+    let mut body = String::new();
+    let services: std::collections::BTreeSet<&str> =
+        rows.iter().map(|e| e.service.as_str()).collect();
+    match reaches {
+        Some(sym) => {
+            let _ = writeln!(
+                body,
+                "{} entrypoint(s) can run [{}] {}, across {} service(s)   [L1 + L0-D, exact]",
+                rows.len(),
+                sym.handle,
+                sym.qualified(),
+                services.len()
+            );
+        }
+        None => {
+            let _ = writeln!(
+                body,
+                "{} entrypoint(s) across {} service(s)        [L0-D, exact]",
+                rows.len(),
+                services.len()
+            );
+        }
+    }
+
+    let mut shown = 0usize;
+    let mut unresolved = Vec::new();
+    for (i, e) in rows.iter().enumerate() {
+        if e.entry_path.is_none() && !e.idle {
+            unresolved.push(format!("{} ({})", e.service, e.trigger.label()));
+        }
+        let lands = match (&e.entry_path, e.idle) {
+            (Some(p), _) => p.as_str(),
+            // Held open on purpose. Saying so is the answer; calling it unresolved would
+            // be reporting a working parse as a failure.
+            (None, true) => "(idle - runs nothing at start)",
+            // Named, not blank: an empty column reads as "nothing here" when what it
+            // means is "this is where reachability stops seeing".
+            (None, false) => "-> UNRESOLVED",
+        };
+        let line = format!(
+            "  {:<18} {:<20} {:<42} {}",
+            e.trigger.label(),
+            truncate(&e.service, 20),
+            truncate(e.command.as_deref().unwrap_or("(image default)"), 42),
+            lands
+        );
+        if !budget.push(&mut body, &line) {
+            break;
+        }
+        // The runner script is the evidence for an on-demand chain, and a claim about
+        // what a container runs nightly is worth nothing if it cannot be checked.
+        if let Some(script) = &e.script {
+            if !budget.push(&mut body, &format!("  {:<18} via {script}", "")) {
+                break;
+            }
+        }
+        shown = i + 1;
+    }
+    if rows.is_empty() {
+        let _ = writeln!(
+            body,
+            "  (nothing starts any code here - no compose file resolved, or no service \
+             declares a command)"
+        );
+    }
+
+    let mut env = Envelope::new(body).rows(shown);
+    if shown < rows.len() {
+        env = env.suppressed(budget.cut_note_narrowable(
+            rows.len() - shown,
+            "entrypoints",
+            "--reaches",
+        ));
+    }
+    if !unresolved.is_empty() {
+        // The whole reason to list these: everything reached only from an entrypoint
+        // that did not resolve is invisible to `runs`, `affects` and `unreached`, and
+        // looks like dead code rather than like an unanswered question.
+        env = env.unknown(format!(
+            "{} entrypoint(s) did not resolve to code ({}). Anything only these run will \
+             look unreachable - `cairn rules` shows the command shapes that are \
+             recognised, and .cairn/rules.yaml adds more",
+            unresolved.len(),
+            unresolved.join(", ")
+        ));
+    }
+    if !blind.is_empty() {
+        env = env.unknown(format!(
+            "{} service(s) start nothing and were not found in any cron entry ({}). They \
+             run code on demand - a management command, `docker exec` - and nothing here \
+             or in the index can see what",
+            blind.len(),
+            blind.join(", ")
+        ));
+    }
+    env = env.unknown(
+        "this is what the deployment declares. A process started outside it - a developer \
+         shell, a CI job, an orchestrator living in another repository - is not here",
+    );
+    env
+}
+
 /// Which deployed services can reach a symbol.
 pub fn runs_in(
     sym: &SymbolRow,
     services: &[String],
     depth: usize,
-    via: Option<&SymbolRow>,
+    via: &cairn_store::Attribution,
     blind: &[String],
 ) -> Envelope {
     let mut body = String::new();
+    // `exact` is a claim about the call graph and only the direct answer earns it. The
+    // two fallbacks are weaker attributions and say so in the header, not only in a note
+    // further down that a reader skimming for the number will not reach.
+    let strength = match via {
+        cairn_store::Attribution::Direct => "[L1 + L0-D, exact]",
+        cairn_store::Attribution::ViaType(_) => "[L1 + L0-D, via the enclosing type]",
+        cairn_store::Attribution::ViaFile => "[L1 + L0-D, via the file, not a call path]",
+    };
     let _ = writeln!(
         body,
-        "[{}] {} runs in {} service(s)        [L1 + L0-D, exact]",
+        "[{}] {} runs in {} service(s)        {strength}",
         sym.handle,
         sym.qualified(),
         services.len()
     );
-    if let Some(owner) = via {
-        let _ = writeln!(
-            body,
-            "  answered for the enclosing type [{}] {}: nothing calls the method \
-             statically, which for a dispatched method means the caller is a table, \
-             not that the code is dead",
-            owner.handle,
-            owner.qualified()
-        );
+    match via {
+        cairn_store::Attribution::ViaType(owner) => {
+            let _ = writeln!(
+                body,
+                "  answered for the enclosing type [{}] {}: nothing calls the method \
+                 statically, which for a dispatched method means the caller is a table, \
+                 not that the code is dead",
+                owner.handle,
+                owner.qualified()
+            );
+        }
+        cairn_store::Attribution::ViaFile => {
+            let _ = writeln!(
+                body,
+                "  answered for the file this sits in: nothing calls it statically and it \
+                 owns no dispatched method, which is the shape of a framework route \
+                 handler. This says the module is loaded by that service, not that a call \
+                 path reaches this symbol"
+            );
+        }
+        cairn_store::Attribution::Direct => {}
     }
     for s in services {
         let _ = writeln!(body, "  {s}");
@@ -1468,7 +2095,8 @@ pub fn runs_in(
     if services.is_empty() {
         let _ = writeln!(body, "  (no service entrypoint reaches it)");
     }
-    let mut env = Envelope::new(body);
+    // No budget here: a service list is short by construction and is printed whole.
+    let mut env = Envelope::new(body).rows(services.len());
     if services.is_empty() {
         env = env.unknown(format!(
             "no service reaches this within {depth} call hops. That can mean dead code, \
@@ -1514,20 +2142,35 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
         services
     );
 
+    // Every printed route is a row of this answer, whichever of the three sections it
+    // came from: the deliverable is the set of ways a change here travels, not any one
+    // section of it.
+    let mut rows = 0usize;
+    let mut cut = 0usize;
+
     let _ = writeln!(body, "\nin-process");
     for p in &a.in_process {
         // An on-demand row already carries its trigger and its command in the label, and
         // the container's own start command is not what runs this code.
+        let name = if p.by_file {
+            format!("{} ~", p.service)
+        } else {
+            p.service.clone()
+        };
         let line = if p.service.contains(" (cron ") || p.service.contains(" (on demand") {
-            format!("  {}", p.service)
+            format!("  {name}")
         } else {
             format!(
                 "  {:<20} {}",
-                p.service,
+                name,
                 p.command.as_deref().unwrap_or("(image default)")
             )
         };
-        let _ = budget.push(&mut body, &line);
+        if budget.push(&mut body, &line) {
+            rows += 1;
+        } else {
+            cut += 1;
+        }
     }
     if a.in_process.is_empty() {
         let _ = writeln!(body, "  (no service entrypoint reaches it)");
@@ -1544,9 +2187,15 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
             body,
             "\nover the network, by hop - every route below reaches this symbol"
         );
+        // The file is part of the key, not a property of the group. Keyed without it, a
+        // group kept whichever call site came first and printed that path for all of
+        // them: ten routes into FolderService listed as one line ending `in folder.go`,
+        // when one of them is the share endpoint and lives in share.go. A row of this
+        // answer is a place to go and look, so a row that names a file the call is not in
+        // is worse than an extra row.
         let mut groups: std::collections::BTreeMap<
-            (String, String, String),
-            (Vec<String>, String),
+            (String, String, String, String),
+            Vec<String>,
         > = std::collections::BTreeMap::new();
         for h in &a.hops {
             let from = if h.from.is_empty() {
@@ -1567,13 +2216,19 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
                 .as_ref()
                 .map(|d| d.path.clone())
                 .unwrap_or_default();
-            let e = groups
-                .entry((from, to, format!("{}.{}", h.pkg, h.service)))
-                .or_insert_with(|| (Vec::new(), site));
-            e.0.push(h.rpc.clone());
+            groups
+                .entry((from, to, format!("{}.{}", h.pkg, h.service), site))
+                .or_default()
+                .push(h.rpc.clone());
         }
-        for ((from, to, service), (mut rpcs, site)) in groups {
+        let group_count = groups.len();
+        let mut hops_shown = 0usize;
+        for ((from, to, service, site), mut rpcs) in groups {
+            // The count is call sites; the list is which RPCs they carry. Two sites on
+            // one RPC printed its name twice, which reads as two RPCs.
+            let sites = rpcs.len();
             rpcs.sort();
+            rpcs.dedup();
             if !budget.push(
                 &mut body,
                 &format!(
@@ -1581,13 +2236,18 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
                     from,
                     to,
                     service,
-                    rpcs.len(),
+                    sites,
                     rpcs.join(", "),
                     site
                 ),
             ) {
                 break;
             }
+            hops_shown += 1;
+        }
+        rows += hops_shown;
+        if hops_shown < group_count {
+            cut += group_count - hops_shown;
         }
     }
 
@@ -1596,6 +2256,7 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
             body,
             "\ncalls out over the network - a change here changes what these receive"
         );
+        let mut out_shown = 0usize;
         for o in &a.outgoing {
             let who = if o.served_by.is_empty() {
                 "(no deployed server resolved)".to_string()
@@ -1608,10 +2269,16 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
             ) {
                 break;
             }
+            out_shown += 1;
         }
+        rows += out_shown;
+        cut += a.outgoing.len() - out_shown;
     }
 
-    let mut env = Envelope::new(body);
+    let mut env = Envelope::new(body).rows(rows);
+    if cut > 0 {
+        env = env.suppressed(budget.cut_note(cut, "routes"));
+    }
     if !a.blind.is_empty() {
         env = env.unknown(format!(
             "{} service(s) start nothing and run code on demand instead - cron, a \
@@ -1621,7 +2288,7 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
             a.blind.join(", ")
         ));
     }
-    if a.hops.iter().any(|h| h.from_by_file) {
+    if a.hops.iter().any(|h| h.from_by_file) || a.in_process.iter().any(|p| p.by_file) {
         env = env.unknown(
             "`~` marks a service attributed through the file the call sits in rather than \
              through a call path: a framework route handler has no static caller, so this \
@@ -1642,6 +2309,134 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
          followed, so `af = wrap(f)` does not break the chain, but a task queue, a \
          registry of callables or a name resolved at run time does - `cairn weaklinks` \
          is where those candidates live",
+    );
+    env
+}
+
+/// One attributed text hit, for `cairn for find`.
+pub struct FoundLine {
+    pub path: String,
+    pub line: usize,
+    pub text: String,
+    pub context: cairn_store::attribute::LineContext,
+}
+
+/// A text search, with whose line each hit is.
+///
+/// The line alone is what `rg` returns in the same 20 ms, so the line alone would make
+/// this command a slower ripgrep. Every row therefore carries what the index knows about
+/// it — the enclosing function and its handle, the markdown section and its range, the
+/// deployed service — and where it knows nothing, it says why rather than leaving a gap
+/// the reader has to interpret.
+pub fn found(
+    needle: &str,
+    hits: &[FoundLine],
+    services: &[String],
+    skipped: usize,
+    truncated: bool,
+    files: usize,
+    budget: &mut Budget,
+) -> Envelope {
+    let mut body = String::new();
+    let files_hit = hits
+        .iter()
+        .map(|h| &h.path)
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    let _ = writeln!(
+        body,
+        "{} line(s) containing \"{needle}\" in {files_hit} file(s), from {files} searched   [L0, the tree as it is now]",
+        hits.len()
+    );
+    if !services.is_empty() {
+        // A fact about the search term, so it is said once. Per row it claimed that a
+        // README line mentioning the variable belonged to the service, which is not what
+        // the lookup established.
+        let _ = writeln!(
+            body,
+            "this text appears in the start command or published ports of: {}",
+            services.join(", ")
+        );
+    }
+    if hits.is_empty() {
+        let _ = writeln!(
+            body,
+            "  (nothing in the working tree contains that, in any file type)"
+        );
+    }
+
+    let mut shown = 0usize;
+    let mut last_path = String::new();
+    for h in hits {
+        if h.path != last_path {
+            // The file header carries the flags, because "this hit is in generated code"
+            // changes what the hit means and is cheaper said once per file.
+            let mut tags = Vec::new();
+            if h.context.generated {
+                tags.push("generated");
+            }
+            if h.context.is_test {
+                tags.push("test");
+            }
+            // Only worth a tag where the absence is news: a `.py` or `.go` file the
+            // index has not got is a gap, a `.yaml` never could be. Said per file it was
+            // ten identical lines of noise; the general case belongs in the envelope.
+            let code = h.path.ends_with(".py") || h.path.ends_with(".go");
+            if code && !h.context.indexed {
+                tags.push("not in the index - a code file the last index run missed");
+            }
+            let tag = if tags.is_empty() {
+                String::new()
+            } else {
+                format!("   [{}]", tags.join(", "))
+            };
+            if !budget.push(&mut body, &format!("{}{tag}", h.path)) {
+                break;
+            }
+            last_path = h.path.clone();
+        }
+        // The attribution, then the line. Whose line it is is the reason to prefer this
+        // over grep, so it goes first.
+        let mut whose = Vec::new();
+        if let Some((name, handle)) = &h.context.symbol {
+            whose.push(format!("in {name} [{handle}]"));
+        }
+        if let Some((trail, start, end)) = &h.context.section {
+            whose.push(format!("in section {trail} ({start}-{end})"));
+        }
+        let whose = if whose.is_empty() {
+            String::new()
+        } else {
+            format!("  <- {}", whose.join(", "))
+        };
+        if !budget.push(
+            &mut body,
+            &format!("  {:>5} | {}{whose}", h.line, h.text.trim()),
+        ) {
+            break;
+        }
+        shown += 1;
+    }
+
+    let mut env = Envelope::new(body).rows(shown);
+    if shown < hits.len() {
+        env = env.suppressed(budget.cut_note(hits.len() - shown, "lines"));
+    }
+    if truncated {
+        env = env.unknown(
+            "the search stopped at its limit, so this is not the whole tree. Narrow the \
+             text or raise --limit",
+        );
+    }
+    if skipped > 0 {
+        env = env.unknown(format!(
+            "{skipped} file(s) over 2 MB were not read. A match inside one would not be here"
+        ));
+    }
+    env = env.unknown(
+        "substring, case-insensitive, over the working tree - so it is never stale, and \
+         it is not a regex. Symbol context is attached only where the file is indexed \
+         (Python and Go); section context only for markdown",
     );
     env
 }
@@ -1685,5 +2480,70 @@ mod tests {
     fn truncation_marks_itself() {
         assert_eq!(truncate("abcdef", 4), "abc~");
         assert_eq!(truncate("abc", 4), "abc");
+    }
+
+    #[test]
+    fn what_the_answer_left_out_and_what_it_reports_leaving_out_are_the_same_thing() {
+        let clean = Envelope::new("body".into());
+        assert!(!clean.truncated(), "nothing suppressed is nothing cut");
+        let cut = Envelope::new("body".into()).suppressed("3 more nodes");
+        assert!(
+            cut.truncated(),
+            "an answer that printed a suppressed: line has to record itself as truncated, \
+             or the session log and the answer disagree about the same query"
+        );
+    }
+
+    #[test]
+    fn rows_counts_what_arrived_not_what_matched() {
+        // The distinction is the whole reason the field exists: a log saying 40 rows for
+        // an answer that carried 2 cannot explain why the caller immediately asked again.
+        let services: Vec<cairn_store::DeployServiceRow> = (0..12)
+            .map(|i| {
+                (
+                    format!("service-{i}"),
+                    Some(format!("python -m service_{i}.main --serve")),
+                    Some(format!("srcpy/service_{i}/main.py")),
+                    String::new(),
+                    true,
+                )
+            })
+            .collect();
+
+        let mut unbounded = Budget::unlimited();
+        let whole = topology(&services, &mut unbounded);
+        assert_eq!(whole.rows, Some(12));
+        assert!(!whole.truncated(), "nothing was left out of this one");
+
+        let mut tight = Budget::tokens(30);
+        let cut = topology(&services, &mut tight);
+        let carried = cut.rows.expect("a list answer reports its length");
+        assert!(
+            carried < services.len(),
+            "the budget was too small for twelve rows, so fewer should be reported"
+        );
+        assert_eq!(
+            carried,
+            cut.body
+                .lines()
+                .filter(|l| l.trim_start().starts_with("service-"))
+                .count(),
+            "the count has to match the rows actually in the body"
+        );
+        assert!(cut.truncated(), "a cut list says so");
+    }
+
+    #[test]
+    fn a_list_with_nothing_in_it_is_not_the_same_as_no_list() {
+        let mut budget = Budget::unlimited();
+        let empty = topology(&[], &mut budget);
+        assert_eq!(
+            empty.rows,
+            Some(0),
+            "`topology` produces rows; none found is a fact worth logging"
+        );
+        // A report is not a list and has no honest row count to give. `verify` builds
+        // its envelope this way and leaves the field alone.
+        assert_eq!(Envelope::new("report".into()).rows, None);
     }
 }

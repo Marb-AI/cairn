@@ -10,15 +10,19 @@ use rusqlite::Connection;
 use std::path::Path;
 
 pub mod affects;
+pub mod attribute;
 pub mod batch;
 pub mod build;
 pub mod concepts;
 pub mod config;
 pub mod context;
 pub mod conventions;
+pub mod coverage;
 pub mod deploy;
+pub mod docs;
 pub mod graph;
 pub mod ingest;
+pub mod llmverify;
 pub mod ondemand;
 pub mod protolink;
 pub mod query;
@@ -33,13 +37,49 @@ pub use batch::{BatchStats, BatchWriter};
 pub use concepts::{Concept, ConceptLink};
 pub use config::Config;
 pub use context::{ContextResult, Seed, SeedSource};
-pub use deploy::{DeployServiceRow, DeployStats, Service, Topology};
+pub use coverage::{Area, State, TreeLanguage};
+pub use deploy::{
+    Attribution, DeployServiceRow, DeployStats, Entrypoint, Service, Topology, Trigger,
+};
+pub use docs::{Document, DocumentRow, Hit, Section, SectionRow};
 pub use graph::{Direction, PathHop, Walk, WalkNode};
+pub use llmverify::{Check, Standing, Verdict};
 pub use protolink::{CrossLink, RpcCaller, ServiceRole};
 pub use query::{Occurrence, SymbolRow};
 pub use rules::Rules;
 pub use survey::{OutlineEntry, Unreached, UnreachedSymbol};
 pub use verify::Report;
+pub use weak::{LiteralSite, LiteralStats};
+
+/// Seconds since the epoch, rendered as a timestamp without pulling in a date library.
+///
+/// Here rather than beside either caller: the session log and a recorded verdict both
+/// want one, and a second hand-rolled calendar is a second place to get a leap year
+/// wrong.
+pub fn now_iso8601() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    // Civil-from-days, the standard algorithm. Enough to sort and to read.
+    let (days, rem) = ((secs / 86_400) as i64, secs % 86_400);
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = if m <= 2 { y + 1 } else { y };
+    format!(
+        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
+        rem / 3600,
+        (rem % 3600) / 60,
+        rem % 60
+    )
+}
 
 /// Language tag. Stored as an integer; the set is closed on purpose (D16 puts
 /// per-language knowledge in rule packs, not in the core schema).
@@ -140,6 +180,10 @@ impl EdgeSource {
 
 pub struct Store {
     pub conn: Connection,
+    /// False when the authored-knowledge sidecar could not be opened and a memory one
+    /// stood in. Everything still works; nothing written survives the process. Carried
+    /// so a caller can say so before printing "recorded".
+    knowledge_is_durable: bool,
     /// Conventions this store reads the world with. Defaults to the built-in pack; an
     /// index run overrides it from `.cairn/rules.yaml` when there is one, so a repository
     /// whose commands or generated code do not look like the defaults can say so without
@@ -161,13 +205,24 @@ impl Store {
             rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
         schema::tune_for_query(&conn)?;
-        schema::attach_knowledge(&conn, &knowledge_path(path))?;
+        let knowledge_is_durable = schema::attach_knowledge(&conn, &knowledge_path(path))?;
         let store = Store {
             conn,
+            knowledge_is_durable,
             rules: rules::Rules::default(),
         };
         store.check_schema_version()?;
         Ok(store)
+    }
+
+    /// Whether anything written to the authored side will still be there next time.
+    ///
+    /// False means a memory sidecar stood in for one that could not be opened — a
+    /// read-only checkout, a directory someone removed. Every write still succeeds and
+    /// every read still works; nothing outlives the process. A caller about to print
+    /// "recorded" has to know which of those it is doing.
+    pub fn knowledge_is_durable(&self) -> bool {
+        self.knowledge_is_durable
     }
 
     fn check_schema_version(&self) -> Result<()> {
@@ -195,6 +250,7 @@ impl Store {
         schema::attach_knowledge(&conn, std::path::Path::new(":memory:"))?;
         Ok(Store {
             conn,
+            knowledge_is_durable: false,
             rules: rules::Rules::default(),
         })
     }
@@ -216,9 +272,10 @@ impl Store {
         schema::apply(&conn)?;
         // Deliberately attached *after* the projection was wiped: authored knowledge
         // survives every rebuild, which is the whole reason it lives in its own file.
-        schema::attach_knowledge(&conn, &knowledge_path(path))?;
+        let knowledge_is_durable = schema::attach_knowledge(&conn, &knowledge_path(path))?;
         Ok(Store {
             conn,
+            knowledge_is_durable,
             rules: rules::Rules::default(),
         })
     }

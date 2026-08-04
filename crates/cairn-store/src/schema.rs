@@ -15,7 +15,7 @@ use rusqlite::Connection;
 /// Bumped whenever the schema changes in a way that invalidates existing databases.
 /// The ingest path drops and rebuilds rather than migrating: the store is a projection,
 /// never a source of truth.
-pub const SCHEMA_VERSION: i64 = 16;
+pub const SCHEMA_VERSION: i64 = 18;
 
 pub const SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -181,6 +181,68 @@ CREATE TABLE IF NOT EXISTS deploy_on_demand (
     UNIQUE(service, script, command)
 );
 
+-- String literals, with whose code they sit in.
+--
+-- SCIP does not carry these: a literal is not a symbol, and no symbol index will ever
+-- have `"X-Request-Id"` in it. cairn was already reading them for the weak-link layer
+-- and throwing away every one that did not spell a symbol name; this keeps them.
+--
+-- The point is not to be a worse grep. grep finds the line faster and is never stale.
+-- What it cannot do is say whose line it is, and that is the question actually being
+-- asked - a header name matters because of the function that sets it, and knowing which
+-- function that is turns the next question into a handle rather than a second search.
+--
+-- Text is stored here rather than interned into `strings`, which holds names and paths:
+-- symbol search scans that table with LIKE, and putting literals in it would make
+-- `cairn symbol` start matching the contents of string constants.
+CREATE TABLE IF NOT EXISTS literals (
+    id        INTEGER PRIMARY KEY,
+    text      TEXT NOT NULL,
+    file_id   INTEGER NOT NULL REFERENCES files(id),
+    line      INTEGER NOT NULL,
+    -- The symbol whose definition span contains this line, deepest first. Null for a
+    -- literal at module level, which is a real place for one to be.
+    enclosing INTEGER REFERENCES symbols(id),
+    UNIQUE(text, file_id, line)
+);
+
+CREATE INDEX IF NOT EXISTS literals_by_file ON literals(file_id, line);
+
+-- Markdown as structure. Not the prose - headings, spans and word counts, which is
+-- enough to decide what to open and is the decision being made badly today: an agent
+-- that cannot tell which of forty documents holds a convention reads several to find
+-- one paragraph, and pays for all of them first.
+--
+-- Paths are stored plainly rather than interned: documents number in the tens where
+-- symbols number in the hundreds of thousands, and a join to save a few kilobytes would
+-- cost more to read than it saves.
+CREATE TABLE IF NOT EXISTS doc_files (
+    id    INTEGER PRIMARY KEY,
+    path  TEXT NOT NULL UNIQUE,
+    -- The first level-1 heading. Not the filename: a repository has four hundred
+    -- READMEs and none of them says what it is about.
+    title TEXT,
+    lines INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS doc_sections (
+    id         INTEGER PRIMARY KEY,
+    doc_id     INTEGER NOT NULL REFERENCES doc_files(id),
+    level      INTEGER NOT NULL,
+    heading    TEXT NOT NULL,
+    -- Headings above it, joined. Half the `## Rules` headings in a repository are
+    -- interchangeable; where one sits is what tells them apart.
+    trail      TEXT NOT NULL,
+    -- One-based and inclusive, so `start..=end` is the section and nothing else. The
+    -- range is the product: it turns "this document mentions it" into "read these lines".
+    start_line INTEGER NOT NULL,
+    end_line   INTEGER NOT NULL,
+    -- What reading it would cost, said before it is read.
+    words      INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS doc_sections_by_doc ON doc_sections(doc_id, start_line);
+
 -- Short, stable, deterministic codes for progressive disclosure (architecture 6.5).
 -- Assigned lazily and persisted, so a handle stays valid across sessions.
 CREATE TABLE IF NOT EXISTS handles (
@@ -258,6 +320,32 @@ CREATE TABLE IF NOT EXISTS k.links (
     UNIQUE(src_hash, dst_hash, rel)
 );
 
+-- Judgements about the index that the index cannot make about itself.
+--
+-- Authored, so it lives here: a verdict survives reindexing because it is about a claim
+-- the deterministic passes keep re-deriving, not about the rows of any one build. Rows
+-- are keyed by a check id that is a function of the claim, so the same claim in a rebuilt
+-- index finds its own verdict again.
+--
+-- `commit_sha` is what makes the verdict expire. Verification rests mostly on files that
+-- are not source - a compose file, a Dockerfile, a cron script, a .proto - so a rebuilt
+-- index does not renew it and editing those does not disturb the index. Neither side
+-- notices on its own; the recorded commit is the only thing that gives "changed since
+-- when" a referent. Null means it could not be determined, which must read as expired
+-- rather than as current.
+CREATE TABLE IF NOT EXISTS k.verifications (
+    check_id   TEXT PRIMARY KEY,
+    area       TEXT NOT NULL,
+    -- 1 the claim holds, 0 it does not. A recorded "broken" is worth more than silence:
+    -- it is the one state that says the index is confidently wrong here.
+    holds      INTEGER NOT NULL,
+    note       TEXT,
+    commit_sha TEXT,
+    recorded_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS k.verifications_by_area ON verifications(area);
+
 CREATE INDEX IF NOT EXISTS k.clink_by_symbol ON concept_links(symbol_hash);
 CREATE INDEX IF NOT EXISTS k.links_by_src    ON links(src_hash);
 CREATE INDEX IF NOT EXISTS k.links_by_dst    ON links(dst_hash);
@@ -274,15 +362,28 @@ CREATE INDEX IF NOT EXISTS k.links_by_dst    ON links(dst_hash);
 /// A memory database keeps the schema present so every query still compiles; notes written
 /// against it are lost, which is the right failure when the store they belong in is not
 /// writable anyway.
-pub fn attach_knowledge(conn: &Connection, path: &std::path::Path) -> Result<()> {
-    if conn
-        .execute("ATTACH DATABASE ?1 AS k", [path.to_string_lossy()])
-        .is_err()
-    {
+pub fn attach_knowledge(conn: &Connection, path: &std::path::Path) -> Result<bool> {
+    // Created explicitly first, because ATTACH cannot do it. The read path opens the
+    // projection with READ_WRITE and no CREATE, and an attached database inherits those
+    // flags — so attaching a sidecar that does not exist yet simply failed, fell through
+    // to the memory database below, and every note, link, concept and verdict written for
+    // the life of this tool was accepted, acknowledged and discarded. `cairn concept add`
+    // printed "recorded" and stored nothing.
+    let real = path != std::path::Path::new(":memory:")
+        && Connection::open(path)
+            .and_then(|c| c.close().map_err(|(_, e)| e))
+            .is_ok()
+        && conn
+            .execute("ATTACH DATABASE ?1 AS k", [path.to_string_lossy()])
+            .is_ok();
+    if !real {
         conn.execute("ATTACH DATABASE ':memory:' AS k", [])?;
     }
     conn.execute_batch(SQL_KNOWLEDGE)?;
-    Ok(())
+    // Reported, not swallowed. A memory sidecar is the right failure for a checkout that
+    // cannot be written to, but silence about it is what turned a broken write path into
+    // three months of confident "recorded" messages.
+    Ok(real)
 }
 
 pub fn apply(conn: &Connection) -> Result<()> {

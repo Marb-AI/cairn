@@ -75,6 +75,150 @@ pub struct WeakStats {
     pub skipped_common: usize,
 }
 
+/// A literal, and whose code it sits in.
+pub struct LiteralSite {
+    pub text: String,
+    pub path: String,
+    pub line: i64,
+    /// The symbol whose definition contains the line, when one does.
+    pub enclosing: Option<crate::SymbolRow>,
+}
+
+#[derive(Debug, Default)]
+pub struct LiteralStats {
+    pub files: usize,
+    pub literals: usize,
+    pub attributed: usize,
+}
+
+/// Record every string literal, with the symbol whose body it sits in.
+///
+/// Run at index time, unlike `derive_weak_links`, which is a separate command and
+/// therefore usually never runs at all. The extraction is the same pass — the weak layer
+/// was already reading every literal in the repository and discarding the ones that did
+/// not spell a symbol name.
+///
+/// Why keep them: grep finds a literal faster than this ever will and is never stale.
+/// What it cannot do is say whose line it found, and that is what the caller is going to
+/// ask next. Returning the enclosing symbol turns a second search into a handle.
+pub fn index_literals(store: &mut Store, repo_root: &Path) -> Result<LiteralStats> {
+    let mut stats = LiteralStats::default();
+    let files: Vec<(i64, String)> = {
+        let mut stmt = store.conn.prepare(
+            "SELECT f.id, p.s FROM files f JOIN strings p ON p.id = f.path_id
+              WHERE f.generated = 0",
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        out
+    };
+
+    let tx = store.conn.transaction()?;
+    tx.execute("DELETE FROM literals", [])?;
+    {
+        // Definitions with a body, per file, so a literal can be attributed without a
+        // correlated subquery per row.
+        let mut spans_stmt = tx.prepare(
+            "SELECT id, def_line, def_end_line FROM symbols
+              WHERE def_file_id = ?1 AND def_end_line IS NOT NULL",
+        )?;
+        let mut ins = tx.prepare(
+            "INSERT OR IGNORE INTO literals(text, file_id, line, enclosing)
+             VALUES (?1, ?2, ?3, ?4)",
+        )?;
+        for (file_id, rel_path) in &files {
+            let Ok(text) = std::fs::read_to_string(repo_root.join(rel_path)) else {
+                continue;
+            };
+            stats.files += 1;
+            let spans: Vec<(i64, i64, i64)> = spans_stmt
+                .query_map(params![file_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+                .collect::<std::result::Result<_, _>>()?;
+            for (line, literal) in string_literals(&text, rel_path) {
+                if literal.len() < MIN_LITERAL_LEN || literal.trim().is_empty() {
+                    continue;
+                }
+                // Numbers and version strings are noise: a caller searching for one of
+                // those is not asking a question this can answer better than grep.
+                if literal.chars().all(|c| c.is_ascii_digit() || c == '.') {
+                    continue;
+                }
+                // Deepest span wins. A literal inside a method is inside its class too,
+                // and naming the class would hand back the larger thing to read - the
+                // same mistake the documentation layer had to be corrected for.
+                let enclosing = spans
+                    .iter()
+                    .filter(|(_, a, b)| *a <= line && line <= *b)
+                    .max_by_key(|(_, a, _)| *a)
+                    .map(|(id, _, _)| *id);
+                if enclosing.is_some() {
+                    stats.attributed += 1;
+                }
+                ins.execute(params![literal, file_id, line, enclosing])?;
+                stats.literals += 1;
+            }
+        }
+    }
+    tx.commit()?;
+    Ok(stats)
+}
+
+impl Store {
+    /// String literals containing this text, with whose code each sits in.
+    ///
+    /// A plain case-insensitive substring, because that is the question: a caller who
+    /// knows the header is spelled `X-Request-Id` is not searching, they are locating.
+    /// Ordered so attributed sites come first — a literal inside a function is the one
+    /// that can be followed anywhere.
+    pub fn literals(&self, needle: &str, limit: usize) -> Result<Vec<LiteralSite>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT l.text, p.s, l.line, l.enclosing
+               FROM literals l
+               JOIN files f   ON f.id = l.file_id
+               JOIN strings p ON p.id = f.path_id
+              WHERE lower(l.text) LIKE ?1
+              ORDER BY (l.enclosing IS NULL) ASC, p.s, l.line
+              LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(
+            params![format!("%{}%", needle.to_lowercase()), limit as i64],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, Option<i64>>(3)?,
+                ))
+            },
+        )?;
+        let mut out = Vec::new();
+        for r in rows {
+            let (text, path, line, enclosing) = r?;
+            let enclosing = match enclosing {
+                Some(id) => self.symbol(id)?,
+                None => None,
+            };
+            out.push(LiteralSite {
+                text,
+                path,
+                line,
+                enclosing,
+            });
+        }
+        Ok(out)
+    }
+
+    /// How many literals were recorded, for the coverage axis.
+    pub fn literal_count(&self) -> Result<i64> {
+        Ok(self
+            .conn
+            .query_row("SELECT count(*) FROM literals", [], |r| r.get(0))?)
+    }
+}
+
 /// Scan the repo for string literals matching symbol names and record weak edges.
 ///
 /// `repo_root` must be the workspace root; file paths in the store are relative to it.
@@ -286,6 +430,48 @@ mod tests {
             .into_iter()
             .map(|(_, s)| s)
             .collect()
+    }
+
+    #[test]
+    fn a_literal_is_attributed_to_the_function_it_sits_in() {
+        // The whole reason to keep literals at all. grep finds the line faster than this
+        // ever will; what it cannot say is whose line it is, and that is the question
+        // being asked next. Attribution is what turns a second search into a handle.
+        let dir = std::env::temp_dir().join("cairn-literals");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("h.py"),
+            "HEADER = \"X-Request-Id\"\n\ndef build_headers():\n    return {\"X-Request-Id\": 1}\n",
+        )
+        .unwrap();
+        let mut store = Store::reset(&dir.join("index.sqlite")).unwrap();
+        // One file, one function spanning lines 3-4 (zero-based 2..3).
+        store
+            .conn
+            .execute_batch(
+                "INSERT INTO strings(s) VALUES ('h.py'), ('build_headers');
+                 INSERT INTO files(id, path_id, lang)
+                   VALUES (1, (SELECT id FROM strings WHERE s='h.py'), 1);
+                 INSERT INTO symbols(id, hash, name_id, kind, lang, def_file_id, def_line,
+                                     def_end_line)
+                   VALUES (1, x'01', (SELECT id FROM strings WHERE s='build_headers'),
+                           3, 1, 1, 2, 3);",
+            )
+            .unwrap();
+        let stats = index_literals(&mut store, &dir).unwrap();
+        assert_eq!(stats.literals, 2, "both spellings of the header");
+        assert_eq!(stats.attributed, 1, "only the one inside the function");
+
+        let hits = store.literals("x-request-id", 10).unwrap();
+        assert_eq!(hits.len(), 2);
+        // Attributed first: a literal inside a function is the one that can be followed.
+        assert!(hits[0].enclosing.is_some());
+        assert_eq!(hits[0].enclosing.as_ref().unwrap().name, "build_headers");
+        assert!(
+            hits[1].enclosing.is_none(),
+            "the module-level one is not invented into a function"
+        );
     }
 
     #[test]

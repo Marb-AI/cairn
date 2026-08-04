@@ -17,6 +17,8 @@ use std::time::Instant;
 /// there" from "I cannot see" (architecture 6.1.1).
 mod docker;
 mod index;
+mod purpose;
+mod treefind;
 mod skill;
 mod track;
 
@@ -84,6 +86,28 @@ enum ConceptCmd {
     Drop { ns: String },
 }
 
+#[derive(Subcommand)]
+enum LlmCmd {
+    /// List the claims that need judging, or record a verdict on one.
+    Verify {
+        /// Record against this check id instead of listing. Ids come from the listing.
+        #[arg(long)]
+        check: Option<String>,
+        /// The claim holds.
+        #[arg(long, conflicts_with = "broken")]
+        holds: bool,
+        /// The claim does not hold. Say why in --note: a bare "wrong" cannot be acted on.
+        #[arg(long)]
+        broken: bool,
+        /// What was found. Required with --broken.
+        #[arg(long)]
+        note: Option<String>,
+        /// Repo root, for reading the commit a verdict is anchored to.
+        #[arg(long)]
+        repo: Option<PathBuf>,
+    },
+}
+
 /// Which relation a graph command follows.
 #[derive(Clone, Copy, clap::ValueEnum)]
 enum Aspect {
@@ -95,6 +119,18 @@ enum Aspect {
     Impls,
     /// Tests that reach this symbol through the call graph.
     Tests,
+}
+
+/// What the caller is doing. Deliberately a closed set rather than free text: matching a
+/// sentence means either calling a model, which D1 forbids, or keyword-matching while
+/// pretending to understand - and a tool that guesses intent silently is the exact
+/// failure this project keeps finding and fixing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum Purpose {
+    /// I am going to modify this symbol. What breaks, and how far does it reach?
+    Change,
+    /// Where is this text - a value, a key, a header, a name - and whose line is it?
+    Find,
 }
 
 #[derive(Subcommand)]
@@ -119,6 +155,28 @@ enum Cmd {
     /// Done for you by `cairn index`; this is here for the case where that was skipped,
     /// or where the guide has moved on since.
     Skill,
+    /// Say what you are doing; cairn picks how to answer it.
+    ///
+    /// The command surface below this one is named after mechanisms - `refs`, `graph`,
+    /// `path`, `usage` - and measurement showed that is the wrong shape for the moment
+    /// an agent asks. It knows its purpose reliably and picks the mechanism badly: one
+    /// run spent eight calls across four commands on a question no symbol command
+    /// answers, and on another the mechanism that fits (`path`) needs both ends of a
+    /// chain when the whole question is what the far end is.
+    ///
+    /// So: purpose first. Every block of the answer names the command that produced it,
+    /// which is the way down to the mechanism when this shape is not what you needed.
+    For {
+        #[arg(value_enum)]
+        purpose: Purpose,
+        /// A handle, a symbol name, or - for `find` - any text.
+        subject: String,
+        #[arg(long, default_value_t = 60)]
+        limit: usize,
+        /// Repository root. Defaults to the working directory.
+        #[arg(long)]
+        repo: Option<PathBuf>,
+    },
     /// Entry point by concept: turn "the OAuth stuff" into symbols to start from.
     Context {
         query: String,
@@ -210,6 +268,16 @@ enum Cmd {
     },
     /// Deployed services and what each one runs.
     Topology,
+    /// Every way code gets started: start commands, cron entries, on-demand runners.
+    ///
+    /// One row per entrypoint rather than per service, each ending in the file it lands
+    /// in - `cairn outline <that path>` is the way down from here. With --reaches it
+    /// answers the audit direction instead: which of them can actually run this symbol.
+    Entrypoints {
+        /// Only entrypoints from which this symbol can be run.
+        #[arg(long)]
+        reaches: Option<String>,
+    },
     /// Every deployed service a change here touches, in-process and over the network.
     ///
     /// One call instead of `runs` plus `reaches` per hop plus `topology`: measurement
@@ -303,8 +371,58 @@ enum Cmd {
     /// Symbols in a file as the language server sees it *now* - the dirty overlay.
     /// Answers about a changed file that the index cannot.
     Live { path: String },
+    /// Find a string literal, and get whose function it sits in.
+    ///
+    /// The thing SCIP cannot carry, because a literal is not a symbol: a header name, a
+    /// dict key, a feature flag. grep finds the line faster and is never stale — what it
+    /// cannot say is whose line it is, which is the question you were going to ask next.
+    ///
+    /// The surrounding source comes back by default. Asking for it separately would cost
+    /// an inference, and an inference costs more than everything this command does.
+    Literal {
+        /// Text to look for inside string literals. Case-insensitive substring.
+        text: String,
+        /// How much source at each site: none | line | block | <n>.
+        #[arg(long, default_value = "block")]
+        context: String,
+        /// Repo root. Worked out from the index's own location when omitted, which is
+        /// right whenever the index sits at the conventional `<repo>/.cairn/`.
+        #[arg(long)]
+        repo: Option<PathBuf>,
+        #[arg(long, default_value_t = 30)]
+        limit: usize,
+    },
+    /// The documentation map: which document holds what, and what each costs to read.
+    ///
+    /// Headings and line ranges, never the prose. With no argument it lists the
+    /// documents; with a path it gives that one's section skeleton; with --about it
+    /// finds the sections whose heading, or where that heading sits, names your words.
+    ///
+    /// The answer is always a line range, so the next step is reading thirty lines
+    /// rather than four files. For a word inside the prose, grep is still the tool.
+    Docs {
+        /// A markdown path, for that document's sections.
+        path: Option<String>,
+        /// Sections whose heading or trail names this.
+        #[arg(long, conflicts_with = "path")]
+        about: Option<String>,
+    },
     /// What is indexed, and how stale it is.
     Status,
+    /// Claims the index cannot check about itself, put to whoever is reading.
+    ///
+    /// No model is called: cairn is a CLI an agent drives, and the agent is the one that
+    /// can go and look. With no arguments it prints the claims that need judging, each
+    /// with the evidence and what would falsify it. `--check <id>` records the answer.
+    ///
+    /// Advisory throughout. Nothing here changes an exit code or blocks a command - a
+    /// deterministic tool that refused to work because a judgement disagreed would have
+    /// traded away the thing that makes it worth trusting.
+    #[command(name = "llm")]
+    Llm {
+        #[command(subcommand)]
+        cmd: LlmCmd,
+    },
 }
 
 fn main() -> ExitCode {
@@ -407,6 +525,10 @@ fn report(argv: &[String], code: u8, elapsed: std::time::Duration) {
         .filter(|a| a.starts_with("--"))
         .cloned()
         .collect();
+    // What the answer carried, as the caller saw it. Read here rather than passed down
+    // from `run` so that the record and the printed answer cannot describe two different
+    // things: both come from the same envelope, a moment apart.
+    let (rows, truncated) = track::observed();
     track::append(
         &db,
         &track::Record {
@@ -414,11 +536,22 @@ fn report(argv: &[String], code: u8, elapsed: std::time::Duration) {
             subject: subject.map(|s| s.as_str()),
             flags,
             exit: code,
-            rows: None,
-            truncated: false,
+            rows,
+            truncated,
             elapsed,
         },
     );
+}
+
+/// Print an answer, and remember what it carried.
+///
+/// Every envelope leaves through here. Printing and recording being one step is the
+/// point: the session log is read to ask why an agent ran the same query four times, and
+/// that question is only answerable if the row count and the "I left something out" flag
+/// in the log are the ones that were in front of it when it decided to ask again.
+fn emit(env: cairn_fmt::Envelope) {
+    track::observe(env.rows, env.truncated());
+    print!("{}", env.render());
 }
 
 /// Repo-relative paths mentioned by an answer, for staleness marking.
@@ -555,10 +688,9 @@ fn index_dir_rel(db: &Path, repo: &Path) -> PathBuf {
 /// Reports per language rather than stopping at the first gap, and says plainly when a
 /// language is present that cairn cannot read — an index that silently covers half a
 /// repository is the same confident incompleteness every answer here is built to avoid.
-fn produce_indexes(repo: &Path, out_rel: &Path) -> Result<Vec<PathBuf>> {
+fn produce_indexes(repo: &Path, out_rel: &Path, survey: &index::Survey) -> Result<Vec<PathBuf>> {
     use std::io::Write;
 
-    let survey = index::scan(repo)?;
     if survey.found.is_empty() && survey.unsupported.is_empty() {
         anyhow::bail!(
             "found no source files under {} ({} looked at).\n\
@@ -720,14 +852,17 @@ fn run() -> Result<u8> {
                 }
             }
 
-            // Nothing was named, so work out what is here and produce it.
-            let indexes = if indexes.is_empty() {
-                produce_indexes(
-                    repo.as_deref().unwrap(),
-                    &index_dir_rel(&db, repo.as_deref().unwrap()),
-                )?
+            // Nothing was named, so work out what is here and produce it. The survey is
+            // kept: what the tree held is half of every coverage answer, and re-walking
+            // it at query time would answer about the tree as it is now rather than the
+            // one this index was built from.
+            let (indexes, survey) = if indexes.is_empty() {
+                let repo = repo.as_deref().unwrap();
+                let survey = index::scan(repo)?;
+                let produced = produce_indexes(repo, &index_dir_rel(&db, repo), &survey)?;
+                (produced, Some(survey))
             } else {
-                indexes
+                (indexes, None)
             };
             let started = Instant::now();
             // Build beside the live index, then swap. Measured: while `index` ran, twelve
@@ -776,6 +911,48 @@ fn run() -> Result<u8> {
                     );
                 }
             }
+            if let Some(s) = &survey {
+                let langs: Vec<cairn_store::TreeLanguage> = s
+                    .found
+                    .iter()
+                    .map(|f| cairn_store::TreeLanguage {
+                        name: f.language.name.to_string(),
+                        files: f.files as i64,
+                        indexable: true,
+                    })
+                    .chain(
+                        s.unsupported
+                            .iter()
+                            .map(|(l, n, _)| cairn_store::TreeLanguage {
+                                name: l.to_string(),
+                                files: *n as i64,
+                                indexable: false,
+                            }),
+                    )
+                    .collect();
+                store.set_tree_survey(&langs, s.protos as i64)?;
+            }
+
+            // Literals: the pass the weak layer was already making, kept this time.
+            if let Some(root) = repo.as_deref() {
+                let l = cairn_store::weak::index_literals(&mut store, root)?;
+                if l.literals > 0 {
+                    println!(
+                        "literals: {} in {} files, {} inside a function",
+                        l.literals, l.files, l.attributed
+                    );
+                }
+            }
+
+            // Markdown, where there is a tree to read it from. Independent of the SCIP
+            // side: documents are not symbols and nothing about them waits on the graph.
+            if let Some(root) = repo.as_deref() {
+                let (files, sections) = store.link_docs(root)?;
+                if files > 0 {
+                    println!("docs:     {files} markdown files, {sections} sections");
+                }
+            }
+
             // Cross-language links are derived once the whole index is in place: the
             // two sides of a service boundary usually arrive from different SCIP files.
             let links = store.link_services()?;
@@ -832,6 +1009,51 @@ fn run() -> Result<u8> {
             Ok(exit::FOUND)
         }
 
+        Cmd::For {
+            purpose,
+            subject: subj,
+            limit,
+            repo,
+        } => {
+            let store = open(&db)?;
+            match purpose {
+                Purpose::Find => {
+                    // `<repo>/.cairn/index.sqlite`, so the repository is two levels up
+                    // — the same derivation `spawn_daemon` makes. Searching the tree from
+                    // the working directory instead would answer about whatever subtree
+                    // the caller happened to stand in.
+                    let root = repo
+                        .or_else(|| db.parent().and_then(|d| d.parent()).map(|p| p.to_path_buf()))
+                        .unwrap_or_else(|| PathBuf::from("."));
+                    let (env, found) = purpose::find(&store, &root, &subj, limit, &mut budget)?;
+                    emit(env);
+                    Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+                }
+                Purpose::Change => {
+                    // The spoken redirect. It fires before resolution, so the caller is
+                    // told which purpose fits rather than being handed an empty symbol
+                    // search and left to work it out - which is what cost eight calls in
+                    // the run this exists for.
+                    if purpose::looks_like_text(&subj) {
+                        eprintln!(
+                            "cairn: '{subj}' looks like text rather than a symbol. \
+                             `cairn for change` answers about code that a call graph \
+                             reaches; a value, a key or a header lives in files no \
+                             indexer reads. Try `cairn for find \"{subj}\"` - it \
+                             searches the tree and says whose line each hit is."
+                        );
+                        return Ok(exit::ERROR);
+                    }
+                    let Some(symbol_id) = subject(&store, &subj, cli_budget)? else {
+                        return Ok(exit::ERROR);
+                    };
+                    let (env, found) = purpose::change(&store, symbol_id, &mut budget)?;
+                    emit(env);
+                    Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+                }
+            }
+        }
+
         Cmd::Context { query, limit } => {
             if query.trim().is_empty() {
                 eprintln!("cairn: empty query - describe the feature in a word or two");
@@ -842,11 +1064,9 @@ fn run() -> Result<u8> {
             let res = store.context(&query, limit)?;
             let found = !res.seeds.is_empty();
             let paths = paths_of(res.seeds.iter().map(|s| s.symbol.def.as_ref()));
-            print!(
-                "{}",
+            emit(
                 cairn_fmt::context(&query, &res, &coverage, &mut budget)
-                    .mark_stale(dirty.as_deref(), &paths)
-                    .render()
+                    .mark_stale(dirty.as_deref(), &paths),
             );
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
@@ -856,11 +1076,9 @@ fn run() -> Result<u8> {
             let rows = store.unreached(&prefix, limit)?;
             let found = !rows.is_empty();
             let paths = paths_of(rows.iter().map(|r| r.symbol.def.as_ref()));
-            print!(
-                "{}",
+            emit(
                 cairn_fmt::unreached(&prefix, &rows, &mut budget)
-                    .mark_stale(dirty.as_deref(), &paths)
-                    .render()
+                    .mark_stale(dirty.as_deref(), &paths),
             );
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
@@ -870,11 +1088,9 @@ fn run() -> Result<u8> {
             let (rows, total) = store.outline(&prefix, limit)?;
             let found = !rows.is_empty();
             let paths = paths_of(rows.iter().map(|r| r.symbol.def.as_ref()));
-            print!(
-                "{}",
+            emit(
                 cairn_fmt::outline(&prefix, &rows, total, &mut budget)
-                    .mark_stale(dirty.as_deref(), &paths)
-                    .render()
+                    .mark_stale(dirty.as_deref(), &paths),
             );
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
@@ -885,14 +1101,27 @@ fn run() -> Result<u8> {
             limit,
         } => {
             let store = open(&db)?;
-            let symbol_id = resolve(&store, &handle)?;
+            let Some(symbol_id) = subject(&store, &handle, cli_budget)? else {
+                return Ok(exit::ERROR);
+            };
             let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
             let rows = store.usage_by_file(symbol_id, include_tests, limit)?;
             let found = !rows.is_empty();
-            print!(
-                "{}",
-                cairn_fmt::usage(&sym, &rows, rows.len() < limit, &mut budget).render()
-            );
+            // Only when the filter was actually applied: with --include-tests the rows
+            // above already hold them, and reporting them again as missing would be a
+            // second wrong answer in the other direction.
+            let filtered = if include_tests {
+                (0, 0)
+            } else {
+                store.usage_in_tests(symbol_id)?
+            };
+            emit(cairn_fmt::usage(
+                &sym,
+                &rows,
+                rows.len() < limit,
+                filtered,
+                &mut budget,
+            ));
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
@@ -910,11 +1139,9 @@ fn run() -> Result<u8> {
             let rows = store.find_symbols(&query, limit)?;
             let found = !rows.is_empty();
             let paths = paths_of(rows.iter().map(|r| r.def.as_ref()));
-            print!(
-                "{}",
+            emit(
                 cairn_fmt::symbols(&rows, &query, &coverage, rows.len() < limit, &mut budget)
-                    .mark_stale(dirty.as_deref(), &paths)
-                    .render()
+                    .mark_stale(dirty.as_deref(), &paths),
             );
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
@@ -927,10 +1154,9 @@ fn run() -> Result<u8> {
             repo,
         } => {
             let store = open(&db)?;
-            let Some(symbol_id) = store.resolve_handle(&handle)? else {
-                // An unknown handle is a query error, not an empty result: the agent
-                // asked about something we cannot even identify.
-                eprintln!("cairn: no symbol with handle '{handle}' (run `cairn symbol` first)");
+            // An unknown handle or name is a query error, not an empty result: the agent
+            // asked about something we cannot even identify.
+            let Some(symbol_id) = subject(&store, &handle, cli_budget)? else {
                 return Ok(exit::ERROR);
             };
             let sym = store
@@ -960,8 +1186,7 @@ fn run() -> Result<u8> {
                 (_, Some(root)) => Some(Source::new(root)),
                 (_, None) => anyhow::bail!("--context prints source, so it needs --repo <dir>"),
             };
-            print!(
-                "{}",
+            emit(
                 cairn_fmt::references_with_context(
                     &sym,
                     &refs,
@@ -969,10 +1194,9 @@ fn run() -> Result<u8> {
                     total,
                     source.as_mut(),
                     ctx,
-                    &mut budget
+                    &mut budget,
                 )
-                .mark_stale(dirty.as_deref(), &paths)
-                .render()
+                .mark_stale(dirty.as_deref(), &paths),
             );
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
@@ -988,7 +1212,9 @@ fn run() -> Result<u8> {
             exclude_tests,
         } => {
             let store = open(&db)?;
-            let symbol_id = resolve(&store, &handle)?;
+            let Some(symbol_id) = subject(&store, &handle, cli_budget)? else {
+                return Ok(exit::ERROR);
+            };
             let view =
                 View::parse(&view).with_context(|| format!("unknown view '{view}' (list|tree)"))?;
             let detail = Detail::parse(&detail).with_context(|| {
@@ -1008,7 +1234,7 @@ fn run() -> Result<u8> {
                          exercise it dynamically (fixtures, parametrisation, reflection)",
                     );
                 }
-                print!("{}", env.render());
+                emit(env);
                 return Ok(if found { exit::FOUND } else { exit::NOT_FOUND });
             }
             let (kind, dir, label) = match aspect {
@@ -1039,7 +1265,7 @@ fn run() -> Result<u8> {
                     ));
                 }
             }
-            print!("{}", env.render());
+            emit(env);
             Ok(if w.nodes.len() > 1 {
                 exit::FOUND
             } else {
@@ -1111,7 +1337,198 @@ fn run() -> Result<u8> {
             let store = open(&db)?;
             let rows = store.deploy_services()?;
             let found = !rows.is_empty();
-            print!("{}", cairn_fmt::topology(&rows, &mut budget).render());
+            emit(cairn_fmt::topology(&rows, &mut budget));
+            Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+        }
+
+        Cmd::Llm {
+            cmd:
+                LlmCmd::Verify {
+                    check,
+                    holds,
+                    broken,
+                    note,
+                    repo,
+                },
+        } => {
+            let store = open(&db)?;
+            // `<repo>/.cairn/index.sqlite` — the repository is two levels up, same as the
+            // watcher works it out.
+            let root = repo
+                .or_else(|| db.parent().and_then(|d| d.parent()).map(PathBuf::from))
+                .unwrap_or_else(|| PathBuf::from("."));
+            let head = cairn_store::llmverify::head_commit(&root);
+
+            let Some(id) = check else {
+                let checks = store.verification_checks()?;
+                let verdicts = store.verdicts()?;
+                let with_standing: Vec<_> = checks
+                    .into_iter()
+                    .map(|c| {
+                        let v = verdicts.iter().find(|v| v.check_id == c.id);
+                        let s = store.standing(v, head.as_deref());
+                        (c, s)
+                    })
+                    .collect();
+                let any = !with_standing.is_empty();
+                emit(cairn_fmt::verification_plan(
+                    &with_standing,
+                    head.as_deref(),
+                    cairn_store::llmverify::tree_is_dirty(&root),
+                    &mut budget,
+                ));
+                return Ok(if any { exit::FOUND } else { exit::NOT_FOUND });
+            };
+
+            if holds == broken {
+                eprintln!(
+                    "cairn: say which - --holds or --broken. A check recorded as neither \
+                     is a row that means nothing"
+                );
+                return Ok(exit::ERROR);
+            }
+            if broken && note.as_deref().unwrap_or("").trim().is_empty() {
+                // An unexplained "this is wrong" cannot be acted on and cannot be
+                // re-checked, which makes it worse than not recording anything.
+                eprintln!("cairn: --broken needs --note saying what is wrong");
+                return Ok(exit::ERROR);
+            }
+            let Some(target) = store
+                .verification_checks()?
+                .into_iter()
+                .find(|c| c.id == id)
+            else {
+                eprintln!("cairn: no claim with id '{id}' (run `cairn llm verify` for the list)");
+                return Ok(exit::ERROR);
+            };
+            store.record_verdict(
+                &target.id,
+                holds,
+                note.as_deref(),
+                head.as_deref(),
+                &target.area,
+                &cairn_store::now_iso8601(),
+            )?;
+            println!(
+                "recorded: {} {} for {}",
+                target.id,
+                if holds { "holds" } else { "BROKEN" },
+                target.area
+            );
+            if head.is_none() {
+                println!(
+                    "note: the commit could not be determined, so this verdict will read \
+                     as expired - it cannot be told apart from one made against an older tree"
+                );
+            } else if cairn_store::llmverify::tree_is_dirty(&root) {
+                println!(
+                    "note: the tree has uncommitted changes, so the commit this is \
+                     anchored to does not describe what was looked at"
+                );
+            }
+            Ok(exit::FOUND)
+        }
+
+        Cmd::Literal {
+            text,
+            context,
+            repo,
+            limit,
+        } => {
+            let store = open(&db)?;
+            let rows = store.literals(&text, limit)?;
+            let found = !rows.is_empty();
+            let ctx = cairn_fmt::SiteContext::parse(&context)
+                .with_context(|| format!("unknown --context '{context}' (none|line|block|<n>)"))?;
+            // Worked out, not asked for. Requiring --repo would put a flag between the
+            // caller and the thing that makes this worth calling at all, and the
+            // repository sits two levels above the index whenever the index is where
+            // `cairn index` puts it. `--repo` stays for when it is not.
+            let root = repo.or_else(|| {
+                let dir = db.parent()?;
+                // Only where the convention actually holds. Guessing that the
+                // grandparent is a repository because it usually is would read files
+                // from wherever the index happened to be put.
+                (dir.file_name()? == ".cairn")
+                    .then(|| dir.parent())?
+                    .map(PathBuf::from)
+            });
+            let mut source = match (ctx, &root) {
+                (cairn_fmt::SiteContext::None, _) => None,
+                (_, Some(r)) => Some(Source::new(r.clone())),
+                (_, None) => None,
+            };
+            let mut env = cairn_fmt::literals(&rows, &text, source.as_mut(), ctx, &mut budget);
+            if ctx != cairn_fmt::SiteContext::None && root.is_none() {
+                // Asked for source and could not read any. Printing the locations alone
+                // would look like the answer rather than like half of it.
+                env = env.unknown(
+                    "the source could not be shown: this index is not at \
+                     <repo>/.cairn/index.sqlite, so the repository root could not be \
+                     worked out. Pass --repo <dir>",
+                );
+            }
+            emit(env);
+            Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+        }
+
+        Cmd::Docs { path, about } => {
+            let store = open(&db)?;
+            match (path, about) {
+                (Some(p), _) => {
+                    let rows = store.document_sections(&p)?;
+                    let found = !rows.is_empty();
+                    emit(cairn_fmt::doc_sections(&rows, &mut budget));
+                    Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+                }
+                (None, Some(q)) => {
+                    // Bodies are read from disk, so this needs the repository. Same way
+                    // the watcher works it out: `<repo>/.cairn/index.sqlite`.
+                    let root = db
+                        .parent()
+                        .and_then(|d| d.parent())
+                        .map(PathBuf::from)
+                        .unwrap_or_else(|| PathBuf::from("."));
+                    let rows = store.sections_matching(&root, &q)?;
+                    let found = !rows.is_empty();
+                    emit(cairn_fmt::doc_search(&rows, &q, &mut budget));
+                    Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+                }
+                (None, None) => {
+                    let docs = store.documents()?;
+                    let found = !docs.is_empty();
+                    emit(cairn_fmt::documents(&docs, &mut budget));
+                    Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+                }
+            }
+        }
+
+        Cmd::Entrypoints { reaches } => {
+            let store = open(&db)?;
+            let sym = match reaches.as_deref() {
+                Some(given) => {
+                    let Some(id) = subject(&store, given, cli_budget)? else {
+                        return Ok(exit::ERROR);
+                    };
+                    Some(store.symbol(id)?.context("handle has no symbol")?)
+                }
+                None => None,
+            };
+            let rows = store.entrypoints(sym.as_ref().map(|s| s.id))?;
+            let found = !rows.is_empty();
+            // Only worth naming when listing everything. Filtered by --reaches, a service
+            // that starts nothing is simply not an answer to the question asked.
+            let blind = if sym.is_some() {
+                Vec::new()
+            } else {
+                store.services_without_entrypoint()?
+            };
+            emit(cairn_fmt::entrypoints(
+                &rows,
+                sym.as_ref(),
+                &blind,
+                &mut budget,
+            ));
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
@@ -1121,31 +1538,34 @@ fn run() -> Result<u8> {
             fanout,
         } => {
             let store = open(&db)?;
-            let symbol_id = resolve(&store, &handle)?;
+            let Some(symbol_id) = subject(&store, &handle, cli_budget)? else {
+                return Ok(exit::ERROR);
+            };
             let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
             let a = store.affects(symbol_id, depth, fanout)?;
             let found = !a.in_process.is_empty() || !a.hops.is_empty();
-            print!("{}", cairn_fmt::affects(&sym, &a, &mut budget).render());
+            emit(cairn_fmt::affects(&sym, &a, &mut budget));
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
         Cmd::Runs { handle, depth } => {
             let store = open(&db)?;
-            let symbol_id = resolve(&store, &handle)?;
+            let Some(symbol_id) = subject(&store, &handle, cli_budget)? else {
+                return Ok(exit::ERROR);
+            };
             let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
             let (services, via) = store.services_running_attributed(symbol_id, depth)?;
             let found = !services.is_empty();
             let blind = store.services_without_entrypoint()?;
-            print!(
-                "{}",
-                cairn_fmt::runs_in(&sym, &services, depth, via.as_ref(), &blind).render()
-            );
+            emit(cairn_fmt::runs_in(&sym, &services, depth, &via, &blind));
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
         Cmd::Reaches { handle, outgoing } => {
             let store = open(&db)?;
-            let symbol_id = resolve(&store, &handle)?;
+            let Some(symbol_id) = subject(&store, &handle, cli_budget)? else {
+                return Ok(exit::ERROR);
+            };
             let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
             let mut services = store.services_of(symbol_id)?;
             let cross = |id| -> anyhow::Result<_> {
@@ -1165,19 +1585,13 @@ fn run() -> Result<u8> {
                 if matches!(sym.kind, cairn_scip::SymbolKind::Type) {
                     let precise = store.rpc_callers_of_type(symbol_id)?;
                     if !precise.is_empty() {
-                        print!(
-                            "{}",
-                            cairn_fmt::rpc_reaches(&sym, &precise, true, &mut budget).render()
-                        );
+                        emit(cairn_fmt::rpc_reaches(&sym, &precise, true, &mut budget));
                         return Ok(exit::FOUND);
                     }
                 }
                 let precise = store.rpc_callers(symbol_id)?;
                 if !precise.is_empty() {
-                    print!(
-                        "{}",
-                        cairn_fmt::rpc_reaches(&sym, &precise, false, &mut budget).render()
-                    );
+                    emit(cairn_fmt::rpc_reaches(&sym, &precise, false, &mut budget));
                     return Ok(exit::FOUND);
                 }
             }
@@ -1197,18 +1611,14 @@ fn run() -> Result<u8> {
                 }
             }
             let found = !links.is_empty();
-            print!(
-                "{}",
-                cairn_fmt::cross_language(
-                    &sym,
-                    &services,
-                    &links,
-                    outgoing,
-                    via.as_ref(),
-                    &mut budget
-                )
-                .render()
-            );
+            emit(cairn_fmt::cross_language(
+                &sym,
+                &services,
+                &links,
+                outgoing,
+                via.as_ref(),
+                &mut budget,
+            ));
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
@@ -1220,18 +1630,19 @@ fn run() -> Result<u8> {
             repo,
         } => {
             let store = open(&db)?;
-            let src = resolve(&store, &from)?;
-            let dst = resolve(&store, &to)?;
+            let (Some(src), Some(dst)) = (
+                subject(&store, &from, cli_budget)?,
+                subject(&store, &to, cli_budget)?,
+            ) else {
+                return Ok(exit::ERROR);
+            };
             let detail = Detail::parse(&detail).with_context(|| {
                 format!("unknown detail '{detail}' (skeleton|signature|doc|body)")
             })?;
             let mut source = make_source(detail, repo)?;
             match store.call_path(src, dst, max_depth)? {
                 Some(hops) => {
-                    print!(
-                        "{}",
-                        cairn_fmt::path(&hops, detail, source.as_mut(), &mut budget).render()
-                    );
+                    emit(cairn_fmt::path(&hops, detail, source.as_mut(), &mut budget));
                     Ok(exit::FOUND)
                 }
                 None => {
@@ -1244,7 +1655,7 @@ fn run() -> Result<u8> {
                         "only static calls were followed; a dynamic dispatch on the way \
                          would not appear here",
                     );
-                    print!("{}", env.render());
+                    emit(env);
                     Ok(exit::NOT_FOUND)
                 }
             }
@@ -1256,7 +1667,9 @@ fn run() -> Result<u8> {
             repo,
         } => {
             let store = open(&db)?;
-            let symbol_id = resolve(&store, &handle)?;
+            let Some(symbol_id) = subject(&store, &handle, cli_budget)? else {
+                return Ok(exit::ERROR);
+            };
             let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
             let mut body = format!("{}\n", cairn_fmt::symbol_line(&sym));
             let mut env;
@@ -1268,7 +1681,7 @@ fn run() -> Result<u8> {
                     let Some(def) = &sym.def else {
                         env = cairn_fmt::Envelope::new(body);
                         env = env.unknown("no definition indexed, nothing to show");
-                        print!("{}", env.render());
+                        emit(env);
                         return Ok(exit::NOT_FOUND);
                     };
                     let Some(root) = repo else {
@@ -1298,7 +1711,7 @@ fn run() -> Result<u8> {
                 }
                 other => anyhow::bail!("unknown detail '{other}' (skeleton|doc|body)"),
             }
-            print!("{}", env.render());
+            emit(env);
             Ok(exit::FOUND)
         }
 
@@ -1315,12 +1728,14 @@ fn run() -> Result<u8> {
 
         Cmd::Weaklinks { handle, limit } => {
             let store = open(&db)?;
-            let symbol_id = resolve(&store, &handle)?;
+            let Some(symbol_id) = subject(&store, &handle, cli_budget)? else {
+                return Ok(exit::ERROR);
+            };
             let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
             let sites = store.weak_sites(symbol_id, limit)?;
             let found = !sites.is_empty();
             let env = cairn_fmt::weak_links(&sym, &sites, &mut budget);
-            print!("{}", env.render());
+            emit(env);
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
@@ -1333,7 +1748,7 @@ fn run() -> Result<u8> {
                 println!("flagged {n} hand-authored links and {m} concept links for review");
             }
             let rep = store.verify(repo.as_deref())?;
-            print!("{}", cairn_fmt::verify(&rep).render());
+            emit(cairn_fmt::verify(&rep));
             // A degraded index must be distinguishable by exit code, not just by
             // reading the text (6.1.1).
             Ok(if rep.is_clean() {
@@ -1345,8 +1760,12 @@ fn run() -> Result<u8> {
 
         Cmd::Link { from, to, note, by } => {
             let store = open(&db)?;
-            let src = resolve(&store, &from)?;
-            let dst = resolve(&store, &to)?;
+            let (Some(src), Some(dst)) = (
+                subject(&store, &from, cli_budget)?,
+                subject(&store, &to, cli_budget)?,
+            ) else {
+                return Ok(exit::ERROR);
+            };
             let source = match by.as_str() {
                 "agent" => cairn_store::EdgeSource::Agent,
                 "human" => cairn_store::EdgeSource::Human,
@@ -1377,18 +1796,17 @@ fn run() -> Result<u8> {
 
         Cmd::Links { handle } => {
             let store = open(&db)?;
-            let symbol_id = resolve(&store, &handle)?;
+            let Some(symbol_id) = subject(&store, &handle, cli_budget)? else {
+                return Ok(exit::ERROR);
+            };
             let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
             let links = store.asserted_links(symbol_id)?;
             let found = !links.is_empty();
-            print!(
-                "{}",
-                cairn_fmt::asserted(&store, &sym, &links, &mut budget)?.render()
-            );
+            emit(cairn_fmt::asserted(&store, &sym, &links, &mut budget)?);
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
-        Cmd::Concept(sub) => run_concept(sub, &db, &mut budget),
+        Cmd::Concept(sub) => run_concept(sub, &db, &mut budget, cli_budget),
 
         Cmd::Daemon { repo, stop } => {
             let socket = cairn_daemon::socket_path(&db);
@@ -1464,10 +1882,7 @@ fn run() -> Result<u8> {
                 .collect();
             let store = open(&db)?;
             let indexed = store.symbols_in_file(&path)?;
-            print!(
-                "{}",
-                cairn_fmt::live_overlay(&path, &live, &indexed, &mut budget).render()
-            );
+            emit(cairn_fmt::live_overlay(&path, &live, &indexed, &mut budget));
             Ok(exit::FOUND)
         }
 
@@ -1487,18 +1902,12 @@ fn run() -> Result<u8> {
 
             // Cross-language linking either found something or it did not, and a zero used
             // to be invisible: `reaches` would report no callers, which reads as "nothing
-            // calls this" rather than "this mechanism produced nothing". Named here so a
-            // repository whose generated code does not look like this one's finds out at
-            // `status` rather than through a wrong answer.
-            let (services, serves, calls) = store.link_counts()?;
-            if services == 0 {
-                println!(
-                    "services   0 - no cross-language links. `cairn reaches` will find \
-                     nothing, and that is this mechanism failing, not an answer"
-                );
-            } else {
-                println!("services   {services} gRPC ({serves} serve, {calls} call links)");
-            }
+            // calls this" rather than "this mechanism produced nothing". It is one row of
+            // the coverage block now, alongside every other mechanism that can be empty
+            // for more than one reason.
+            let root = db.parent().and_then(|d| d.parent());
+            let head = root.and_then(cairn_store::llmverify::head_commit);
+            print!("{}", cairn_fmt::coverage(&store.coverage(head.as_deref())?));
 
             let socket = cairn_daemon::socket_path(&db);
             match cairn_daemon::Client::connect(&socket) {
@@ -1530,28 +1939,43 @@ fn run() -> Result<u8> {
                         println!("reindex due: {why}");
                         println!("             run `cairn index <scip...> --repo <dir>`");
                     }
-                    Ok(if d.is_empty() {
-                        exit::FOUND
-                    } else {
-                        exit::DEGRADED
-                    })
+                    // Drifted files are reported, not signalled by the exit code. Every
+                    // other command already works this way: an answer touching a changed
+                    // file gets a `stale:` line and still exits 0, because the index can
+                    // be read and most of what it says is still true. `status` returning
+                    // 3 for the same condition made it the one command that called a
+                    // readable index unreadable.
+                    Ok(exit::FOUND)
                 }
                 None => {
                     // An unknown dirty set and an empty one look the same in an answer.
                     // Conflating them is the silent staleness this design forbids.
                     println!("daemon     not running");
                     println!(
-                        "stale: NOT TRACKED - start `cairn daemon --repo <dir>` for live \
-                         staleness, or run `cairn verify --repo <dir>` for a one-off check"
+                        "stale: NOT TRACKED - the file watcher is still starting, so edits \
+                         made since the index was built are not visible yet. `cairn verify \
+                         --repo <dir>` is the one-off check"
                     );
-                    Ok(exit::DEGRADED)
+                    // Not degraded, and this is the case that made the distinction matter.
+                    // `status` is itself one of the commands that spawns the watcher, so
+                    // the first `status` in a repository reports a daemon it has just
+                    // started and that has not finished coming up - a race this command
+                    // creates and then grades itself on. Measured in the session logs: two
+                    // agents got exit 3 here, and the guide tells them 3 means they are in
+                    // the wrong directory. Both ignored it and queried on, correctly.
+                    Ok(exit::FOUND)
                 }
             }
         }
     }
 }
 
-fn run_concept(sub: ConceptCmd, db: &Path, budget: &mut Budget) -> Result<u8> {
+fn run_concept(
+    sub: ConceptCmd,
+    db: &Path,
+    budget: &mut Budget,
+    cli_budget: Option<usize>,
+) -> Result<u8> {
     use cairn_store::concepts::DEFAULT_NS;
     let store = open(db)?;
     match sub {
@@ -1575,7 +1999,9 @@ fn run_concept(sub: ConceptCmd, db: &Path, budget: &mut Budget) -> Result<u8> {
             let concept = store
                 .concept_find(&ns, &name)?
                 .with_context(|| format!("no concept {ns}/{name} (create it first)"))?;
-            let symbol_id = resolve(&store, &handle)?;
+            let Some(symbol_id) = subject(&store, &handle, cli_budget)? else {
+                return Ok(exit::ERROR);
+            };
             let anchored = store.concept_link(concept.id, symbol_id, &rel, &note)?;
             println!("{ns}/{name} --{rel}--> [{handle}]");
             if !anchored {
@@ -1594,16 +2020,13 @@ fn run_concept(sub: ConceptCmd, db: &Path, budget: &mut Budget) -> Result<u8> {
                 return Ok(exit::NOT_FOUND);
             };
             let links = store.concept_links(concept.id)?;
-            print!(
-                "{}",
-                cairn_fmt::concept(&store, &concept, &links, budget)?.render()
-            );
+            emit(cairn_fmt::concept(&store, &concept, &links, budget)?);
             Ok(exit::FOUND)
         }
         ConceptCmd::List { ns } => {
             let list = store.concept_list(ns.as_deref())?;
             let found = !list.is_empty();
-            print!("{}", cairn_fmt::concept_list(&list, budget).render());
+            emit(cairn_fmt::concept_list(&list, budget));
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
         ConceptCmd::Drop { ns } => {
@@ -1635,10 +2058,48 @@ fn make_source(detail: Detail, repo: Option<PathBuf>) -> Result<Option<Source>> 
 
 /// Resolving a handle that does not exist is a query error, not an empty result:
 /// the caller asked about something we cannot even identify.
-fn resolve(store: &Store, handle: &str) -> Result<i64> {
-    store
-        .resolve_handle(handle)?
-        .with_context(|| format!("no symbol with handle '{handle}' (run `cairn symbol` first)"))
+/// A handle, or a name when it names exactly one symbol.
+///
+/// Handles are short and stable and stay the recommended form — they keep a result line
+/// narrow and they survive between sessions. What changes is that they stop being the
+/// *only* form. Requiring one meant every relational question cost two calls, `symbol`
+/// then the question, where grep's floor is one: on any query simple enough for grep to
+/// answer in a single pass, cairn lost before the answers were even compared, and lost
+/// to a property of this decision rather than of anything it does.
+///
+/// `Ok(None)` means the name was ambiguous and the candidates have been printed. The
+/// tool does not pick: choosing the "best" homonym is the tool guessing which symbol was
+/// meant, and it guesses nowhere else. An ambiguous name therefore costs exactly what it
+/// costs today — the list, then the question again with a handle — and an unambiguous
+/// one saves the round trip.
+///
+/// The cost of this, stated: a command that works today can start printing a list
+/// tomorrow because somebody added a second symbol of that name. That is honest, but it
+/// is a change the caller did not make, and it is the reason handles still exist.
+fn subject(store: &Store, given: &str, cli_budget: Option<usize>) -> Result<Option<i64>> {
+    if let Some(id) = store.resolve_handle(given)? {
+        return Ok(Some(id));
+    }
+    let named = store.symbols_named(given)?;
+    match named.len() {
+        1 => Ok(Some(named[0].id)),
+        0 => anyhow::bail!(
+            "no symbol with handle or name '{given}'. `cairn symbol {given}` searches by \
+             part of a name and reports what is indexed if nothing matches"
+        ),
+        _ => {
+            let coverage = store.coverage_summary()?;
+            let mut b = Budget::from_opt(cli_budget);
+            emit(
+                cairn_fmt::symbols(&named, given, &coverage, true, &mut b).unknown(format!(
+                    "'{given}' is the name of {} symbols, so this command cannot tell \
+                     which one you mean. Run it again with one of the handles above",
+                    named.len()
+                )),
+            );
+            Ok(None)
+        }
+    }
 }
 
 fn open(db: &Path) -> Result<Store> {
@@ -1654,5 +2115,17 @@ fn open(db: &Path) -> Result<Store> {
             db.display()
         );
     }
-    Store::open(db)
+    let store = Store::open(db)?;
+    // Said once, here, rather than at each of the commands that write. A sidecar that
+    // could not be opened does not stop anything working — it silently un-does it, and
+    // the tool spent its whole life so far printing "recorded" over a memory database.
+    if !store.knowledge_is_durable() {
+        eprintln!(
+            "cairn: warning - notes, links, concepts and verdicts cannot be saved here \
+             ({} is not writable). Everything else works; anything you record will be \
+             gone when this command exits",
+            cairn_store::knowledge_path(db).display()
+        );
+    }
+    Ok(store)
 }

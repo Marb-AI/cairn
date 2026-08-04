@@ -1,157 +1,163 @@
-# Analýza pokrytí — zvládneme zaindexovat tenhle kód?
+# Coverage analysis — can we index this code at all?
 
-**Repo:** an internal repository · ověřeno 30. 7. 2026 · doprovod k [architecture.md](architecture.md)
+**Repo:** an internal repository · verified 2026-07-30 · companion to [architecture.md](architecture.md)
 
-> Naměřená čísla jsou v [spike-0-results.md](spike-0-results.md). Tenhle dokument je
-> analýza čtením kódu; kde se s měřením rozešel, platí měření — viz §9.
+> The measured numbers are in [spike-0-results.md](spike-0-results.md). This document is an
+> analysis by reading code; where the two disagreed, the measurement wins — see §9.
 
-Otázka: máme popsané všechny postupy potřebné k tomu, abychom nad tímhle konkrétním
-kódem uměli odpovědět na strukturální dotazy? Tenhle dokument prochází kategorii po
-kategorii a u každé říká **ověřeno / mezera / mimo rozsah**.
+The question: have we described every technique needed to answer structural questions over
+this particular codebase? This document goes category by category and marks each one
+**verified / gap / out of scope**.
 
-> **Tenhle dokument je důkaz, ne zadání.** Repo slouží k ověření, že *obecné* řešení
-> funguje. Každý nález je proto v architektuře zapsaný jako instance nějakého tvaru
-> (§1.1), ne jako podpora konkrétního frameworku. Kdykoli se dole píše „FastAPI" nebo
-> „grpclib", odpovídá tomu v architektuře řádek v tabulce pravidel, ne `if` v Rustu.
-> Zkouška opačným směrem — co stojí přidat JS/TS — je v architecture §17.
+> **This document is evidence, not a specification.** The repository is here to confirm that
+> the *general* solution works. Every finding is therefore recorded in the architecture as an
+> instance of some shape (§1.1), not as support for a particular framework. Wherever "FastAPI"
+> or "grpclib" appears below, what corresponds to it in the architecture is a row in a rule
+> table, not an `if` in Rust. The test in the other direction — what it costs to add JS/TS —
+> is in architecture §17.
 
-Metoda: čtení kódu, ne spuštění indexeru. Indexery doběhly ve fázi 0 —
-viz [spike-0-results.md](spike-0-results.md).
+Method: reading code, not running the indexer. The indexers were run in phase 0 — see
+[spike-0-results.md](spike-0-results.md).
 
 ---
 
-## 0. Shrnutí
+## 0. Summary
 
-| Kategorie | Stav | Kde |
+| Category | State | Where |
 |---|---|---|
-| Symboly, definice, reference | ✅ ověřeno | §1 |
-| Call graph uvnitř jazyka | ✅ ověřeno | §2 |
-| Procesní entrypointy z compose | ✅ ověřeno, všech 15 | §3 |
-| gRPC plocha (71 služeb) | ✅ ověřeno, jeden vzor na jazyk | §4 |
-| Cross-language hrany Go ↔ Python | ✅ ověřeno | §4.3 |
-| HTTP endpointy | ✅ ověřeno, 4 vzory — **ne „jiná liga"** | §5 |
-| Django ORM | ⚠️ podmíněno stub balíčky | §6 |
-| Dynamika (`getattr`, `importlib`) | ⚠️ 123 výskytů → `unknown` | §7 |
-| Generovaný kód | ✅ ověřeno, ale 65 % Go | §8 |
-| ~~Chybějící Python stuby~~ | ❌ **mylný nález, odvoláno** | §9 |
+| Symbols, definitions, references | ✅ verified | §1 |
+| Call graph within one language | ✅ verified | §2 |
+| Process entrypoints from compose | ✅ verified, all 15 | §3 |
+| gRPC surface (71 services) | ✅ verified, one pattern per language | §4 |
+| Cross-language edges Go ↔ Python | ✅ verified | §4.3 |
+| HTTP endpoints | ✅ verified, 4 patterns — **not "a different league"** | §5 |
+| Django ORM | ⚠️ conditional on stub packages | §6 |
+| Dynamism (`getattr`, `importlib`) | ⚠️ 123 occurrences → `unknown` | §7 |
+| Generated code | ✅ verified, but 65% of Go | §8 |
+| ~~Missing Python stubs~~ | ❌ **mistaken finding, withdrawn** | §9 |
 
-Závěr: **postupy jsou popsané a stačí.** Nic není blokující. Tři položky jsou částečné
-a všechny tři mají definované chování (`unknown` / `degraded`), ne tichý fail.
+Conclusion: **the techniques are described and they are enough.** Nothing is blocking. Three
+items are partial and all three have defined behaviour (`unknown` / `degraded`), not a silent
+failure.
 
-**Žádná z položek v tabulce nepotřebuje LLM.** To je záměr, ne náhoda — invariant D15
-říká, že se index staví kompletně deterministicky a model smí znalost jen obohatit.
-Tenhle dokument je zároveň doklad, že to na reálném repu vychází: 71 gRPC služeb,
-122 HTTP rout, 15 entrypointů a cross-language hrany se dají získat parsováním,
-konvencí a joinem — bez jediného volání modelu.
-
----
-
-## 1. Symboly, definice, reference
-
-**Postup:** SCIP indexery na dávkovou cestu, LSP na dirty soubory (architecture §4).
-Výstup jsou occurrences se stabilním symbol ID; reference vzniknou joinem přes symbol ID (§5.4).
-
-**Co v repu:**
-- Python 218 193 řádků / 1 184 souborů, Go 158 874 / 516
-- Standardní layout: `srcpy/domains/<doména>/<vrstva>/`, `srcgo/domains/<doména>/…`
-- Importy jsou explicitní a převážně absolutní (`from domains.orders.repository import chat as chat_repo`)
-
-**Verdikt: ✅.** Nic exotického. Aliasy importů (`as chat_repo`) jsou přesně ten případ,
-kde grep selhává a name resolution vyhrává — dobrý demo materiál pro §6.2 skill.
-
-**Pozor na jednu věc:** handlery importují lazy uvnitř funkce (`get_handlers()` má 24
-importů v těle). Pyright to zvládá, ale znamená to, že **modulový import graf není úplný** —
-závislost existuje jen uvnitř funkce. Pro `deps_api_hash` (architecture §5.2) to nevadí,
-protože ten se počítá z rozřešených importů, ne z top-level příkazů. Stojí za ověření
-ve fázi 0.
+**None of the items in the table needs an LLM.** That is by design, not by luck — invariant
+D15 says the index is built entirely deterministically and a model may only enrich the
+knowledge. This document is also evidence that it holds up on a real repository: 71 gRPC
+services, 122 HTTP routes, 15 entrypoints and the cross-language edges can all be obtained by
+parsing, convention and a join — without a single call to a model.
 
 ---
 
-## 2. Call graph uvnitř jazyka
+## 1. Symbols, definitions, references
 
-**Postup:** L1 derivace joinem occurrences (architecture §3, §5.4). SCIP dává role
-`definition` / `reference`; hrany `calls` vznikají z referencí na volatelné symboly.
+**Technique:** SCIP indexers on the batch path, LSP for dirty files (architecture §4). The
+output is occurrences with stable symbol IDs; references come from a join on the symbol ID
+(§5.4).
 
-**Co v repu:** vrstvená architektura `handlers → repository → models`, běžná volání.
-Go má `NewHandler(app)` konstruktory a metody na strukturách.
+**What is in the repository:**
+- Python 218,193 lines / 1,184 files, Go 158,874 / 516
+- A standard layout: `srcpy/domains/<domain>/<layer>/`, `srcgo/domains/<domain>/…`
+- Imports are explicit and mostly absolute (`from domains.orders.repository import chat as chat_repo`)
 
-**Verdikt: ✅.** Standardní případ, na který jsou SCIP indexery stavěné.
+**Verdict: ✅.** Nothing exotic. Import aliases (`as chat_repo`) are exactly the case where
+grep fails and name resolution wins — good demonstration material for the skill in §6.2.
 
-**Nepokrývá** (a je to očekávané): volání přes callback předaný jako hodnota,
-dependency injection přes `app` objekt v Go. To druhé je v repu časté —
-`area.NewHandler(app)` dostane kontejner a z něj si tahá závislosti. Call graph tak bude
-mít hranu do `NewHandler`, ale ne do toho, co si handler z `app` vytáhne. **Známé omezení
-statické analýzy, ne díra v návrhu** — patří do `unknown`, případně později do L3 z runtime.
+**One thing to watch:** handlers import lazily inside functions (`get_handlers()` has 24
+imports in its body). Pyright copes, but it means **the module import graph is not complete** —
+the dependency exists only inside the function. That does not matter for `deps_api_hash`
+(architecture §5.2), which is computed from resolved imports rather than from top-level
+statements. Worth confirming in phase 0.
 
 ---
 
-## 3. Procesní entrypointy z compose
+## 2. Call graph within one language
 
-**Postup:** architecture §8.2–8.4, řetěz `compose → Dockerfile → command → symbol`.
+**Technique:** L1 derivation by joining occurrences (architecture §3, §5.4). SCIP gives
+`definition` / `reference` roles; `calls` edges come from references to callable symbols.
 
-**Ověřeno na obou jazycích:**
+**What is in the repository:** a layered architecture, `handlers → repository → models`, with
+ordinary calls. Go has `NewHandler(app)` constructors and methods on structs.
+
+**Verdict: ✅.** The standard case SCIP indexers are built for.
+
+**Not covered** (and this is expected): calls through a callback passed as a value, and
+dependency injection through the `app` object in Go. The second is common in this repository —
+`area.NewHandler(app)` receives a container and pulls its dependencies out of it. The call
+graph will therefore have an edge into `NewHandler` but not into whatever the handler takes
+out of `app`. **A known limitation of static analysis, not a hole in the design** — it belongs
+in `unknown`, and possibly later in L3 from runtime.
+
+---
+
+## 3. Process entrypoints from compose
+
+**Technique:** architecture §8.2–8.4, the chain `compose → Dockerfile → command → symbol`.
+
+**Verified in both languages:**
 
 ```
-# Python — přímočaré
+# Python — direct
 services.orders-grpc.command = "python3 -m domains.orders.grpc.server"
-  → vzor `python -m`  →  srcpy/domains/orders/grpc/server.py
+  → the `python -m` pattern  →  srcpy/domains/orders/grpc/server.py
 
-# Go — dva hopy
+# Go — two hops
 services.scoring-grpc.command = "/bin/grpcserver"
   → srcgo/Dockerfile: COPY --from=builder /out/grpcserver /bin/grpcserver
   → srcgo/Dockerfile: RUN xx-go build -o /out/grpcserver ./domains/orders/cmd/grpcserver/server.go
   → srcgo/domains/orders/cmd/grpcserver/server.go :: main
 ```
 
-**Verdikt: ✅ pro všech 15 služeb.** Žádný `entrypoint.sh` obal, což byla obava
-v architecture §8.4. Všechny `command:` jsou buď `python3 -m …`, `/bin/<binárka>`,
-nebo `manage.py <cmd>`.
+**Verdict: ✅ for all 15 services.** No `entrypoint.sh` wrapper, which was the worry in
+architecture §8.4. Every `command:` is either `python3 -m …`, `/bin/<binary>`, or
+`manage.py <cmd>`.
 
-**Potvrzené komplikace, které už jsou v návrhu zapsané:**
-- kotvy `<<: *base-service`, `build: *build-go` (§8.3)
-- wrapper `xx-go` místo `go build` (§8.2)
-- 8 binárek z jednoho Dockerfile → mapování `-o` cesta ↔ balíček musí být tabulka, ne jeden záznam
-- `volumes: ["./srcpy:/app/"]` jako autoritativní mapa cest (§8.7)
+**Confirmed complications, already recorded in the design:**
+- anchors `<<: *base-service`, `build: *build-go` (§8.3)
+- the `xx-go` wrapper instead of `go build` (§8.2)
+- 8 binaries from one Dockerfile → the mapping from `-o` path to package has to be a table,
+  not a single entry
+- `volumes: ["./srcpy:/app/"]` as the authoritative path map (§8.7)
 
 ---
 
-## 4. gRPC plocha
+## 4. The gRPC surface
 
-71 `service` definic ve 139 `.proto` souborech. Tohle je největší část systému a zároveň
-místo, kde má cairn největší delta oproti grepu.
+71 `service` definitions across 139 `.proto` files. This is the largest part of the system and
+also where cairn's delta over grep is biggest.
 
-### 4.1 Python — je to dědičnost, ne registrace
+### 4.1 Python — it is inheritance, not registration
 
-Repo používá **grpclib**, ne `grpcio`. Neexistuje tedy `add_XxxServicer_to_server`.
-Vazba je čistá dědičnost:
+The repository uses **grpclib**, not `grpcio`. So there is no `add_XxxServicer_to_server`. The
+binding is plain inheritance:
 
 ```python
 class ChatServiceHandler(DjangoExceptionHandlerMixin, orders_api.ChatServiceBase):
 ```
 
-**To je zásadně dobrá zpráva:** hrana handler → proto služba je obyčejná `implements`,
-kterou L0 dá zadarmo. Proto binder musí umět jedinou věc navíc — mapovat generovanou bázi
-`ChatServiceBase` zpět na `proto:ChatService`, což je konvence protoc.
+**That is fundamentally good news:** the handler → proto service edge is an ordinary
+`implements`, which L0 gives for free. The proto binder therefore needs exactly one extra
+capability — mapping the generated base `ChatServiceBase` back to `proto:ChatService`, which is
+a protoc convention.
 
-Registrace do serveru je navíc statická a čitelná: `get_handlers()` vrací literální seznam
-konstruktorů (`AuthServiceHandler(), ChatServiceHandler(), …`), takže i vazba
-**služba → které handlery v ní běží** je staticky rozřešitelná.
+Registration into the server is static and readable besides: `get_handlers()` returns a literal
+list of constructors (`AuthServiceHandler(), ChatServiceHandler(), …`), so even the binding
+**service → which handlers run in it** is statically resolvable.
 
-### 4.2 Go — jeden vzor volání
+### 4.2 Go — one call pattern
 
 ```go
 regions_api.RegisterAreaQueryServiceServer(server, area.NewHandler(app))
 orders_fe.RegisterAuthServiceServer(s, resttransform.NewAuthService(app))
 ```
 
-Kanonický `protoc-gen-go-grpc` vzor `Register<Service>Server(s, impl)`. Volání jsou navíc
-v `cmd/*/server.go`, tedy přímo v entrypointu dosažitelném z compose.
+The canonical `protoc-gen-go-grpc` pattern `Register<Service>Server(s, impl)`. The calls are
+also in `cmd/*/server.go`, that is, directly in the entrypoint reachable from compose.
 
-**Verdikt: ✅.** Jeden rozpoznávaný vzor na jazyk, oba triviální.
+**Verdict: ✅.** One recognised pattern per language, both trivial.
 
-### 4.3 Cross-language hrana
+### 4.3 The cross-language edge
 
-Řetěz, kvůli kterému celý §7/§8 existuje, na tomhle repu drží:
+The chain that the whole of §7/§8 exists for holds on this repository:
 
 ```
 compose: orders-proxy (go)  ──command──►  cmd/resttransform/server.go :: main
@@ -165,154 +171,159 @@ compose: orders-proxy (go)  ──command──►  cmd/resttransform/server.go 
 compose: orders-grpc (py)  ◄──────────  srcpy/domains/orders/grpc/handlers/auth.py
 ```
 
-Otázka „kdo volá tenhle Python handler" má odpověď v Go kódu, a naopak. **Ani grep,
-ani pyright, ani gopls to samostatně nedají.**
+"Who calls this Python handler" has its answer in Go code, and vice versa. **Neither grep, nor
+pyright, nor gopls can produce that on its own.**
 
 ---
 
-## 5. HTTP endpointy — obava se nepotvrdila
+## 5. HTTP endpoints — the worry did not hold up
 
-Zadání znělo, že endpointy jsou „jiná liga, musel by ten tool znát všechny frameworky".
-Na reálném repu to tak není: jsou to **čtyři vzory a jeden z nich má jeden výskyt.**
+The brief said endpoints were "a different league, the tool would have to know every
+framework". On the real repository that is not so: there are **four patterns and one of them
+has a single occurrence.**
 
-| framework | vzor | rozsah |
+| framework | pattern | scale |
 |---|---|---|
-| FastAPI | `x = APIRouter(prefix="/orders", tags=[…])` + `@x.get("/y", operation_id=…)` + `app.include_router(x, dependencies=[…])` | **122 endpointů, 20 routerů, 1 app** |
-| gRPC | §4 | 71 služeb |
+| FastAPI | `x = APIRouter(prefix="/orders", tags=[…])` + `@x.get("/y", operation_id=…)` + `app.include_router(x, dependencies=[…])` | **122 endpoints, 20 routers, 1 app** |
+| gRPC | §4 | 71 services |
 | Django | 3× `urls.py`, `urlpatterns` / `path()` / `include()`, + `admin.site` (4× `admin.py`) | admin |
-| Go HTTP | `http.NewServeMux()` + `mux.HandleFunc("GET /{key}", …)` | **1 soubor** |
+| Go HTTP | `http.NewServeMux()` + `mux.HandleFunc("GET /{key}", …)` | **1 file** |
 
-Žádné chi, gin, echo, Flask, Starlette-přímo ani DRF. Skládání cesty je textová konkatenace
-`prefix` + cesta z dekorátoru.
+No chi, gin, echo, Flask, Starlette directly, or DRF. Assembling a path is textual
+concatenation of `prefix` and the path from the decorator.
 
-### 5.1 Dva dárky navíc
+### 5.1 Two extra gifts
 
-**`operation_id="signup"`** je na každém FastAPI endpointu. Je stabilnější než cesta
-(cesty se mění, operation_id ne, protože se z něj generuje klient) a je to lepší primární
-klíč routy než URL.
+**`operation_id="signup"`** is on every FastAPI endpoint. It is more stable than the path
+(paths change, operation ids do not, because the client is generated from them) and it is a
+better primary key for a route than the URL.
 
-**Autentizace je staticky viditelná.** Router se přidává buď holý, nebo se závislostí:
+**Authentication is statically visible.** A router is added either bare or with a dependency:
 
 ```python
 app.include_router(endpoints.beta_access)                                        # public
 app.include_router(endpoints.financial, dependencies=[Depends(get_authenticator())])
 ```
 
-Z toho plyne, že `cairn topology` umí bez jakéhokoli LLM říct
-**„122 rout, z toho 12 neautentizovaných"** — a pro auditní doménu, což je podle
-brainstormingu cílový trh, je to samostatně prodejný výstup.
+From which it follows that `cairn topology` can say, with no LLM whatsoever, **"122 routes, 12
+of them unauthenticated"** — and for the audit domain, which the brainstorming names as the
+target market, that is a saleable output on its own.
 
-### 5.2 Levný únik, kdyby vzory nestačily
+### 5.2 A cheap escape hatch, if the patterns were not enough
 
-Většina frameworků umí vypsat svou routovací tabulku: FastAPI `app.openapi()`,
-Django `get_resolver().url_patterns`, Flask `app.url_map`. Repo navíc už OpenAPI generuje
-(`protoc-gen-openapiv2`, `tools/pbgen/openapi`, `api/openapi_config.py`).
+Most frameworks can print their own routing table: FastAPI `app.openapi()`, Django
+`get_resolver().url_patterns`, Flask `app.url_map`. The repository also already generates
+OpenAPI (`protoc-gen-openapiv2`, `tools/pbgen/openapi`, `api/openapi_config.py`).
 
-Cena je, že se musí naimportovat aplikace — tedy **runtime probe, ne statická analýza**.
-Patří proto do L3 vedle coverage, ne do L0. Doporučení: statické vzory teď, runtime dump
-jako opt-in booster. Rozhodně ne obráceně, protože by to z read-only nástroje udělalo něco,
-co spouští cizí kód.
+The price is that the application has to be imported — that is, **a runtime probe, not static
+analysis**. It therefore belongs in L3 alongside coverage, not in L0. Recommendation: static
+patterns now, a runtime dump as an opt-in booster. Definitely not the other way round, because
+that would turn a read-only tool into one that executes someone else's code.
 
-Když se statika a runtime rozejdou, je to **nález, ne chyba** — přesně stejná dualita jako
-u zbytku návrhu.
+When the static and runtime views disagree, that is **a finding, not a fault** — exactly the
+same duality as everywhere else in the design.
 
-**Verdikt: ✅**, s tím, že Go routery obecně (chi/gin/echo) zůstávají na seznamu
-„až bude doložený výskyt" (architecture §8.9).
+**Verdict: ✅**, with Go routers in general (chi/gin/echo) staying on the "when there is a
+documented occurrence" list (architecture §8.9).
 
 ---
 
 ## 6. Django ORM
 
-**Co v repu:** Django 5.2.6, 4× `admin.py`, modely v `domains/*/rds/`, `pytest-django`,
-`DJANGO_SETTINGS_MODULE` per služba.
+**What is in the repository:** Django 5.2.6, 4× `admin.py`, models in `domains/*/rds/`,
+`pytest-django`, `DJANGO_SETTINGS_MODULE` per service.
 
-**Postup:** architecture §4.4 — spolehnout se na `django-types` / `django-stubs`, ne psát
-vlastní plugin.
+**Technique:** architecture §4.4 — rely on `django-types` / `django-stubs` rather than writing
+a plugin.
 
-**Verdikt: ⚠️ podmíněné.** Pyright bez stubů na `Model.objects` a reverse accessorech
-selhává tiše. Nutné ověřit ve fázi 0 jako samostatné číslo, oddělené od §9.
+**Verdict: ⚠️ conditional.** Without stubs, pyright fails silently on `Model.objects` and on
+reverse accessors. This has to be confirmed in phase 0 as a separate number, kept apart
+from §9.
 
-Pozitivum: `DJANGO_SETTINGS_MODULE=domains.orders.grpc.settings` je v compose
-per služba — takže konfigurace stubů jde odvodit, ne hádat.
+On the positive side: `DJANGO_SETTINGS_MODULE=domains.orders.grpc.settings` is in compose per
+service — so the stub configuration can be derived rather than guessed.
 
-Použití je navíc konzervativní: ORM + admin, žádné Django views mimo admin,
-žádné DRF serializery. To je ta nejlepší varianta.
-
----
-
-## 7. Dynamika
-
-**Nalezeno:** 123 výskytů `importlib` nebo `getattr(` v `srcpy` mimo testy.
-
-**Postup:** architecture §6.3 — vrátit kandidáty a přiznat nejistotu, nikdy nemlčet.
-
-**Verdikt: ⚠️ očekávané, s definovaným chováním.** Tohle je přesně ten materiál, kvůli
-kterému je `unknown:` povinná sekce každé odpovědi. Ve fázi 0 stojí za to je roztřídit —
-podezření je, že většina jsou `getattr(obj, "attr", default)` na známém objektu, což není
-dynamický dispatch a nikoho netrápí. Skutečně problematické jsou jen `importlib` na
-proměnné a `getattr` s neliterálním jménem.
-
-Číslo do fáze 0: **kolik ze 123 je skutečně nerozřešitelných**.
+The usage is conservative besides: ORM plus admin, no Django views outside admin, no DRF
+serializers. That is the best case available.
 
 ---
 
-## 8. Generovaný kód
+## 7. Dynamism
 
-**Nalezeno:** 220 `.pb.go` = **103 176 ze 158 874 řádků Go, tedy 65 %**.
+**Found:** 123 occurrences of `importlib` or `getattr(` in `srcpy` outside tests.
 
-**Postup:** architecture §7.3 — detekce hlavičkovým markerem, potlačení do jednoho řádku.
+**Technique:** architecture §6.3 — return candidates and admit the uncertainty, never stay
+silent.
 
-**Verdikt: ✅, ale povýšit prioritu.** Při 65 % by bez potlačení byla většina odpovědí
-seznam `.pb.go` souborů. To není kosmetika, to je rozdíl mezi použitelným a nepoužitelným
-nástrojem. Zároveň to má přímý dopad na velikost indexu (architecture §5.5) — proto
-oddělený CAS namespace pro generované soubory.
+**Verdict: ⚠️ expected, with defined behaviour.** This is precisely the material that makes
+`unknown:` a mandatory section of every answer. In phase 0 it is worth sorting them — the
+suspicion is that most are `getattr(obj, "attr", default)` on a known object, which is not
+dynamic dispatch and bothers nobody. The genuinely problematic ones are only `importlib` on a
+variable and `getattr` with a non-literal name.
 
----
-
-## 9. Chybějící generovaný kód — ODVOLÁNO
-
-**Původní tvrzení bylo špatně.** Dřívější verze téhle sekce tvrdila, že Python protobuf
-stuby v repu nejsou a že to stojí celou gRPC plochu Python strany. Není to pravda.
-
-**Stuby jsou commitnuté.** betterproto2 negeneruje `*_pb2.py`, ale jeden velký
-`__init__.py` na proto balíček: 13 souborů, **48 952 řádků, 51 tříd `*ServiceBase`**.
-Původní kontrola počítala soubory a hledala vzor jména, který tenhle generátor nikdy
-nevyrobí.
-
-Doloženo měřením (spike, §5 tam): index obsahuje všech 51 definic `*ServiceBase`
-i všech 34 `*ServiceHandler`, a přegenerování stubů nezmění nic — 2 183 referencí
-na `*ServiceBase` před i po.
-
-**Co z toho zůstává v platnosti:** obecný mechanismus v architecture §4.6 (D14) —
-generovaný artefakt může chybět a jiné ekosystémy nemají CI pojistku. Toto repo ale
-není jeho příkladem a nesmí se jako příklad citovat.
-
-**Poučení do návrhu, které tím naopak zesílilo:** detekce generovaného kódu (§8) se
-nesmí opírat o vzory jmen souborů. `srcpy/schema/orders_api/__init__.py` je
-48 tisíc řádků generovaného kódu ve jménu, které vypadá jako běžný balíček.
-Rozhoduje **hlavičkový marker a `.gitattributes`**, ne přípona — přesně jak to
-architecture §7.3 řadí.
-
-## 10. Co tenhle dokument nepokrývá
-
-- **Výkon.** Jestli dotaz doběhne do 20 ms na 377k řádcích — fáze 0.
-- **Recall.** Jestli je 100 % na L0/L1 — potřebuje zlatý standard, fáze 1.
-- **Velikost indexu.** Syrový SCIP index → kalibrace cíle 50 MB.
-- **`compose.local.yaml` / `compose.test.yaml`.** Merge sémantika override souborů se
-  ověřovala jen na `compose.yaml`.
-- **`infra/sentinel`, `e2e/`, `tools/`.** Mimo hlavní dva stromy, neprocházeno.
+The number for phase 0: **how many of the 123 are actually unresolvable**.
 
 ---
 
-## 11. Co z analýzy plyne pro plán
+## 8. Generated code
 
-1. ~~Codegen krok je součást fáze 0.~~ Odvoláno, viz §9 — stuby jsou v repu.
-   Zůstává obecné pravidlo: **detekce generovaného kódu podle markeru, ne podle
-   jména souboru** (§9, poslední odstavec).
-2. **Route binder je levnější, než se čekalo** — 4 vzory místo „všechny frameworky".
-   Zvážit posun z fáze 2b do 2a, protože `122 rout, z toho 12 neautentizovaných`
-   je efektní výstup hned na začátku.
-3. **Proto binder je jednodušší, než se čekalo** — pro Python je to dědičnost, kterou
-   L0 dá zadarmo; potřeba je jen mapování konvence protoc.
-4. **Generated-code detekce nahoru.** 65 % Go kódu není okrajový případ.
-5. **Roztřídit 123 dynamických výskytů** — dá reálný odhad velikosti `unknown` sekcí.
+**Found:** 220 `.pb.go` files = **103,176 of 158,874 lines of Go, that is 65%**.
+
+**Technique:** architecture §7.3 — detection by header marker, suppression down to a single
+line.
+
+**Verdict: ✅, but raise its priority.** At 65%, without suppression most answers would be a
+list of `.pb.go` files. That is not cosmetics, it is the difference between a usable and an
+unusable tool. It also bears directly on index size (architecture §5.5) — hence the separate
+CAS namespace for generated files.
+
+---
+
+## 9. Missing generated code — WITHDRAWN
+
+**The original claim was wrong.** An earlier version of this section claimed the Python
+protobuf stubs were not in the repository and that this cost the entire Python-side gRPC
+surface. That is not true.
+
+**The stubs are committed.** betterproto2 does not generate `*_pb2.py` but one large
+`__init__.py` per proto package: 13 files, **48,952 lines, 51 `*ServiceBase` classes**. The
+original check counted files and looked for a name pattern this generator never produces.
+
+Evidenced by measurement (the spike, §5 there): the index contains all 51 `*ServiceBase`
+definitions and all 34 `*ServiceHandler`s, and regenerating the stubs changes nothing — 2,183
+references to `*ServiceBase` before and after.
+
+**What remains valid:** the general mechanism in architecture §4.6 (D14) — a generated artefact
+can be missing, and other ecosystems have no CI safety net. This repository, though, is not an
+example of it and must not be cited as one.
+
+**The lesson for the design, which this strengthened rather than weakened:** detection of
+generated code (§8) must not rest on file-name patterns. `srcpy/schema/orders_api/__init__.py`
+is 48 thousand lines of generated code under a name that looks like an ordinary package. What
+decides is **the header marker and `.gitattributes`**, not the extension — exactly the order
+architecture §7.3 puts them in.
+
+## 10. What this document does not cover
+
+- **Performance.** Whether a query finishes within 20 ms over 377k lines — phase 0.
+- **Recall.** Whether it is 100% on L0/L1 — needs a gold standard, phase 1.
+- **Index size.** Raw SCIP index → calibration against the 50 MB target.
+- **`compose.local.yaml` / `compose.test.yaml`.** The merge semantics of override files were
+  only checked against `compose.yaml`.
+- **`infra/sentinel`, `e2e/`, `tools/`.** Outside the two main trees, not gone through.
+
+---
+
+## 11. What the analysis implies for the plan
+
+1. ~~The codegen step is part of phase 0.~~ Withdrawn, see §9 — the stubs are in the
+   repository. What remains is the general rule: **detect generated code by marker, not by file
+   name** (§9, last paragraph).
+2. **The route binder is cheaper than expected** — 4 patterns instead of "every framework".
+   Consider moving it from phase 2b to 2a, because `122 routes, 12 of them unauthenticated` is
+   a striking output to have right at the start.
+3. **The proto binder is simpler than expected** — for Python it is inheritance, which L0 gives
+   for free; all that is needed is the mapping of a protoc convention.
+4. **Move generated-code detection up.** 65% of the Go code is not an edge case.
+5. **Sort the 123 dynamic occurrences** — it gives a real estimate of how large the `unknown`
+   sections will be.

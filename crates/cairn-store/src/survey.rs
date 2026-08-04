@@ -212,6 +212,27 @@ impl Store {
     /// "What is the blast radius of changing this" is a question about a set of sites,
     /// and answering it one reference at a time makes the caller reassemble the grouping
     /// by hand from a flat list.
+    /// Sites and files this symbol has in test files: what `usage_by_file` leaves out
+    /// when tests were not asked for, so the answer can say so instead of reporting a
+    /// filtered count as the whole count.
+    pub fn usage_in_tests(&self, symbol_id: i64) -> Result<(i64, usize)> {
+        self.conn
+            .query_row(
+                r#"
+                SELECT coalesce(sum(n), 0), count(*) FROM (
+                    SELECT count(*) AS n
+                      FROM occurrences o
+                      JOIN files f ON f.id = o.file_id
+                     WHERE o.symbol_id = ?1 AND (o.role & 1) = 0
+                       AND coalesce(f.is_test, 0) = 1
+                     GROUP BY o.file_id)
+                "#,
+                params![symbol_id],
+                |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)? as usize)),
+            )
+            .map_err(Into::into)
+    }
+
     pub fn usage_by_file(
         &self,
         symbol_id: i64,

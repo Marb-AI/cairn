@@ -69,11 +69,33 @@ impl Budget {
     }
 
     /// Note describing what the ceiling cut, and how to get it.
+    ///
+    /// Only `--budget` is named, because it is the only flag every command that can be
+    /// cut actually has. This used to add "or narrow with --depth/--fanout/--aspect",
+    /// which are `graph`'s flags and nobody else's: `refs`, `symbol`, `usage`,
+    /// `outline` and the rest have none of them. Measured in the session logs — an agent
+    /// ran `refs --budget` four times, was told each time to narrow with flags that do
+    /// not exist on `refs`, and gave up on `--budget` for `--limit`, which is the exact
+    /// loop `--budget` was built to remove. Advice that cannot be followed is worse than
+    /// no advice: it costs a round trip before it can be recognised as wrong.
     pub fn cut_note(&self, dropped: usize, unit: &str) -> String {
+        match self.max_tokens {
+            Some(max) => {
+                format!("{dropped} more {unit} beyond the {max}-token budget (raise --budget)")
+            }
+            None => format!("{dropped} more {unit}"),
+        }
+    }
+
+    /// The same note for a command that really can narrow its question.
+    ///
+    /// `how` is the caller's own flags, so it is right by construction: only the command
+    /// building the answer knows what it accepts.
+    pub fn cut_note_narrowable(&self, dropped: usize, unit: &str, how: &str) -> String {
         match self.max_tokens {
             Some(max) => format!(
                 "{dropped} more {unit} beyond the {max}-token budget \
-                 (raise with --budget, or narrow with --depth/--fanout/--aspect)"
+                 (raise --budget, or narrow with {how})"
             ),
             None => format!("{dropped} more {unit}"),
         }
@@ -109,5 +131,33 @@ mod tests {
         let note = b.cut_note(7, "nodes");
         assert!(note.contains("7 more nodes"));
         assert!(note.contains("--budget"));
+    }
+
+    #[test]
+    fn the_generic_note_names_no_flag_a_command_might_not_have() {
+        // `refs`, `symbol`, `usage` and `outline` have none of graph's narrowing flags.
+        // Telling them to narrow with `--depth` costs a round trip to find out, and the
+        // session logs show where that leads: back to `--limit`, which `--budget` exists
+        // to replace.
+        let note = Budget::tokens(500).cut_note(7, "references");
+        for absent in ["--depth", "--fanout", "--aspect", "--limit"] {
+            assert!(
+                !note.contains(absent),
+                "generic cut note offered {absent}, which the command may not accept: {note}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_command_that_can_narrow_says_so_in_its_own_flags() {
+        let note = Budget::tokens(500).cut_note_narrowable(3, "nodes", "--depth or --fanout");
+        assert!(note.contains("3 more nodes"));
+        assert!(note.contains("--budget"));
+        assert!(note.contains("--depth or --fanout"));
+        // Without a ceiling there is nothing to raise and nothing to narrow towards.
+        assert_eq!(
+            Budget::unlimited().cut_note_narrowable(3, "nodes", "--depth"),
+            "3 more nodes"
+        );
     }
 }

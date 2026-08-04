@@ -122,6 +122,15 @@
   not_contains: ["unable to open database", "-knowledge.sqlite"]
   max_seconds: 5
 
+# A readable index is not a degraded one. `status` also spawns the watcher, so the first
+# call in a repository reports a daemon it has just started and that is not up yet -
+# grading itself 3 for a race it created, when 3 tells an agent it cannot see at all.
+- name: an index that answers is not degraded just because the watcher is not up
+  args: [status]
+  exit: 0
+  contains: ["stale:"]
+  max_seconds: 5
+
 # ── a reference is not automatically a call site ─────────────────────────────────────
 # srcpy/alerting/rules.py::summarise_open imports AlertStore on one line and calls it two
 # lines later. Both are references from the same function, and the graph shows one site
@@ -135,4 +144,225 @@
   contains:
     - "@ srcpy/alerting/rules.py:93"
     - "@ srcpy/alerting/rules.py:94"
+  max_seconds: 5
+
+# ── entrypoints: every way code gets started ─────────────────────────────────────────
+# The unit is the entrypoint, not the service: alert-worker starts a worker loop AND runs
+# a nightly digest, and those are two different ways into the code. Nothing in the source
+# tree calls the second one - only reading the deployment finds it, which is the case
+# `ondemand.rs` exists for and the one a measured task lost on.
+- name: entrypoints lists a start command and a cron entry as separate ways in
+  args: [entrypoints]
+  exit: 0
+  contains:
+    - "start"
+    - "cron 30 3 * * *"
+    - "srcpy/alerting/worker.py"
+    - "srcpy/alerting/dispatch.py"
+  max_seconds: 5
+
+# A cron command is resolved in the build context of the service the cron line names, the
+# same one its start command uses. Without that, `python -m alerting.dispatch` looked for
+# `/alerting/dispatch.py` while the index holds `srcpy/alerting/dispatch.py`, and every
+# `python -m` cron entry silently resolved to nothing.
+- name: a cron entry resolves to code, and cites the runner script it came from
+  args: [entrypoints]
+  contains: ["via deploy/nightly_digest.sh"]
+  not_contains: ["UNRESOLVED"]
+  max_seconds: 5
+
+# `sleep infinity` parses perfectly well - into a container that deliberately runs nothing.
+# Reporting that as an entrypoint which "did not resolve" is a working parse announced as
+# a failure, and it teaches a reader to skim the line where the real ones appear.
+- name: a container held open on purpose is not an unresolved entrypoint
+  args: [entrypoints]
+  contains: ["idle - runs nothing at start"]
+  not_contains: ["did not resolve to code"]
+  max_seconds: 5
+
+# The audit direction: not "who calls this" but "is this on a path something actually
+# starts". handle_frost has no static caller at all - `outline` calls it unused - and the
+# nightly job runs the module that registers it.
+- name: entrypoints reaching a symbol answers the audit direction
+  args: [entrypoints, --reaches, kp]
+  exit: 0
+  contains: ["can run [kp] handle_frost", "cron 30 3 * * *"]
+  not_contains: ["telemetry-collector"]
+  max_seconds: 5
+
+# ── the coverage axis ────────────────────────────────────────────────────────────────
+# `verify` reports what the index knows it is missing. This reports whether each
+# mechanism produced anything at all - a different failure, and an invisible one: a pass
+# that ran and yielded nothing leaves no trace, and every answer resting on it comes back
+# empty and confident.
+- name: status reports each mechanism separately rather than as one number
+  args: [status]
+  exit: 0
+  contains:
+    - "coverage"
+    - "entrypoints"
+    - "cross-api"
+  max_seconds: 5
+
+# The fixture is ingested from committed SCIP with no tree walk behind it, so there is
+# nothing to compare the language rows against. Saying so is the answer; claiming the
+# tree held nothing would be reporting an absence that was never observed.
+- name: an index with no tree walk behind it says so instead of inventing a comparison
+  args: [status]
+  contains: ["ingested from SCIP with no tree walk to compare"]
+  max_seconds: 5
+
+# Two languages and a real .proto in the corpus, so this mechanism has something to find
+# and finding nothing would be a failure rather than an answer.
+- name: the cross-language pass is reported as having produced links
+  args: [status]
+  contains: ["gRPC services"]
+  not_contains: ["FAILING"]
+  max_seconds: 5
+
+# ── claims the index cannot settle about itself ──────────────────────────────────────
+# The blind spot of a deterministic pass: it can produce output that counts correctly and
+# means nothing. A gRPC edge comes from a generator's naming convention, and two packages
+# can carry one service name to different processes - the links are there, they are
+# consistent, and they are wrong. Nothing here calls a model; it asks the reader.
+- name: verification names the claims, the evidence and what would falsify each
+  args: [llm, verify]
+  exit: 0
+  contains:
+    - "need a judgement"
+    - "claim:"
+    - "look at:"
+    - "wrong if:"
+  max_seconds: 5
+
+- name: an unjudged index says so without treating it as a fault
+  args: [llm, verify]
+  not_contains: ["FAILING", "error"]
+  max_seconds: 5
+
+# A verdict recorded as neither holding nor broken is a row that means nothing, and a
+# bare "this is wrong" cannot be acted on or re-checked.
+- name: a verdict must say which way it went
+  args: [llm, verify, --check, entrypoints/alert-worker-start]
+  exit: 2
+  contains: ["--holds or --broken"]
+  max_seconds: 5
+
+- name: calling something broken without saying why is refused
+  args: [llm, verify, --check, entrypoints/alert-worker-start, --broken]
+  exit: 2
+  contains: ["needs --note"]
+  max_seconds: 5
+
+- name: a claim the index does not make cannot be judged
+  args: [llm, verify, --check, entrypoints/no-such-service, --holds]
+  exit: 2
+  contains: ["no claim with id"]
+  max_seconds: 5
+
+# ── markdown as structure ────────────────────────────────────────────────────────────
+# The corpus has one README. What matters is that a document's sections come back as line
+# ranges: grep returns a line in a long file and leaves the reader guessing how much
+# around it to take, and that guess is what turns one question into four whole files.
+- name: docs lists what documentation exists and what each costs to read
+  args: [docs]
+  exit: 0
+  contains: ["documents", "README.md"]
+  max_seconds: 5
+
+- name: a search says which sections are about it and which merely mention it
+  args: [docs, --about, telemetry]
+  contains: ["mention it"]
+  max_seconds: 5
+
+# Structure, never prose. A layer that stored the text would be a second, staler copy of
+# something already on disk.
+- name: the documentation layer says it holds no prose
+  args: [docs]
+  contains: ["never the prose"]
+  max_seconds: 5
+
+# ── a name where a handle used to be required ────────────────────────────────────────
+# Requiring a handle put a floor of two calls under every relational question - `symbol`,
+# then the question - where grep's floor is one. On anything simple enough for grep to
+# answer in a single pass, that lost the comparison before the answers were compared, and
+# lost it to a property of the interface rather than of anything the tool does.
+- name: a relational question takes the symbol's name in one call
+  args: [usage, Registry]
+  exit: 0
+  contains: ["[vs] Registry", "used at"]
+  max_seconds: 5
+
+- name: handles keep working and stay the recommended form
+  args: [usage, vs]
+  exit: 0
+  contains: ["[vs] Registry"]
+  max_seconds: 5
+
+# The tool does not pick between homonyms. Choosing the "best" one would be guessing which
+# symbol was meant, and it guesses nowhere else - so the candidates come back and the
+# caller decides, which costs exactly what it cost before.
+- name: a shared name returns the candidates rather than a guess
+  args: [refs, __init__]
+  exit: 2
+  contains: ["cannot tell which one you mean"]
+  max_seconds: 5
+
+- name: a name that is nowhere says so and points at the searching form
+  args: [refs, ThisIsNotAnySymbolAnywhere]
+  exit: 2
+  contains: ["no symbol with handle or name"]
+  max_seconds: 5
+
+# ── literals: the thing a symbol index cannot carry ──────────────────────────────────
+# A header name, a dict key, a station id. SCIP has none of these, because a literal is
+# not a symbol - but the weak-link pass was already reading every one of them and
+# throwing away the ones that did not spell a symbol name.
+#
+# The answer is not the line. grep finds that faster and is never stale. The answer is
+# whose line it is, with a handle, so the next question does not need a second search.
+- name: a literal comes back with the function it sits in and a handle to follow
+  args: [literal, alp-01, --context, line, --repo, "{repo}"]
+  exit: 0
+  contains: ["in seedRegistry", "inside a function"]
+  max_seconds: 5
+
+# Sending the source costs tokens; making the caller ask for it costs an inference, and
+# an inference costs more than everything this command does.
+- name: the surrounding source comes without being asked for
+  args: [literal, alp-01, --repo, "{repo}"]
+  contains: ["reg.Add"]
+  max_seconds: 5
+
+- name: a literal nobody wrote says what is and is not scanned
+  args: [literal, ZZZ-NoSuchLiteralAnywhere]
+  exit: 1
+  contains: ["Only Python and Go are scanned"]
+  max_seconds: 5
+
+# ── a text hit says whose line it is ─────────────────────────────────────────────────
+# The whole reason `for find` beats a plain grep is the attribution, and the attribution
+# is one off-by-one away from being confidently wrong: `symbols` stores lines zero-based
+# and prints them one-based, so passing the printed number through picked the enclosing
+# *class* instead of the method. A class is a plausible answer, which is exactly why this
+# needs a test rather than a reading of the output.
+#
+# `--repo` is explicit here only because the fixture index lives in a temp directory. In
+# a real checkout the index sits at `<repo>/.cairn/index.sqlite` and the root is derived
+# from it, which is the path production takes.
+- name: a text hit carries the function it sits in, not the class around it
+  args: [for, find, "not alarming on this side", --repo, "{repo}"]
+  contains: ["srcpy/alerting/service.py", "in raise_alert"]
+  not_contains: ["in AlertService "]
+  max_seconds: 10
+
+- name: a text search reaches file types no indexer reads
+  args: [for, find, "telemetry-collector", --repo, "{repo}"]
+  contains: ["compose.yaml"]
+  max_seconds: 10
+
+- name: asking to change a value rather than a symbol is redirected, not guessed
+  args: [for, change, "ALERT_WEBHOOK_URL"]
+  exit: 2
+  contains: ["looks like text rather than a symbol", "for find"]
   max_seconds: 5

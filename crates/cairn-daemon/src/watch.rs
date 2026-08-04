@@ -158,7 +158,10 @@ impl DirtyTracker {
             (Some(then), Some(now)) if then == now => {}
             (Some(_), Some(_)) => st.dirty.modified.push(rel.to_string()),
             (Some(_), None) => st.dirty.removed.push(rel.to_string()),
-            (None, Some(_)) => st.dirty.created.push(rel.to_string()),
+            // Same filter as the initial scan, for the same reason: a live event for a
+            // file the index could never have held is not news about the index.
+            (None, Some(_)) if is_indexable(rel) => st.dirty.created.push(rel.to_string()),
+            (None, Some(_)) => {}
             (None, None) => {}
         }
         let after = (
@@ -264,10 +267,32 @@ fn walk_new(root: &Path, dir: &Path, indexed: &HashMap<String, [u8; 16]>, out: &
         }
         if path.is_dir() {
             walk_new(root, &path, indexed, out);
-        } else if !indexed.contains_key(&rel) {
+        } else if is_indexable(&rel) && !indexed.contains_key(&rel) {
             out.push(rel);
         }
     }
+}
+
+/// Extensions the indexers actually produce documents for.
+///
+/// **Update this when a language is added**, or the watcher will go quiet about whole new
+/// modules in it.
+const INDEXABLE_EXTENSIONS: &[&str] = &["py", "pyi", "go"];
+
+/// Could the index have held this file at all?
+///
+/// Measured: on a clean tree the daemon reported `590 created` and advised a reindex,
+/// because everything that is not Python or Go - documentation, compose files, protos,
+/// SQL - is absent from the index by design and the walk read that absence as "new". A
+/// staleness signal that is loud on a tree nobody has touched is one an agent learns to
+/// ignore, which is worse than not having it: the one real edit that follows is buried in
+/// it. `cairn verify --repo .` was exact throughout, which is what made the daemon's
+/// number visibly wrong rather than merely unexplained.
+pub fn is_indexable(rel: &str) -> bool {
+    Path::new(rel)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| INDEXABLE_EXTENSIONS.contains(&e))
 }
 
 pub fn is_ignored(rel: &str) -> bool {
@@ -312,6 +337,22 @@ mod tests {
             "reverting the content must clear the file, not leave it flagged"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_file_no_indexer_reads_is_not_a_new_file() {
+        // The daemon reported 590 created on a tree nobody had touched: docs, compose
+        // files and protos are not in the index because nothing indexes them, and the
+        // walk read that as new work. The signal has to be quiet when the tree is clean,
+        // or the one edit that matters arrives inside a crowd.
+        assert!(is_indexable("srcpy/domains/orders/repo.py"));
+        assert!(is_indexable("srcgo/cmd/server/main.go"));
+        assert!(is_indexable("srcpy/schema/x.pyi"));
+        assert!(!is_indexable("docs/architecture.md"));
+        assert!(!is_indexable("compose.yaml"));
+        assert!(!is_indexable("proto/api/service.proto"));
+        assert!(!is_indexable("tools/sql/01_ranked.sql"));
+        assert!(!is_indexable("Makefile"));
     }
 
     #[test]

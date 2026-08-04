@@ -220,6 +220,25 @@ impl Store {
     /// generated code and tests are pushed down; more-referenced symbols win ties.
     /// The point of the ranking is that we return few results and the right ones —
     /// returning everything would spend the tokens the tool exists to save.
+    /// Symbols whose name is exactly this. The whole name, not a substring.
+    ///
+    /// Separate from `find_symbols` on purpose. That one searches — the caller asked to
+    /// look around, so `Order` matching `OrderService` is the point. This one resolves,
+    /// and a command that went and operated on `OrderService` because the caller typed
+    /// `Order` would be guessing on their behalf. Searching stays where it was asked for.
+    ///
+    /// Ranking is inherited by filtering the search rather than duplicating the query:
+    /// exact matches already sort first there, so the internal limit only has to be
+    /// larger than any plausible number of homonyms.
+    pub fn symbols_named(&self, name: &str) -> Result<Vec<SymbolRow>> {
+        const HOMONYM_CEILING: usize = 200;
+        Ok(self
+            .find_symbols(name, HOMONYM_CEILING)?
+            .into_iter()
+            .filter(|s| s.name == name)
+            .collect())
+    }
+
     pub fn find_symbols(&self, needle: &str, limit: usize) -> Result<Vec<SymbolRow>> {
         // `%` and `_` from the caller are left as SQL wildcards on purpose: the
         // command takes "name | pattern" (architecture 6.1), so `Auth%Handler` works.
@@ -555,6 +574,41 @@ fn encode(bytes: &[u8], max_chars: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolving_a_name_is_not_searching_for_one() {
+        // `find_symbols` searches, so `Order` matching `OrderService` is the point there.
+        // `symbols_named` resolves, and a command that went and operated on
+        // `OrderService` because the caller typed `Order` would be guessing which symbol
+        // was meant - which is the one thing this tool refuses to do everywhere else.
+        let store = Store::open_in_memory().unwrap();
+        for (name, hash) in [("Order", 1u8), ("OrderService", 2), ("Order", 3)] {
+            store
+                .conn
+                .execute(
+                    "INSERT INTO strings(s) VALUES (?1) ON CONFLICT DO NOTHING",
+                    params![name],
+                )
+                .unwrap();
+            store
+                .conn
+                .execute(
+                    "INSERT INTO symbols(hash, name_id, kind, lang, ref_count)
+                     VALUES (?1, (SELECT id FROM strings WHERE s = ?2), 3, 1, 0)",
+                    params![vec![hash; 16], name],
+                )
+                .unwrap();
+        }
+        let named = store.symbols_named("Order").unwrap();
+        assert_eq!(named.len(), 2, "both symbols actually called Order");
+        assert!(named.iter().all(|s| s.name == "Order"));
+        // The searching form still finds the longer one; only resolution is strict.
+        assert!(store
+            .find_symbols("Order", 10)
+            .unwrap()
+            .iter()
+            .any(|s| s.name == "OrderService"));
+    }
 
     #[test]
     fn only_types_qualify_the_name() {

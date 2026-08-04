@@ -31,33 +31,37 @@ Local code navigation for agents
 Usage: cairn [OPTIONS] <COMMAND>
 
 Commands:
-  index      Index the repository you are standing in
-  skill      Install the agent guide into this repository's .claude/skills/
-  context    Entry point by concept: turn "the OAuth stuff" into symbols to start from
-  unreached  Symbols under a path that production code never calls
-  outline    What a module or directory contains, and how used each thing is
-  usage      Where a symbol is used, grouped by file - the blast radius of changing it
-  symbol     Find symbols by name
-  refs       Show references to a symbol
-  graph      Walk the call graph or implementation relations
-  rules      The conventions cairn reads the world with, and where they came from
-  config     Show or change cairn's own settings
-  topology   Deployed services and what each one runs
-  affects    Every deployed service a change here touches, in-process and over the network
-  runs       Which deployed services can run this code - the filesystem cannot say
-  reaches    Who reaches this across a gRPC boundary - the query no name search can answer
-  path       Shortest call path between two symbols: how does one reach the other
-  expand     Show a symbol in more detail
-  weak       Build the weak-link layer: string literals that name a symbol
-  weaklinks  Sites whose string literals name this symbol - candidate dynamic references
-  verify     Report what the index does NOT know, and whether it still matches the repo
-  link       Record a link the static pass cannot see
-  links      Hand-authored links touching a symbol
-  concept    Named nodes that are not symbols, and their links to code
-  daemon     Run the live-state daemon: watches the repo and reports what has changed
-  live       Symbols in a file as the language server sees it *now* - the dirty overlay. Answers about a changed file that the index cannot
-  status     What is indexed, and how stale it is
-  help       Print this message or the help of the given subcommand(s)
+  index        Index the repository you are standing in
+  skill        Install the agent guide into this repository's .claude/skills/
+  context      Entry point by concept: turn "the OAuth stuff" into symbols to start from
+  unreached    Symbols under a path that production code never calls
+  outline      What a module or directory contains, and how used each thing is
+  usage        Where a symbol is used, grouped by file - the blast radius of changing it
+  symbol       Find symbols by name
+  refs         Show references to a symbol
+  graph        Walk the call graph or implementation relations
+  rules        The conventions cairn reads the world with, and where they came from
+  config       Show or change cairn's own settings
+  topology     Deployed services and what each one runs
+  entrypoints  Every way code gets started: start commands, cron entries, on-demand runners
+  affects      Every deployed service a change here touches, in-process and over the network
+  runs         Which deployed services can run this code - the filesystem cannot say
+  reaches      Who reaches this across a gRPC boundary - the query no name search can answer
+  path         Shortest call path between two symbols: how does one reach the other
+  expand       Show a symbol in more detail
+  weak         Build the weak-link layer: string literals that name a symbol
+  weaklinks    Sites whose string literals name this symbol - candidate dynamic references
+  verify       Report what the index does NOT know, and whether it still matches the repo
+  link         Record a link the static pass cannot see
+  links        Hand-authored links touching a symbol
+  concept      Named nodes that are not symbols, and their links to code
+  daemon       Run the live-state daemon: watches the repo and reports what has changed
+  live         Symbols in a file as the language server sees it *now* - the dirty overlay. Answers about a changed file that the index cannot
+  literal      Find a string literal, and get whose function it sits in
+  docs         The documentation map: which document holds what, and what each costs to read
+  status       What is indexed, and how stale it is
+  llm          Claims the index cannot check about itself, put to whoever is reading
+  help         Print this message or the help of the given subcommand(s)
 
 Options:
       --db <DB>          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
@@ -336,6 +340,29 @@ Options:
   -h, --help             Print help
 ```
 
+## cairn entrypoints
+
+```
+Every way code gets started: start commands, cron entries, on-demand runners.
+
+One row per entrypoint rather than per service, each ending in the file it lands in - `cairn outline <that path>` is the way down from here. With --reaches it answers the audit direction instead: which of them can actually run this symbol.
+
+Usage: cairn entrypoints [OPTIONS]
+
+Options:
+      --db <DB>
+          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
+
+      --reaches <REACHES>
+          Only entrypoints from which this symbol can be run
+
+      --budget <BUDGET>
+          Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
 ## cairn affects
 
 ```
@@ -571,6 +598,72 @@ Options:
   -h, --help             Print help
 ```
 
+## cairn literal
+
+```
+Find a string literal, and get whose function it sits in.
+
+The thing SCIP cannot carry, because a literal is not a symbol: a header name, a dict key, a feature flag. grep finds the line faster and is never stale — what it cannot say is whose line it is, which is the question you were going to ask next.
+
+The surrounding source comes back by default. Asking for it separately would cost an inference, and an inference costs more than everything this command does.
+
+Usage: cairn literal [OPTIONS] <TEXT>
+
+Arguments:
+  <TEXT>
+          Text to look for inside string literals. Case-insensitive substring
+
+Options:
+      --context <CONTEXT>
+          How much source at each site: none | line | block | <n>
+          
+          [default: block]
+
+      --db <DB>
+          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
+
+      --budget <BUDGET>
+          Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+
+      --repo <REPO>
+          Repo root. Worked out from the index's own location when omitted, which is right whenever the index sits at the conventional `<repo>/.cairn/`
+
+      --limit <LIMIT>
+          [default: 30]
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## cairn docs
+
+```
+The documentation map: which document holds what, and what each costs to read.
+
+Headings and line ranges, never the prose. With no argument it lists the documents; with a path it gives that one's section skeleton; with --about it finds the sections whose heading, or where that heading sits, names your words.
+
+The answer is always a line range, so the next step is reading thirty lines rather than four files. For a word inside the prose, grep is still the tool.
+
+Usage: cairn docs [OPTIONS] [PATH]
+
+Arguments:
+  [PATH]
+          A markdown path, for that document's sections
+
+Options:
+      --about <ABOUT>
+          Sections whose heading or trail names this
+
+      --db <DB>
+          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
+
+      --budget <BUDGET>
+          Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
 ## cairn status
 
 ```
@@ -582,4 +675,30 @@ Options:
       --db <DB>          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
       --budget <BUDGET>  Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
   -h, --help             Print help
+```
+
+## cairn llm
+
+```
+Claims the index cannot check about itself, put to whoever is reading.
+
+No model is called: cairn is a CLI an agent drives, and the agent is the one that can go and look. With no arguments it prints the claims that need judging, each with the evidence and what would falsify it. `--check <id>` records the answer.
+
+Advisory throughout. Nothing here changes an exit code or blocks a command - a deterministic tool that refused to work because a judgement disagreed would have traded away the thing that makes it worth trusting.
+
+Usage: cairn llm [OPTIONS] <COMMAND>
+
+Commands:
+  verify  List the claims that need judging, or record a verdict on one
+  help    Print this message or the help of the given subcommand(s)
+
+Options:
+      --db <DB>
+          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
+
+      --budget <BUDGET>
+          Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+
+  -h, --help
+          Print help (see a summary with '-h')
 ```

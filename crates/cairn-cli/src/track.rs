@@ -16,7 +16,39 @@
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
+
+/// Not a list: distinct from a list that came back empty. `usize::MAX` stands in for
+/// `None` so the pair can live in two lock-free cells.
+const NO_ROWS: usize = usize::MAX;
+
+static ROWS: AtomicUsize = AtomicUsize::new(NO_ROWS);
+static TRUNCATED: AtomicBool = AtomicBool::new(false);
+
+/// Remember what an answer carried, for the record written after it.
+///
+/// The alternative was to thread a shape through every arm of the command dispatch and
+/// out of `run`, which would put a field most commands never set into all thirty of
+/// them. A process answers exactly one question and then exits, so this is a value in
+/// flight between two points in one command, not state with a life of its own.
+///
+/// Atomics rather than a cell because `report` runs on whichever thread finished the
+/// work: a `static mut` here would reintroduce precisely the class of bug the tests
+/// below were written for.
+pub fn observe(rows: Option<usize>, truncated: bool) {
+    ROWS.store(rows.unwrap_or(NO_ROWS), Ordering::Relaxed);
+    TRUNCATED.store(truncated, Ordering::Relaxed);
+}
+
+/// What the last answer carried. `(None, false)` when the command produced no list.
+pub fn observed() -> (Option<usize>, bool) {
+    let rows = match ROWS.load(Ordering::Relaxed) {
+        NO_ROWS => None,
+        n => Some(n),
+    };
+    (rows, TRUNCATED.load(Ordering::Relaxed))
+}
 
 /// What a session is, when nobody tells us.
 ///
@@ -186,30 +218,12 @@ fn json_escape(s: &str) -> String {
         .collect()
 }
 
-/// Seconds since the epoch, rendered as a timestamp without pulling in a date library.
+/// Timestamp for a log line.
+///
+/// Delegated to cairn-store, which needs the same thing for verdicts. Two hand-rolled
+/// civil-from-days implementations in one workspace is one too many.
 fn now_iso8601() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    // Civil-from-days, the standard algorithm. Enough to sort and to read.
-    let (days, rem) = ((secs / 86_400) as i64, secs % 86_400);
-    let z = days + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    format!(
-        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
-        rem / 3600,
-        (rem % 3600) / 60,
-        rem % 60
-    )
+    cairn_store::now_iso8601()
 }
 
 /// Peak resident memory, where the platform will say.
@@ -333,6 +347,50 @@ mod tests {
         // exists to make visible.
         assert_eq!(text.matches("\"subject\":\"wb2\"").count(), 3);
         std::env::remove_var("CAIRN_SESSION");
+    }
+
+    #[test]
+    fn the_record_says_how_big_the_answer_was_and_whether_it_was_whole() {
+        // Both fields were in the format from the start and neither was ever filled in,
+        // so every session file said `"rows":null,"truncated":false` — which reads as a
+        // complete answer of unknown size, and is unfalsifiable either way.
+        let dir = std::env::temp_dir().join("cairn-track-rows");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let _guard = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::set_var("CAIRN_SESSION", "t3");
+        let db = dir.join("index.sqlite");
+        append(
+            &db,
+            &Record {
+                command: "refs",
+                subject: Some("jjm"),
+                flags: vec!["--budget".into()],
+                exit: 0,
+                rows: Some(12),
+                truncated: true,
+                elapsed: Duration::from_millis(4),
+            },
+        );
+        let text = std::fs::read_to_string(dir.join("sessions/t3.jsonl")).unwrap();
+        assert!(text.contains("\"rows\":12"), "got: {text}");
+        assert!(text.contains("\"truncated\":true"), "got: {text}");
+        std::env::remove_var("CAIRN_SESSION");
+    }
+
+    #[test]
+    fn a_list_that_came_back_empty_is_not_a_command_without_a_list() {
+        observe(Some(0), false);
+        assert_eq!(observed(), (Some(0), false));
+        observe(None, false);
+        assert_eq!(
+            observed(),
+            (None, false),
+            "`status` produces no rows; recording that as zero would invent a search \
+             that returned nothing"
+        );
+        observe(Some(7), true);
+        assert_eq!(observed(), (Some(7), true));
     }
 
     #[test]

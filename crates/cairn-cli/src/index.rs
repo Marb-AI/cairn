@@ -115,6 +115,12 @@ pub struct Survey {
     pub unsupported: Vec<(&'static str, usize, f64)>,
     /// Every source file counted, whatever its language.
     pub total: usize,
+    /// `.proto` files in the tree.
+    ///
+    /// Not a language here — nothing indexes protobuf as source. It is counted because it
+    /// is the only way to tell "this repository has no gRPC" from "the cross-language
+    /// pass found nothing", and those two readings of an empty answer are opposites.
+    pub protos: usize,
 }
 
 /// Walk the tree once, counting files per extension.
@@ -197,6 +203,7 @@ pub fn scan(repo: &Path) -> Result<Survey> {
         found,
         unsupported,
         total,
+        protos: counts.get("proto").copied().unwrap_or(0),
     })
 }
 

@@ -41,6 +41,82 @@ use std::path::Path;
 /// and naming it is enough to say what the positions mean.
 pub type DeployServiceRow = (String, Option<String>, Option<String>, String, bool);
 
+/// How an on-demand entrypoint is named in `deploy_reach`.
+///
+/// Written by the reachability walk and read back by anything that wants to ask which
+/// entrypoint reaches a symbol, so it is one string in one place: a label that differs
+/// by a space between the writer and the reader joins on nothing and reports it as "no
+/// entrypoint reaches this", which is the confident-and-wrong answer, not an error.
+const ENTRY_LABEL_SQL: &str = "service || ' (' || coalesce('cron ' || schedule, 'on demand') \
+                               || ': ' || command || ')'";
+
+/// What starts a piece of code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Trigger {
+    /// The service's own start command: it runs when the service comes up.
+    Start,
+    /// A schedule, held as the cron expression that carries it.
+    Cron(String),
+    /// Run when something asks: `docker exec`, a management command, by hand.
+    OnDemand,
+}
+
+impl Trigger {
+    pub fn label(&self) -> String {
+        match self {
+            Trigger::Start => "start".to_string(),
+            Trigger::Cron(s) => format!("cron {s}"),
+            Trigger::OnDemand => "on demand".to_string(),
+        }
+    }
+}
+
+/// How a service came to be attributed to a symbol, strongest first.
+///
+/// The distinction is part of the answer rather than decoration: "a call path reaches
+/// this" and "the file this sits in is loaded there" are different claims, and a reader
+/// who cannot tell them apart will act on the second as if it were the first.
+#[derive(Debug, Clone)]
+pub enum Attribution {
+    /// A call path from the service's entrypoint reaches the symbol.
+    Direct,
+    /// Nothing calls the symbol statically, but its enclosing type is reached — the
+    /// shape of a method invoked from a dispatch table.
+    ///
+    /// Boxed because the row is two orders of magnitude larger than the other two
+    /// variants, and this enum is returned from a function called per symbol.
+    ViaType(Box<crate::SymbolRow>),
+    /// Neither, but a service loads the file it lives in. The shape of a framework route
+    /// handler, which is registered by decorator and called from the server loop.
+    ViaFile,
+}
+
+/// One way into the codebase, whatever opens it.
+///
+/// A service is not the unit here: a container with three cron jobs is one service and
+/// four entrypoints, and asking "how does this code get run" means asking about the four.
+#[derive(Debug, Clone)]
+pub struct Entrypoint {
+    pub service: String,
+    pub trigger: Trigger,
+    /// The command as the deployment states it. Absent for a service that declares none
+    /// and takes its image default.
+    pub command: Option<String>,
+    /// Repo-relative path the command lands in, when it resolved. `None` is the case
+    /// that matters: everything only this entrypoint runs looks unreachable.
+    pub entry_path: Option<String>,
+    /// The runner script an on-demand entry came from — the evidence for the whole
+    /// chain, so an answer can be checked rather than believed.
+    pub script: Option<String>,
+    /// A container held open on purpose (`sleep infinity`, `tail -f /dev/null`).
+    ///
+    /// Distinct from an unresolved command, which is why it is here: both land in no
+    /// code, but one is an answer and the other is a failure to get one. Reporting an
+    /// idle sidecar as an entrypoint that "did not resolve" trains a reader to skim the
+    /// `unknown:` line, and then the real ones go past unread.
+    pub idle: bool,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Service {
     pub name: String,
@@ -386,8 +462,20 @@ impl Store {
 
         // Cron entries and runner scripts: what a service runs after it has started.
         for od in crate::ondemand::scan(repo)? {
+            // Resolved in the build context of the service the cron line names, the same
+            // one its start command uses. Without it `python -m alerting.dispatch` looks
+            // for `/alerting/dispatch.py` while the index holds `srcpy/alerting/
+            // dispatch.py`, and every `python -m` cron entry silently failed to resolve —
+            // which is the failure this whole mechanism exists to prevent, one level in.
+            // A management command resolves by suffix and never needed the context, which
+            // is why the gap survived: the shape that was measured happened to be immune.
+            let context = topo
+                .services
+                .iter()
+                .find(|s| s.name == od.service)
+                .and_then(|s| s.build_context.as_deref());
             let entry = match resolve_command_with(&od.command, &self.rules) {
-                Some(target) => self.entry_file_for_target(repo, &target, None)?,
+                Some(target) => self.entry_file_for_target(repo, &target, context)?,
                 None => None,
             };
             if entry.is_some() {
@@ -547,7 +635,7 @@ impl Store {
         &self,
         symbol_id: i64,
         max_depth: usize,
-    ) -> Result<(Vec<String>, Option<crate::SymbolRow>)> {
+    ) -> Result<(Vec<String>, Attribution)> {
         // Reuse one walk rather than building two: `runs` asked for the symbol, then for
         // its enclosing type, and each walk became expensive once membership edges landed.
         let sets = self.reachable_by_service(max_depth)?;
@@ -557,7 +645,7 @@ impl Store {
             .map(|(n, _)| n.clone())
             .collect();
         if !direct.is_empty() {
-            return Ok((direct, None));
+            return Ok((direct, Attribution::Direct));
         }
         if let Some(owner) = self.enclosing_type(symbol_id)? {
             let via: Vec<String> = sets
@@ -566,10 +654,20 @@ impl Store {
                 .map(|(n, _)| n.clone())
                 .collect();
             if !via.is_empty() {
-                return Ok((via, Some(owner)));
+                return Ok((via, Attribution::ViaType(Box::new(owner))));
             }
         }
-        Ok((Vec::new(), None))
+        // Last resort, and the weakest of the three: the file. A framework route handler
+        // is reached by neither a call nor a dispatch table its class owns, so both
+        // stronger attributions come back empty and the honest answer is "the module this
+        // lives in is loaded by that service". Measured (scenario 4): without it, `runs`
+        // on a live public endpoint said `0 service(s)`, which reads as dead code and
+        // sent the agent off to rebuild the chain by hand.
+        let by_file = self.services_running_file_in(symbol_id, &sets)?;
+        if !by_file.is_empty() {
+            return Ok((by_file, Attribution::ViaFile));
+        }
+        Ok((Vec::new(), Attribution::Direct))
     }
 
     /// Services that run *some* symbol in this symbol's file.
@@ -687,13 +785,12 @@ impl Store {
         use std::collections::{HashSet, VecDeque};
         let mut entries: Vec<(String, Vec<i64>)> = Vec::new();
         {
-            let mut svc_stmt = self.conn.prepare(
+            let mut svc_stmt = self.conn.prepare(&format!(
                 "SELECT name, entry_file FROM deploy_services WHERE entry_file IS NOT NULL
                  UNION ALL
-                 SELECT service || ' (' || coalesce('cron ' || schedule, 'on demand')
-                        || ': ' || command || ')', entry_file
-                   FROM deploy_on_demand WHERE entry_file IS NOT NULL",
-            )?;
+                 SELECT {ENTRY_LABEL_SQL}, entry_file
+                   FROM deploy_on_demand WHERE entry_file IS NOT NULL"
+            ))?;
             let mut seed_stmt = self.conn.prepare(
                 "SELECT id FROM symbols WHERE def_file_id = ?1
                  UNION
@@ -839,6 +936,75 @@ impl Store {
             if found {
                 out.push(name);
             }
+        }
+        Ok(out)
+    }
+
+    /// Every way code gets started, start commands and on-demand entries together.
+    ///
+    /// `reaches` restricts the answer to entrypoints from which that symbol can be run.
+    /// That is the audit direction: not "who calls this" but "is this on a path something
+    /// actually starts", which is the question behind whether a change is live. It is
+    /// also a free consistency check — this and `runs` derive the same fact from opposite
+    /// ends, so when they disagree the index has just reported a hole in itself.
+    ///
+    /// Idle services (`sleep infinity` and friends) are listed with no command target
+    /// rather than dropped: a container that starts nothing still runs whatever is sent
+    /// to it later, and omitting it says the opposite.
+    pub fn entrypoints(&self, reaches: Option<i64>) -> Result<Vec<Entrypoint>> {
+        // The filter is applied by label so both kinds go through one path. Start
+        // commands are named by the service, on-demand entries by the built label, which
+        // is exactly what the reachability walk stored.
+        let filter = match reaches {
+            Some(_) => "WHERE label IN (SELECT service FROM deploy_reach WHERE symbol_id = ?1)",
+            None => "",
+        };
+        let sql = format!(
+            "SELECT * FROM (
+                 SELECT d.name AS label, d.name AS service, NULL AS schedule, d.command,
+                        p.s AS entry_path, NULL AS script, 0 AS on_demand
+                   FROM deploy_services d
+                   LEFT JOIN files   f ON f.id = d.entry_file
+                   LEFT JOIN strings p ON p.id = f.path_id
+                 UNION ALL
+                 SELECT {ENTRY_LABEL_SQL} AS label, o.service, o.schedule, o.command,
+                        p.s AS entry_path, o.script, 1 AS on_demand
+                   FROM deploy_on_demand o
+                   LEFT JOIN files   f ON f.id = o.entry_file
+                   LEFT JOIN strings p ON p.id = f.path_id
+             ) {filter}
+             ORDER BY service, on_demand, schedule, command"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let map = |r: &rusqlite::Row| {
+            let schedule: Option<String> = r.get("schedule")?;
+            let on_demand: i64 = r.get("on_demand")?;
+            let command: Option<String> = r.get("command")?;
+            let idle = command
+                .as_deref()
+                .and_then(|c| resolve_command_with(c, &self.rules))
+                .map(|t| t == CommandTarget::Idle)
+                .unwrap_or(false);
+            Ok(Entrypoint {
+                service: r.get("service")?,
+                trigger: match (on_demand, schedule) {
+                    (0, _) => Trigger::Start,
+                    (_, Some(s)) => Trigger::Cron(s),
+                    (_, None) => Trigger::OnDemand,
+                },
+                command,
+                entry_path: r.get("entry_path")?,
+                script: r.get("script")?,
+                idle,
+            })
+        };
+        let rows = match reaches {
+            Some(id) => stmt.query_map(params![id], map)?.collect::<Vec<_>>(),
+            None => stmt.query_map([], map)?.collect::<Vec<_>>(),
+        };
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
         }
         Ok(out)
     }

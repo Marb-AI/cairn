@@ -1,93 +1,97 @@
-# Cairn — architektura
+# Cairn — architecture
 
-**Status:** návrh v0.4 · 30. 7. 2026 · **D3 ověřeno měřením, fáze 0 uzavřena**
-**Vstup:** brainstorming „Code Knowledge MCP" · kalibrace na an internal repository (§16)
-**Rozhodnuto:** CLI + skill místo MCP · Python + Go současně · přenositelné artefakty od začátku · vše v Dockeru
+**Status:** design v0.4 · 2026-07-30 · **D3 confirmed by measurement, phase 0 closed**
+**Input:** the "Code Knowledge MCP" brainstorming · calibrated against an internal repository (§16)
+**Decided:** CLI + skill instead of MCP · Python and Go together · portable artefacts from the start · everything in Docker
 
-Doprovodné dokumenty:
-[coverage-analysis.md](coverage-analysis.md) — ověření čtením kódu, že popsané postupy stačí ·
-[spike-0-results.md](spike-0-results.md) — naměřená čísla z fáze 0 (**verdikt GO**)
-
----
-
-## 0. Teze v jedné větě
-
-Cairn je **lokální daemon s CLI frontendem**, který drží perzistentní, obsahem klíčovaný graf
-struktury codebase a odpovídá agentovi na navigační dotazy deterministicky, kompaktně
-a s explicitně přiznanou nejistotou — aby agent nemusel grepovat 12 kol.
-
-Není to agent, není to IDE plugin, není to náhrada LLM. Je to **orientační vrstva pod LLM**.
-
-**Tvrdý invariant (D15):** celý index se postaví **bez jediného LLM volání**. Parsování,
-symboly, reference, call graph, topologie, entrypointy, routy, git signály — všechno je
-deterministické. LLM smí znalost jen *obohatit* (shrnutí, role, invarianty), nikdy ji
-nezakládá. Praktický test: **`cairn index` musí doběhnout offline, bez API klíče, a všechny
-L0/L1 dotazy musí odpovídat stejně jako s ním.** Viz §3.1.
+Companion documents:
+[coverage-analysis.md](coverage-analysis.md) — confirmation by reading code that the described techniques are enough ·
+[spike-0-results.md](spike-0-results.md) — the measured numbers from phase 0 (**verdict: GO**)
 
 ---
 
-## 1. Hraniční rozhodnutí (co určuje všechno ostatní)
+## 0. The thesis in one sentence
 
-| # | Rozhodnutí | Volba | Proč |
+Cairn is a **local daemon with a CLI front end** that holds a persistent, content-keyed graph
+of a codebase's structure and answers an agent's navigational questions deterministically,
+compactly, and with its uncertainty stated — so the agent does not have to grep for twelve
+rounds.
+
+It is not an agent, not an IDE plugin, not a replacement for an LLM. It is an **orientation
+layer underneath the LLM**.
+
+**Hard invariant (D15):** the entire index is built **without a single LLM call**. Parsing,
+symbols, references, the call graph, topology, entrypoints, routes, git signals — all of it is
+deterministic. An LLM may only *enrich* the knowledge (summaries, roles, invariants), never
+establish it. The practical test: **`cairn index` must complete offline, with no API key, and
+every L0/L1 query must answer the same as it does with one.** See §3.1.
+
+---
+
+## 1. Boundary decisions (which determine everything else)
+
+| # | Decision | Choice | Why |
 |---|---|---|---|
-| D1 | Rozhraní | **CLI binárka + skill. Žádné MCP.** | Agent umí `gh`, `rg`, `jq` — CLI je nativní tvar nástroje, ne náhražka. Odpadá protokol, autorizace i rozpočet na schémata. MCP je později tenká slupka nad týmž query enginem, ne přepis. Viz §6.0. |
-| D2 | Procesní model | **Tenký CLI frontend + perzistentní daemon** | Každé zavolání CLI je nový proces, LSP servery startují sekundy až minuty. Stav musí přežít invokaci i session — to je zároveň hlavní diferenciátor oproti Sereně. |
-| D3 | Zdroj L0 faktů | **SCIP indexery (bulk) + LSP (hot path)** | Nepsat parsery. SCIP navíc dává hotové schéma stabilních symbol ID. Viz §4. |
-| D4 | Schéma faktů | **SCIP jako interní model** | Symbol ID nezávislé na pozici v souboru → per-blob cache je korektní a artefakty jsou přenositelné. |
-| D5 | Klíčování cache | **`blob_id` + `deps_api_hash`** | Změna těla funkce neinvaliduje závislé soubory. Viz §5.2 — nejdůležitější detail celého návrhu. |
-| D6 | Úložiště | **CAS na disku (sdílitelné) + SQLite (lokální projekce)** | Sdílená cache = přenos souborů, ne replikace DB. Bazel remote cache, ne Postgres. |
-| D7 | Latence | **Dotaz má deadline, nikdy neblokuje** | Když čerstvá fakta nejsou, odpověz z cache a přiznej stáří. Agent nesmí čekat na indexaci. |
-| D8 | Kontrakt odpovědi | **Každá odpověď nese `unknown:` a `stale:`** | Nepřesná odpověď zastaví agentovo hledání. Přiznaná mezera ne. |
-| D9 | Kořeny grafu | **Deployment topologie (compose + Dockerfile) je prvotřídní zdroj faktů** | Call graph bez kořenů je polévka. Compose je jediný strojově čitelný popis systému jako celku a je nutně udržovaný. Viz §8. |
-| D10 | Velikost indexu | **Interning + varint + zstd v CAS; nekomprimované projekce v SQLite** | Velikost je hlavně otázka přenosu (studený start = stažení). Serializační schéma je den 1, protože se pak nemigruje. Viz §5.5. |
-| D11 | Index vs. git | **Index se do repa necommituje. Do gitu jde jen malý textový souhrn topologie.** | Odvozená data v gitu jsou klasická past (`node_modules`, build outputy). Konflikty nejsou problém k vyřešení, ale příznak. Viz §5.6. |
-| D12 | Komentáře | **Extrahovat, indexovat pro fulltext, ale nikdy nevydávat za fakt** | Komentáře jsou nejlepší most mezi jménem featury a symbolem. Zároveň bývají zastaralé. Viz §4.5. |
-| D13 | Běhové prostředí | **Všechno v Dockeru — daemon, language servery, indexery, build.** Na hostiteli nesmí být `cargo`, Node ani Go toolchain | Zadání projektu. Má architektonické důsledky pro cesty a watcher, ne jen pro build. Viz §2.1. |
-| D14 | Codegen | **Část kódu vyrábí build. Detekovat a přiznat degradaci — nikdy nespouštět.** | Platí napříč ekosystémy (protobuf, GraphQL, Prisma, OpenAPI). Spouštět by porušilo read-only a je to zbytečné: v repu s CI artefakty po prvním buildu existují. Viz §4.6. |
-| D15 | Role LLM | **Index se staví kompletně bez LLM. LLM smí znalost jen obohatit, nikdy založit.** | Determinismus je celý pitch — jakmile by struktura záležela na modelu, ztrácí se to, kvůli čemu nástroj existuje. Testovatelné: `cairn index` běží offline bez klíče. Viz §3.1. |
-| D16 | Rozšiřitelnost | **Jádro nezná žádný jazyk ani framework. Znalost ekosystémů žije v deklarativních pravidlech, ne v kódu jádra.** | Testovací repo je důkaz funkčnosti, ne specifikace. Další cíl je JS/TS a nesmí to znamenat přepis. Viz §1.1. |
+| D1 | Interface | **A CLI binary + a skill. No MCP.** | An agent knows `gh`, `rg`, `jq` — a CLI is the tool's native shape, not a substitute for one. It removes the protocol, the authorisation and the token budget for schemas. MCP is later a thin shell over the same query engine, not a rewrite. See §6.0. |
+| D2 | Process model | **Thin CLI front end + a persistent daemon** | Every CLI invocation is a fresh process, and LSP servers take seconds to minutes to start. State has to outlive both the invocation and the session — which is also the main differentiator against Serena. |
+| D3 | Source of L0 facts | **SCIP indexers (bulk) + LSP (hot path)** | Do not write parsers. SCIP also comes with a ready-made scheme of stable symbol IDs. See §4. |
+| D4 | Fact schema | **SCIP as the internal model** | Symbol IDs independent of position in a file → a per-blob cache is correct and the artefacts are portable. |
+| D5 | Cache key | **`blob_id` + `deps_api_hash`** | Changing a function body does not invalidate dependent files. See §5.2 — the most important detail in the whole design. |
+| D6 | Storage | **CAS on disk (shareable) + SQLite (local projection)** | A shared cache means transferring files, not replicating a database. Bazel remote cache, not Postgres. |
+| D7 | Latency | **A query has a deadline and never blocks** | When fresh facts are unavailable, answer from cache and admit the age. The agent must not wait for indexing. |
+| D8 | Answer contract | **Every answer carries `unknown:` and `stale:`** | An imprecise answer stops the agent from looking. An admitted gap does not. |
+| D9 | Roots of the graph | **Deployment topology (compose + Dockerfile) is a first-class source of facts** | A call graph with no roots is soup. Compose is the only machine-readable description of the system as a whole, and it is necessarily maintained. See §8. |
+| D10 | Index size | **Interning + varint + zstd in the CAS; uncompressed projections in SQLite** | Size is mostly a question of transfer (a cold start is a download). The serialisation scheme is a day-one decision, because it does not get migrated afterwards. See §5.5. |
+| D11 | Index vs. git | **The index is not committed to the repository. Only a small textual summary of the topology goes into git.** | Derived data in git is a classic trap (`node_modules`, build outputs). Conflicts are not a problem to solve but a symptom. See §5.6. |
+| D12 | Comments | **Extract them, index them for full text, but never present them as fact** | Comments are the best bridge there is between a feature's name and a symbol. They are also frequently out of date. See §4.5. |
+| D13 | Runtime environment | **Everything in Docker — the daemon, the language servers, the indexers, the build.** The host must have no `cargo`, no Node and no Go toolchain | A project requirement. It has architectural consequences for paths and for the watcher, not just for the build. See §2.1. |
+| D14 | Codegen | **Some code is produced by the build. Detect it and admit the degradation — never run it.** | This holds across ecosystems (protobuf, GraphQL, Prisma, OpenAPI). Running it would break read-only, and it is unnecessary: in a repository with CI the artefacts exist after the first build. See §4.6. |
+| D15 | The LLM's role | **The index is built entirely without an LLM. An LLM may only enrich knowledge, never establish it.** | Determinism is the whole pitch — the moment the structure depended on a model, the reason the tool exists would be gone. Testable: `cairn index` runs offline without a key. See §3.1. |
+| D16 | Extensibility | **The core knows no language and no framework. Ecosystem knowledge lives in declarative rules, not in the core's code.** | The test repository is proof that it works, not a specification. The next target is JS/TS and that must not mean a rewrite. See §1.1. |
 
-### 1.1 Co je jádro a co je znalost ekosystému (D16)
+### 1.1 What is core and what is ecosystem knowledge (D16)
 
-Nejsnazší způsob, jak tenhle projekt pokazit, je napsat nástroj, který umí jedno repo.
-Testovací repo (§16) slouží k **ověření, že obecné řešení funguje** — ne jako zadání.
-Konkrétní nálezy z něj jsou v dokumentu značené jako *důkaz*, ne jako specifikace.
+The easiest way to ruin this project is to write a tool that handles one repository. The test
+repository (§16) exists **to confirm that the general solution works** — not as a
+specification. Specific findings from it are marked in this document as *evidence*, not as
+specification.
 
-Rozdělení do tří vrstev, které určuje, kam co patří a co stojí přidání dalšího ekosystému:
+The split into three layers, which decides where things belong and what adding another
+ecosystem costs:
 
 ```
   ┌──────────────────────────────────────────────────────────────┐
-  │ A · JÁDRO — nezná jazyk ani framework                        │
-  │   snapshot · CAS · deps_api_hash · SCIP schéma · graf ·      │
-  │   ranking · handles · formátování · git L3 · daemon · CLI    │
-  │   Přidání jazyka sem NESAHÁ.                                 │
+  │ A · CORE — knows no language and no framework                │
+  │   snapshot · CAS · deps_api_hash · SCIP schema · graph ·     │
+  │   ranking · handles · formatting · git L3 · daemon · CLI     │
+  │   Adding a language DOES NOT TOUCH this.                     │
   ├──────────────────────────────────────────────────────────────┤
-  │ B · PRAVIDLA — data, ne kód                                  │
+  │ B · RULES — data, not code                                   │
   │   rules/python.toml · go.toml · typescript.toml              │
-  │   entrypointy · routy · registrace služeb · konvence jmen    │
-  │   generovaného kódu · detekce generovaných souborů           │
-  │   Přidání frameworku = pravidlo, ne commit do Rustu.         │
+  │   entrypoints · routes · service registration · naming       │
+  │   conventions for generated code · generated-file detection  │
+  │   Adding a framework = a rule, not a commit to Rust.         │
   ├──────────────────────────────────────────────────────────────┤
-  │ C · ADAPTÉRY — malý kód, vzácně                              │
-  │   language provider (indexer + LSP + gramatika komentářů)    │
-  │   binder, který pravidlo neunese (parser .proto, tsconfig)   │
+  │ C · ADAPTERS — a little code, rarely                         │
+  │   a language provider (indexer + LSP + comment grammar)      │
+  │   a binder a rule cannot carry (.proto parser, tsconfig)     │
   └──────────────────────────────────────────────────────────────┘
 ```
 
-### Vrstva A je většina hodnoty
+### Layer A is most of the value
 
-Symboly, reference, call graph, komentáře, blast radius, co-change z gitu — nic z toho
-neví, jakým jazykem je kód napsaný. Stojí to na SCIP schématu, které je jazykově neutrální
-z definice. **Tahle vrstva funguje na JS/TS ve chvíli, kdy existuje `scip-typescript`** —
-a ten existuje.
+Symbols, references, the call graph, comments, blast radius, co-change from git — none of it
+knows what language the code is written in. It rests on the SCIP schema, which is
+language-neutral by definition. **This layer works on JS/TS the moment `scip-typescript`
+exists** — and it does.
 
-### Vrstva B: uzavřená sada tvarů, ne obecný DSL
+### Layer B: a closed set of shapes, not a general DSL
 
-Pokušení je napsat query jazyk nad AST. To je past — skončí to vlastním parserem
-v jiném převleku. Reálné případy z Pythonu, Go, TS i JS se ale skládají z malé uzavřené
-množiny **tvarů**:
+The temptation is to write a query language over the AST. That is a trap — it ends as your own
+parser in a different disguise. The real cases from Python, Go, TS and JS are, however, made of
+a small closed set of **shapes**:
 
-| tvar | příklad |
+| shape | example |
 |---|---|
 | `call_pattern` | `Register{Service}Server(s, $impl)` · `app.get($path, $handler)` |
 | `decorator` | `@$router.get($path)` · `@shared_task` |
@@ -96,10 +100,10 @@ množiny **tvarů**:
 | `command_string` | `python -m $mod` · `next start` · `/bin/$binary` |
 | `path_convention` | `app/api/**/route.ts` → `$method /api/**` |
 
-Šest tvarů, ne obecný jazyk. **Nový tvar se přidává, až když ho vyžádají aspoň dva
-nezávislé reálné případy** — to je pojistka proti bobtnání.
+Six shapes, not a general language. **A new shape is added only when at least two independent
+real cases demand it** — that is the safeguard against bloat.
 
-Pravidlo je pak data:
+A rule is then data:
 
 ```toml
 [[rule]]
@@ -110,35 +114,37 @@ match = { name = "Register(?<service>\\w+)Server", args = ["$server", "$impl"] }
 emit  = { edge = "implements", from = "$impl", to = "proto:{service}" }
 ```
 
-Pravidla se dodávají v balíčcích (`rules/*.toml`), ale **repo si je smí přebít nebo doplnit**
-v `.cairn/rules.toml`. Interní framework, který nikdo jiný nemá, je tak řešitelný bez forku.
+Rules ship in packs (`rules/*.toml`), but **a repository may override or extend them** in
+`.cairn/rules.toml`. An internal framework nobody else has is therefore solvable without a
+fork.
 
-### Vrstva C: kdy je kód v pořádku
+### Layer C: when code is the right answer
 
-Když tvar nestačí. Parser `.proto`, čtení `tsconfig.json` `paths`, resolver
-multi-stage Dockerfile. Držet malé a vzácné; každý nový adaptér je závazek na údržbu.
+When a shape is not enough. A `.proto` parser, reading `paths` out of `tsconfig.json`, a
+resolver for a multi-stage Dockerfile. Keep it small and rare; every new adapter is a
+maintenance commitment.
 
-### Testovací podmínka pro D16
+### The test condition for D16
 
-**Přidání JS/TS smí znamenat: jeden language provider (vrstva C) + jeden balíček
-pravidel (vrstva B). Nula změn ve vrstvě A.** Jestli to tak nevyjde, je návrh špatně.
-Konkrétní průchod tímhle cvičením je v §17.
+**Adding JS/TS may mean: one language provider (layer C) plus one rule pack (layer B). Zero
+changes in layer A.** If it does not work out that way, the design is wrong. A concrete
+walk-through of that exercise is in §17.
 
 ---
 
-## 2. Procesní topologie
+## 2. Process topology
 
 ```
-  agent (coding agent / …) nebo člověk nebo CI
-            │  spustí příkaz, čte stdout
+  agent (coding agent / …) or a human or CI
+            │  runs a command, reads stdout
             ▼
-     ┌──────────────┐   spustí daemon, pokud neběží
-     │ cairn refs a4│   bezstavový, ~5 MB RSS, start <30 ms
+     ┌──────────────┐   starts the daemon if it is not running
+     │ cairn refs a4│   stateless, ~5 MB RSS, starts in <30 ms
      └──────┬───────┘
             │  unix socket (Windows: named pipe), length-prefixed msgpack
             ▼
      ┌──────────────────────────────────────────────────────┐
-     │  cairnd  — jeden proces na stroj, N workspaců        │
+     │  cairnd  — one process per machine, N workspaces      │
      │                                                       │
      │   query engine  ──►  store (CAS + SQLite)            │
      │        ▲                    ▲                         │
@@ -149,173 +155,176 @@ Konkrétní průchod tímhle cvičením je v §17.
      │               ├── watcher ──┤   notify(2)             │
      │               └── git ──────┘   gix                   │
      └──────────────────────────────────────────────────────┘
-                        │ (fáze 6, volitelné)
+                        │ (phase 6, optional)
                         ▼  GET/PUT /cas/{blake3}
-                 sdílená cache týmu
+                 the team's shared cache
 ```
 
-**Proč tenký frontend:** agent zavolá `cairn` desetkrát za minutu a pokaždé je to nový proces.
-Kdyby si každý startoval LSP pool, nedoběhl by ani první dotaz. Frontend je hloupý pipe;
-veškerý stav a všechny subprocesy vlastní daemon.
+**Why a thin front end:** an agent calls `cairn` ten times a minute and every one of those is
+a fresh process. If each started an LSP pool, not even the first query would finish. The front
+end is a dumb pipe; all state and all subprocesses belong to the daemon.
 
-**Rozpočet na start CLI je 30 ms.** To je tvrdý požadavek plynoucí z D1 — u MCP se platil
-start jednou za session, u CLI při každém dotazu. Znamená to: žádné parsování konfigurace
-mimo potřebu, žádné skenování filesystému, connect na socket a hned dotaz.
+**The budget for CLI startup is 30 ms.** That is a hard requirement following from D1 — with
+MCP the startup was paid once per session, with a CLI it is paid on every query. It means: no
+configuration parsing beyond what is needed, no filesystem scanning, connect to the socket and
+ask immediately.
 
-**Životnost daemonu:** auto-start z frontendu (jako `gopls`/`tmux`), idle timeout ~30 min bez
-připojeného klienta, ale **index na disku zůstává** — restart daemonu je studený start procesu,
-ne studený start znalosti.
+**Daemon lifetime:** auto-started from the front end (like `gopls`/`tmux`), idle timeout ~30
+minutes with no client attached, but **the index stays on disk** — restarting the daemon is a
+cold start of a process, not a cold start of knowledge.
 
-### 2.1 Všechno běží v Dockeru (D13)
+### 2.1 Everything runs in Docker (D13)
 
-Na hostiteli nesmí být `cargo`, `rustup`, Node ani Go toolchain. To není jen build policy —
-mění to tři věci v architektuře.
+The host must have no `cargo`, no `rustup`, no Node and no Go toolchain. This is not merely a
+build policy — it changes three things in the architecture.
 
 ```
 Coding agent
    │  stdio
    ▼
-docker compose run --rm cairn refs a4    ← frontend, jednorázový, bez stavu
-   │  unix socket ve sdíleném volume
+docker compose run --rm cairn refs a4    ← front end, one-shot, stateless
+   │  unix socket in a shared volume
    ▼
-služba `cairn-daemon`                    ← dlouhoběžící compose služba
-   ├── /workspace   ← bind mount repa, read-only
-   ├── /cache       ← named volume: CAS + SQLite, přežívá restart
-   └── v image: pyright-langserver, gopls, scip-python, scip-go
+the `cairn-daemon` service               ← long-running compose service
+   ├── /workspace   ← bind mount of the repository, read-only
+   ├── /cache       ← named volume: CAS + SQLite, survives a restart
+   └── in the image: pyright-langserver, gopls, scip-python, scip-go
 ```
 
-Agent spouští příkazy, takže `docker compose run --rm` je z jeho pohledu totéž co binárka.
-V praxi se to schová za shell wrapper `cairn` na `PATH`, aby to agent psal přirozeně.
+The agent runs commands, so from its point of view `docker compose run --rm` is the same thing
+as a binary. In practice it hides behind a shell wrapper called `cairn` on `PATH`, so the agent
+writes it naturally.
 
-**Důsledek 1 — cesty.** Uvnitř kontejneru je repo `/workspace/srcpy/…`, na hostiteli
-`/home/user/backend/srcpy/…`. Kdyby odpovědi nesly kontejnerové cesty, agent by soubory
-neotevřel. Řeší to pravidlo, které v návrhu už je z jiného důvodu: §5.1 bod 1 zakazuje
-absolutní cesty kvůli přenositelnosti artefaktů. **Všechno je relativní ke kořeni workspace**,
-takže `srcpy/domains/orders/grpc/server.py:42` funguje v kontejneru i na hostiteli.
-Ta dvě rozhodnutí se potkávají náhodou, ale hezky.
+**Consequence 1 — paths.** Inside the container the repository is `/workspace/srcpy/…`, on the
+host `/home/user/backend/srcpy/…`. If answers carried container paths, the agent could not open
+the files. This is solved by a rule already in the design for another reason: §5.1 point 1
+forbids absolute paths for the sake of portable artefacts. **Everything is relative to the
+workspace root**, so `srcpy/domains/orders/grpc/server.py:42` works both in the container and on
+the host. The two decisions meet by coincidence, but pleasantly.
 
-**Důsledek 2 — watcher.** `inotify` přes bind mount funguje nativně na Linuxu.
-Na Docker Desktopu (macOS/Windows) je nespolehlivý — fallback na polling s delším intervalem,
-nebo nechat frontend posílat explicitní „tenhle soubor se změnil". Riziko je v §14.
+**Consequence 2 — the watcher.** `inotify` over a bind mount works natively on Linux. On Docker
+Desktop (macOS/Windows) it is unreliable — fall back to polling on a longer interval, or let the
+front end send an explicit "this file changed". The risk is in §14.
 
-**Důsledek 3 — velikost image.** Daemon image musí obsahovat Node (pyright), Go toolchain
-(gopls, scip-go) i Python (scip-python). Není to malé, ale je to jednorázové a přesně to
-už testovací repo dělá se svými `pbgen` a `go-compiler` image.
+**Consequence 3 — image size.** The daemon image has to contain Node (pyright), the Go toolchain
+(gopls, scip-go) and Python (scip-python). That is not small, but it is one-off, and it is
+exactly what the test repository already does with its `pbgen` and `go-compiler` images.
 
-Spike nástroje (§13, fáze 0) běží stejným způsobem — `scip-python` ani `scip-go`
-se na hostitele neinstalují.
+The spike tooling (§13, phase 0) runs the same way — neither `scip-python` nor `scip-go` is
+installed on the host.
 
 ---
 
-## 3. Vrstvy znalosti
+## 3. Layers of knowledge
 
-Beze změny oproti brainstormingu, jen s explicitním kontraktem přesnosti:
+Unchanged from the brainstorming, only with an explicit contract for precision:
 
-| | Obsah | Zdroj | Kontrakt | Invalidace |
+| | Contents | Source | Contract | Invalidation |
 |---|---|---|---|---|
-| **L0** Strukturální fakta | definice, výskyty, importy, typy | SCIP indexer / LSP | **100 % recall, jinak nevracet** | per-blob, ms |
-| **L0-C** Komentáře | docstringy, komentáře, TODO, markdown | SCIP + tree-sitter (§4.5) | **exaktně extrahované, sémanticky nedůvěryhodné** — jen pro vyhledávání, nikdy jako tvrzení | per-blob, ms |
-| **L0-D** Deployment fakta | služby, entrypointy, porty, env, routy, mapa kontejner↔repo | compose, Dockerfile, urls.py (§8) | exaktní tam, kde parsuje; jinak `unknown` | per-soubor, ms |
-| **L1** Odvozená struktura | reference, call graph, blast radius, reverse deps, dosažitelnost ze služby | join nad L0 + L0-D, čistý kód | 100 % vůči L0 | inkrementální, ms |
-| **L2** Sémantika | summaries, role, invarianty, koncepty | LLM, lazy | smí zastarat, má `confidence` + `age` | volná, na pozadí |
-| **L3** Execution | co se mění společně, test impact, runtime call graph | git log, coverage | statistický, vrací skóre | per-commit / per-test-run |
+| **L0** Structural facts | definitions, occurrences, imports, types | SCIP indexer / LSP | **100% recall, otherwise return nothing** | per blob, ms |
+| **L0-C** Comments | docstrings, comments, TODOs, markdown | SCIP + tree-sitter (§4.5) | **exactly extracted, semantically untrustworthy** — for search only, never as an assertion | per blob, ms |
+| **L0-D** Deployment facts | services, entrypoints, ports, env, routes, the container↔repo map | compose, Dockerfile, urls.py (§8) | exact where it parses; `unknown` otherwise | per file, ms |
+| **L1** Derived structure | references, call graph, blast radius, reverse deps, reachability from a service | a join over L0 + L0-D, pure code | 100% with respect to L0 | incremental, ms |
+| **L2** Semantics | summaries, roles, invariants, concepts | LLM, lazy | may go stale, carries `confidence` + `age` | loose, in the background |
+| **L3** Execution | what changes together, test impact, runtime call graph | git log, coverage | statistical, returns a score | per commit / per test run |
 
-**Klíčové:** L0 a L1 nikdy nemíchat s L2/L3 v jedné nekvalifikované odpovědi. Když
-`cairn blast` vrátí 4 statické volající a 3 co-change kandidáty, musí být v odpovědi
-vizuálně oddělené — jinak agent vezme statistiku za fakt.
+**The key point:** never mix L0 and L1 with L2/L3 in one unqualified answer. When `cairn blast`
+returns 4 static callers and 3 co-change candidates, they have to be visually separated in the
+answer — otherwise the agent takes the statistic for a fact.
 
-### 3.1 Dělicí čára: L2 je jediná vrstva s LLM (D15)
+### 3.1 The dividing line: L2 is the only layer with an LLM (D15)
 
 ```
   ┌─────────────────────────────────────────────────────────┐
   │  L0 · L0-C · L0-D · L1 · L3                             │
-  │  deterministické · offline · bez API klíče · 100 % recall│
-  │  ── postaví se samo, kompletně, opakovatelně ──          │
+  │  deterministic · offline · no API key · 100% recall     │
+  │  ── builds itself, completely, repeatably ──            │
   └─────────────────────────────────────────────────────────┘
                             ▲
-                            │  smí přidávat, nikdy nezakládá
+                            │  may add, never establishes
   ┌─────────────────────────┴───────────────────────────────┐
-  │  L2 — shrnutí, role, invarianty, koncepty                │
-  │  volitelné · lazy · s confidence · vždy odstranitelné    │
+  │  L2 — summaries, roles, invariants, concepts             │
+  │  optional · lazy · with confidence · always removable    │
   └─────────────────────────────────────────────────────────┘
 ```
 
-Tři pravidla, která z toho plynou a jsou testovatelná:
+Three rules follow from this, and all three are testable:
 
-1. **`cairn index` běží offline.** Bez sítě, bez klíče, bez modelu. V CI to je jeden test.
-2. **Smazání celé L2 nesmí změnit ani jednu L0/L1/L3 odpověď.** Regresní test:
-   spustit sadu dotazů, vyprázdnit L2, spustit znovu, porovnat. Rozdíl = chyba.
-3. **L2 nikdy nevstupuje do výpočtu.** Nesmí ovlivnit ranking, dosažitelnost, blast radius
-   ani seed. Smí se jen zobrazit — vždy označené, jako u komentářů (§4.5).
+1. **`cairn index` runs offline.** No network, no key, no model. In CI that is one test.
+2. **Deleting all of L2 must not change a single L0/L1/L3 answer.** A regression test: run a set
+   of queries, empty L2, run them again, compare. Any difference is a bug.
+3. **L2 never enters a computation.** It must not affect ranking, reachability, blast radius or
+   seeding. It may only be displayed — always labelled, as with comments (§4.5).
 
-**Kdo L2 vyrábí, když cairn nemá LLM ani MCP sampling (D1).** Nejlevnější zdroj je
-**volající agent sám**: model, který zrovna četl `TokenValidator`, ho umí popsat zadarmo,
-protože tu práci už udělal. Proto:
+**Who produces L2, given that cairn has no LLM and no MCP sampling (D1).** The cheapest source
+is **the calling agent itself**: a model that has just read `TokenValidator` can describe it for
+free, because it has already done the work. Hence:
 
 ```
 cairn note <handle> --summary "…" [--confidence high|low]
 ```
 
-Není to porušení „read-only" (§6.1) — cairn nezapisuje do repa, jen do vlastní cache.
-Zápis do zdrojáků zůstává zakázaný.
+This is not a violation of "read-only" (§6.1) — cairn does not write to the repository, only to
+its own cache. Writing to source stays forbidden.
 
-Dávkové obohacení vlastním klíčem (`cairn enrich --model …`) je až druhá varianta a je
-striktně opt-in. Výchozí instalace nikam nevolá.
+Bulk enrichment with your own key (`cairn enrich --model …`) is a distant second option and is
+strictly opt-in. A default installation calls out to nothing.
 
 ---
 
-## 4. Získávání L0: tři rychlosti
+## 4. Obtaining L0: three speeds
 
-Nejčastější chyba u nástrojů tohoto typu: postavit všechno na LSP. LSP je **dotazovací**
-protokol, ne indexační. „Dej mi reference všech symbolů" = O(n) round-tripů = hodiny.
+The commonest mistake with tools of this kind is to build everything on LSP. LSP is a **query**
+protocol, not an indexing one. "Give me the references of every symbol" = O(n) round trips =
+hours.
 
-### 4.1 Studená / dávková cesta — SCIP indexery
+### 4.1 The cold / batch path — SCIP indexers
 
-`scip-python` (Sourcegraph, postavené nad pyright) a `scip-go` proběhnou celý projekt
-a vyplivnou SCIP index: pro každý dokument seznam **occurrences** (rozsah + symbol ID + role
-definition/reference/write) a **symbol information** (dokumentace, vztahy).
+`scip-python` (Sourcegraph's, built on pyright) and `scip-go` run over the whole project and
+emit a SCIP index: for every document a list of **occurrences** (range + symbol ID + a
+definition/reference/write role) and **symbol information** (documentation, relationships).
 
-Co tím dostaneme zadarmo:
-- stabilní, na pozici nezávislá symbol ID (`scip-python python . . auth/oauth.py/TokenValidator#validate().`)
-- hotový model, který je *navržený* pro cross-repo a cross-language propojení
-- ekosystém dalších indexerů, až se bude přidávat jazyk (TS, Java, Rust, Ruby)
+What that gives us for free:
+- stable, position-independent symbol IDs (`scip-python python . . auth/oauth.py/TokenValidator#validate().`)
+- a ready-made model that is *designed* for cross-repo and cross-language linking
+- an ecosystem of further indexers for when a language is added (TS, Java, Rust, Ruby)
 
-Nevýhoda: běží nad celým projektem, ne inkrementálně. Proto:
+The drawback: it runs over the whole project, not incrementally. Hence:
 
-### 4.2 Horká cesta — LSP pro dirty soubory
+### 4.2 The hot path — LSP for dirty files
 
-Rozpracovaný / neuložený soubor jde přes `pyright-langserver` resp. `gopls`:
-`documentSymbol`, `references`, `definition`, `implementation`, `callHierarchy`.
-Výsledek se přemapuje do stejného SCIP schématu a **překryje** bázi.
+A file being worked on, or unsaved, goes through `pyright-langserver` or `gopls`:
+`documentSymbol`, `references`, `definition`, `implementation`, `callHierarchy`. The result is
+remapped into the same SCIP schema and **overlays** the base.
 
-Latence: 10–100 ms na soubor. To je přesně ten dotaz, na kterém nejvíc záleží
-(„právě jsem změnil signaturu, koho jsem rozbil").
+Latency: 10–100 ms per file. That is exactly the query that matters most ("I have just changed
+a signature, what did I break").
 
-### 4.2b LSP pool — druhá polovina overlaye
+### 4.2b The LSP pool — the other half of the overlay
 
-Dávkový indexer neumí odpovědět na soubor, který se změnil, bez plného běhu. Teplý
-language server ano, a **naměřeno**: po editaci stojí `documentSymbol` 4–5 ms u pyrightu
-a 3,6–7,3 ms u gopls, `references` 94–115 ms a 23–27 ms (spike-0-results §4.2c).
+A batch indexer cannot answer about a file that has changed without a full run. A warm language
+server can, and **measured**: after an edit, `documentSymbol` costs 4–5 ms with pyright and
+3.6–7.3 ms with gopls, `references` 94–115 ms and 23–27 ms (spike-0-results §4.2c).
 
-Celý `cairn live <soubor>` — start procesu, socket, LSP dotaz, dotaz do indexu i
-formátování — vychází na **11 ms medián**.
+The whole of `cairn live <file>` — process start, socket, LSP query, the index query and
+formatting — comes out at **11 ms median**.
 
-Tři věci, které přineslo měření a promítly se do kódu:
+Three things the measurement produced that went into the code:
 
-- **Klient musí odpovídat na požadavky serveru.** pyright si během startu vyžádá
-  `workspace/configuration` a než dostane odpověď, neobslouží nic. První verze benchmarku
-  je ignorovala a „naměřila" 180s timeout na každém dotazu.
-- **První dotaz je jiná kategorie.** pyrightu trvalo první `references` 1 353 ms i po
-  zahřátí, proti 130 ms teplým. Proto pool zahřívá servery na pozadí při startu a proto
-  má klient **různé timeouty podle druhu požadavku**: `dirty` se ptá při každém volání
-  CLI a musí mít těsný strop, aby zaseknutý daemon nezdržoval běžný dotaz; LSP dotaz
-  dostane prostor na studený případ.
-- **Jazyky nejsou symetrické.** pyright je na hot path zhruba 4× pomalejší než gopls —
-  což je obrácený obrázek než u dávkové cesty, kde naopak Go nemá levný částečný reindex.
+- **The client has to answer the server's requests.** During startup pyright asks for
+  `workspace/configuration` and until it gets an answer it serves nothing. The first version of
+  the benchmark ignored those and "measured" a 180s timeout on every query.
+- **The first query is a different category.** pyright's first `references` took 1,353 ms even
+  after warm-up, against 130 ms warm. Hence the pool warms servers in the background at startup,
+  and hence the client has **different timeouts per kind of request**: `dirty` is asked on every
+  CLI call and needs a tight ceiling so a stuck daemon does not delay an ordinary query; an LSP
+  query is given room for the cold case.
+- **The languages are not symmetric.** pyright is roughly 4× slower than gopls on the hot path —
+  the reverse of the batch path, where it is Go that has no cheap partial reindex.
 
-#### Co overlay ukazuje
+#### What the overlay shows
 
-Ne živý výpis, ale **porovnání**: co server vidí teď proti tomu, co má index.
+Not a live listing but a **comparison**: what the server sees now against what the index holds.
 
 ```
 $ cairn live srcpy/domains/orders/mcp/middleware.py
@@ -324,150 +333,156 @@ $ cairn live srcpy/domains/orders/mcp/middleware.py
 stale: the index is behind for this file: 2 new, 0 moved, 1 gone
 ```
 
-Porovnávat se musí **kvalifikovanými jmény**. Dvě třídy v jednom souboru mohou mít
-metodu téhož jména a porovnání holých jmen je spáruje a vymyslí přesun, který se nestal.
+The comparison has to be on **qualified names**. Two classes in one file can have a method of
+the same name, and comparing bare names pairs them up and invents a move that never happened.
 
-Zbývající nepřesnost, přiznaná: index zná `__init__`, které `documentSymbol` nevypisuje,
-takže se hlásí jako `gone`. Je to jeden záznam a je poctivě označený, ne skrytý.
+The remaining imprecision, admitted: the index knows about `__init__`, which `documentSymbol`
+does not list, so it is reported as `gone`. It is one entry and it is honestly labelled, not
+hidden.
 
-### 4.3b Daemon drží živý stav, ne dotazy
+### 4.3b The daemon holds live state, not queries
 
-Naivní varianta by nechala daemona proxovat všechny dotazy. **Zamítnuto po měření:**
-SQLite ve WAL zvládne souběžné čtenáře a start CLI je ~1 ms, takže proxy by přidala
-latenci a nekoupila nic.
+The naive version would have the daemon proxy every query. **Rejected after measurement:**
+SQLite in WAL mode handles concurrent readers and CLI startup is ~1 ms, so a proxy would add
+latency and buy nothing.
 
-Daemon existuje kvůli tomu, co **jednorázový proces mít nemůže: živý stav.** Dnes watcher,
-který běží už předtím, než se někdo zeptal; zítra teplé language servery. Odpovídá proto
-na jedinou otázku — *co se změnilo od indexace* — a CLI si to složí do sekce `stale:`.
-Až přijde LSP pool, připojí se ze stejného důvodu a protokol přiroste o jeden požadavek,
-místo aby změnil tvar.
+The daemon exists for what **a one-shot process cannot have: live state.** Today the watcher,
+which is already running before anybody asks; tomorrow warm language servers. It therefore
+answers a single question — *what has changed since indexing* — and the CLI folds that into the
+`stale:` section. When the LSP pool arrives it attaches for the same reason and the protocol
+grows by one request instead of changing shape.
 
-Tři věci, které se ukázaly jako podstatné:
+Three things that turned out to matter:
 
-- **Špinavost se měří proti indexu, ne proti poslední události.** Soubor je špinavý, když
-  se jeho obsah liší od zaindexovaného — takže úprava a její vrácení nezanechá nic.
-  Kdyby se počítaly události, `git checkout` by označil půl stromu bez jediné reálné změny.
-- **Prázdná a neznámá množina nejsou totéž.** Bez daemona se nehlásí „čisto", ale
-  `stale: not tracked`. Splynutí těch dvou je přesně ta tichá zastaralost, kterou D8 zakazuje.
-- **Označuje se odpověď, ne index.** Dotaz na symbol ze změněného souboru to přizná;
-  dotaz vedle zůstane čistý. Plošné „index je starý" by se naučilo ignorovat.
+- **Dirtiness is measured against the index, not against the last event.** A file is dirty when
+  its contents differ from what was indexed — so an edit and its reversal leave nothing behind.
+  If events were counted, a `git checkout` would mark half the tree without a single real change.
+- **Empty and unknown are not the same set.** Without a daemon the report is not "clean" but
+  `stale: not tracked`. Merging those two is exactly the silent staleness D8 forbids.
+- **What is marked is the answer, not the index.** A query about a symbol in a changed file
+  admits it; a query next door stays clean. A blanket "the index is old" would be learned and
+  ignored.
 
-### 4.3 Overlay není zvláštní mechanismus
+### 4.3 The overlay is not a special mechanism
 
-Protože je všechno klíčované obsahem, „dirty soubor" je jen soubor s jiným `blob_id`.
-Jediná měnitelná věc v systému je **snapshot**:
+Because everything is content-keyed, a "dirty file" is just a file with a different `blob_id`.
+The only mutable thing in the system is the **snapshot**:
 
 ```
-snapshot = { relativní cesta → blob_id }
+snapshot = { relative path → blob_id }
 ```
 
-- `head_snapshot` — čte se z git tree (gix), zdarma
-- `working_snapshot` — filesystem + watcher, výchozí pro dotazy
+- `head_snapshot` — read from the git tree (gix), free
+- `working_snapshot` — filesystem plus the watcher, the default for queries
 
-Přepnutí větve = výměna snapshotu ≈ 0 práce, protože fakta pod ním jsou nezměněná.
-Rebase / amend / squash / force-push = úplně bez efektu, commit hashe systém nezajímají.
+Switching branches = swapping the snapshot ≈ no work, because the facts underneath are
+unchanged. Rebase / amend / squash / force-push = no effect at all; the system does not care
+about commit hashes.
 
-> **Architektonická páteř:** snapshot je jediná mutable věc; všechno pod ním
-> jsou immutable, obsahem adresovaná fakta.
+> **The architectural spine:** the snapshot is the only mutable thing; everything under it is
+> immutable, content-addressed facts.
 
-### 4.4 Riziko, které je nutné ověřit do 2 týdnů
+### 4.4 A risk that has to be checked within 2 weeks
 
-`scip-python` je Sourcegraph projekt s kolísavou údržbou a Django ORM je přesně to,
-na čem pyright klopýtá. **První úkol po založení repa: pustit scip-python na testovací
-repo a změřit, kolik symbolů zůstane nevyřešených.** Pokud > ~15 %, plán se mění
-(fallback: LSP bulk crawl s omezením na exportované symboly, pomalejší studený start).
+`scip-python` is a Sourcegraph project with uneven maintenance, and the Django ORM is exactly
+what pyright stumbles on. **The first task after creating the repository: run scip-python over
+the test repository and measure how many symbols stay unresolved.** If it is more than ~15%, the
+plan changes (fallback: an LSP bulk crawl restricted to exported symbols, with a slower cold
+start).
 
-Pro Django byla domněnka, že to levně vyřeší stub balíčky `django-types` /
-`django-stubs` nakonfigurované pro pyright, a že to pokryje 90 %.
+For Django the assumption was that the stub packages `django-types` / `django-stubs` configured
+for pyright would solve it cheaply and cover 90%.
 
-**Změřeno a neplatí.** `django-types` se nainstaloval automaticky do indexační kopie
-a index vzrostl o 2,6 % výskytů — ale `LedgerEntry.ledger_category` se posunulo
-z 0 rozřešených míst užití na 5 ve dvou souborech, zatímco to jméno se vyskytuje
-ve **33 souborech**.
+**Measured, and it does not hold.** `django-types` installed itself automatically into the
+indexing copy and the index grew by 2.6% of occurrences — but `LedgerEntry.ledger_category` went
+from 0 resolved use sites to 5 across two files, while that name occurs in **33 files**.
 
-Důvod: problém není typ pole, ale typ *držitele*. `for tx in transactions`, kde
-`transactions` přišlo z querysetu, není bez mypy pluginu (který pyright spustit neumí)
-typované jako `LedgerEntry`, takže `tx.ledger_category` se nemá k čemu rozřešit.
-Stuby popisují model, ne to, co z něj queryset vrací.
+The reason: the problem is not the field's type but the *holder's* type. `for tx in transactions`
+where `transactions` came out of a queryset is not typed as `LedgerEntry` without a mypy plugin
+(which pyright cannot run), so `tx.ledger_category` has nothing to resolve against. Stubs
+describe the model, not what a queryset returns from it.
 
-**Důsledek pro návrh:** Python strana má na ORM-těžkém kódu **strukturální strop**, který
-konfigurace neodstraní. Zbývají tři cesty a všechny jsou dražší, než §4.4 předpokládala:
+**Consequence for the design:** the Python side has a **structural ceiling** on ORM-heavy code
+that configuration will not remove. Three routes remain and all of them are more expensive than
+§4.4 assumed:
 
-| cesta | kdo to musí udělat |
+| route | who has to do it |
 |---|---|
-| anotace v repu (`tx: LedgerEntry`) | vlastník repa — mění zdrojáky |
-| runtime trace (§9) — skutečné typy z běhu testů | cairn, ale je to celá vrstva L3 |
-| přiznat mez v odpovědi | **hotovo** — atribut na typu nese výhradu, že jde o dolní odhad |
+| annotations in the repository (`tx: LedgerEntry`) | the repository's owner — it changes source |
+| a runtime trace (§9) — real types from a test run | cairn, but it is a whole L3 layer |
+| admit the limit in the answer | **done** — an attribute on a type carries the caveat that this is a lower bound |
 
-Do té doby platí to poslední: nerozřeší to ani jednu referenci navíc, ale mění tichou
-špatnou odpověď na přiznanou.
+Until then the last of those holds: it resolves not one extra reference, but it turns a silently
+wrong answer into an admitted one.
 
-### 4.5 Třetí rychlost: komentáře a dokumentace
+### 4.5 The third speed: comments and documentation
 
-Komentáře jsou **nejlepší existující most mezi jménem featury a symbolem**. „OAuth" se
-často nevyskytuje v žádném identifikátoru, ale je hned v prvním řádku docstringu. Bez nich
-stojí `cairn context` na fuzzy matchi jmen a cest, což je ta slabší polovina §6.4.
+Comments are **the best bridge that exists between a feature's name and a symbol**. "OAuth"
+often appears in no identifier at all, but it is right there in the first line of a docstring.
+Without them `cairn context` rests on fuzzy matching of names and paths, which is the weaker
+half of §6.4.
 
-#### Odkud
+#### Where from
 
-| zdroj | jak | cena |
+| source | how | cost |
 |---|---|---|
-| Docstringy symbolů | `SymbolInformation.documentation` — **SCIP to už nese**, jen to nezahazovat | nula |
-| Inline a blokové komentáře, modulové hlavičky | tree-sitter | ms/soubor |
-| Markdown v repu (README, ADR, `docs/`) | prostý parser + nadpisy jako oddíly | ms |
+| Symbol docstrings | `SymbolInformation.documentation` — **SCIP already carries it**, just do not throw it away | nothing |
+| Inline and block comments, module headers | tree-sitter | ms/file |
+| Markdown in the repository (README, ADRs, `docs/`) | a plain parser plus headings as sections | ms |
 
-#### Tady je tree-sitter správný nástroj
+#### Here tree-sitter is the right tool
 
-V brainstormingu je tree-sitter odmítnutý pro L0 — správně, dá parse tree, ne name
-resolution, a u C# nebo Djanga selže tiše. **Komentáře jsou přesná výjimka: není co
-rozřešovat.** Je to čistě lexikální a poziční extrakce. Žádné overloady, žádná generika,
-žádné partial classes. Tree-sitter je tu levný, přesný a jazykově univerzální — a přidání
-dalšího jazyka stojí jednu gramatiku, ne celý indexer.
+The brainstorming rejects tree-sitter for L0 — correctly, it gives a parse tree, not name
+resolution, and on C# or Django it fails silently. **Comments are the exact exception: there is
+nothing to resolve.** It is purely lexical and positional extraction. No overloads, no generics,
+no partial classes. Tree-sitter is cheap here, accurate and language-universal — and adding
+another language costs one grammar, not a whole indexer.
 
-#### Přiřazení ke symbolu, ne textová polévka
+#### Attached to a symbol, not text soup
 
-Komentář se váže na nejbližší následující definici (leading blok) nebo na obklopující symbol
-(inline). Tím je fulltext **scopovaný**: shoda v komentáři vrátí symbol s handlem, ne
-„soubor, kde se to někde vyskytuje". Nepřiřazené komentáře (modulové hlavičky) se váží
-na soubor.
+A comment binds to the nearest following definition (a leading block) or to the enclosing symbol
+(inline). That makes the full text **scoped**: a match in a comment returns a symbol with a
+handle, not "a file where this appears somewhere". Unattached comments (module headers) bind
+to the file.
 
-#### Kontrakt pravdivosti — jiný než u zbytku L0
+#### The truth contract — different from the rest of L0
 
-Komentář je extrahovaný **exaktně** (text je text), ale jeho *tvrzení* je neověřené a bývá
-zastaralé. Proto:
+A comment is extracted **exactly** (text is text), but its *assertion* is unverified and is
+frequently out of date. Therefore:
 
-- komentáře se používají pro **vyhledání kandidátů**, nikdy jako fakt v odpovědi
-- když se komentář v odpovědi cituje, je označený `[comment, unverified]`
-- v `symbols_fts` mají vlastní sloupec s **nižší vahou** než jméno symbolu: shoda ve jméně
-  > shoda v docstringu > shoda v inline komentáři
-- **zakomentovaný kód se detekuje a downrankuje** (řádek, který se parsuje jako kód) —
-  jinak je to největší zdroj šumu ve fulltextu
+- comments are used to **find candidates**, never as fact in an answer
+- when a comment is quoted in an answer it is labelled `[comment, unverified]`
+- in `symbols_fts` they get their own column with a **lower weight** than the symbol's name: a
+  match on the name > a match in a docstring > a match in an inline comment
+- **commented-out code is detected and down-ranked** (a line that parses as code) — otherwise it
+  is the largest source of noise in the full text
 
-Tenhle rozdíl je nutné držet: je to jediná část L0, která je exaktně extrahovaná, ale
-sémanticky nedůvěryhodná. Míchat ji s referencemi by rozbilo kontrakt „L0 = 100 % nebo `unknown`".
+This distinction has to be kept: it is the only part of L0 that is exactly extracted but
+semantically untrustworthy. Mixing it with references would break the contract "L0 = 100% or
+`unknown`".
 
-#### Vedlejší produkty zadarmo
+#### Free by-products
 
-`TODO` / `FIXME` / `HACK` / `XXX` jako vlastní `kind` hrany. Pro auditní doménu — což je
-podle brainstormingu cílový trh — je „ukaž mi všechny FIXME v kódu dosažitelném z veřejného
-endpointu" (§8.7) dotaz, na který dnes neodpoví nic.
+`TODO` / `FIXME` / `HACK` / `XXX` as an edge `kind` of their own. For the audit domain — which
+the brainstorming names as the target market — "show me every FIXME in code reachable from a
+public endpoint" (§8.7) is a question nothing answers today.
 
-Invalidace beze změny: komentáře jsou per-soubor, obsahem klíčované jako všechno ostatní,
-a nezávisí na `deps_api_hash` (nemají závislosti).
+Invalidation is unchanged: comments are per file, content-keyed like everything else, and do not
+depend on `deps_api_hash` (they have no dependencies).
 
-### 4.6 Chybějící codegen — indexovat jde, mlčet se nesmí
+### 4.6 Missing codegen — indexing is possible, silence is not
 
-**Obecný jev:** část kódu nemusí v pracovním stromě existovat, protože ji vyrábí build.
-Předpoklad „co je v repu, to je celý kód" neplatí u protobuf/gRPC, GraphQL codegen,
-OpenAPI klientů, Thriftu, ORM stub generátorů, .NET source generators,
-Prisma klienta i `next build` typů. Napříč jazyky, ne v jednom.
+**The general phenomenon:** part of the code need not exist in the working tree, because the
+build produces it. The assumption "what is in the repository is all the code" fails for
+protobuf/gRPC, GraphQL codegen, OpenAPI clients, Thrift, ORM stub generators, .NET source
+generators, the Prisma client and `next build` types. Across languages, not in one.
 
-Následek není „pár nerozřešených referencí". Když na generovaném symbolu visí dědičnost
-nebo typ, chybějící artefakt sebere **celou plochu**, která přes něj vede.
+The consequence is not "a few unresolved references". When inheritance or a type hangs off a
+generated symbol, the missing artefact takes away **the entire surface** that runs through it.
 
-#### Chování: detekovat, indexovat, přiznat
+#### Behaviour: detect, index, admit
 
-Pravidlo (vrstva B, §1.1) popisuje pro daný ekosystém dvojici *vstupy → očekávané výstupy*:
+A rule (layer B, §1.1) describes, for a given ecosystem, a pair of *inputs → expected outputs*:
 
 ```toml
 [[codegen]]
@@ -477,14 +492,14 @@ produces = ["**/*_pb2.py", "**/*_pb2_grpc.py"]
 hint     = "run your protobuf generation step"
 ```
 
-| stav | chování |
+| state | behaviour |
 |---|---|
-| výstupy existují a nejsou starší než vstupy | indexuje se normálně |
-| chybí, nebo jsou zastaralé | **indexuje se dál, ale index je `degraded:`** |
+| the outputs exist and are not older than the inputs | indexed normally |
+| missing, or stale | **still indexed, but the index is `degraded:`** |
 
-Druhý řádek je celá pointa. Bez něj by nástroj tvrdil „3 reference", kde jich je 200 —
-přesně ten tichý fail, kterému se vyhýbá D8. Příznak jde do `cairn status`
-**a do každé odpovědi**:
+The second row is the whole point. Without it the tool would claim "3 references" where there
+are 200 — exactly the silent failure D8 avoids. The flag goes into `cairn status` **and into
+every answer**:
 
 ```
 degraded: generated sources missing or stale (protobuf.python).
@@ -492,101 +507,103 @@ degraded: generated sources missing or stale (protobuf.python).
           hint: run your protobuf generation step
 ```
 
-#### Cairn nic nespouští
+#### cairn runs nothing
 
-Dřívější verze návrhu tady měla „prepare krok", který si codegen sám pustí. Zrušeno,
-ze dvou důvodů. Za prvé by to porušilo read-only kontrakt (§6.1) — codegen zapisuje
-do pracovního stromu. Za druhé je to zbytečné: **v repu s CI, které generovaný kód hlídá,
-existují artefakty v každém checkoutu, kde někdo jednou buildil nebo pustil testy.**
-Stav „chybí" je přechodný a týká se hlavně čerstvého clonu.
+An earlier version of the design had a "prepare step" here that would run codegen itself.
+Dropped, for two reasons. First, it would break the read-only contract (§6.1) — codegen writes
+into the working tree. Second, it is unnecessary: **in a repository with CI that guards
+generated code, the artefacts exist in every checkout where somebody has built or run the tests
+once.** The "missing" state is transient and mostly concerns a fresh clone.
 
-Zůstává tedy jen detekce a poctivé přiznání. Levné, univerzální, bez vedlejších účinků.
+So all that remains is detection and an honest admission. Cheap, universal, no side effects.
 
-*Poznámka k důkazu: dřívější verze sem uváděla testovací repo jako příklad chybějících
-Python stubů. Bylo to měření špatně — stuby jsou commitnuté, jen je betterproto2 sype do
-`__init__.py` místo `*_pb2.py`. Mechanismus platí obecně, tohle repo ale jeho příkladem
-není. Viz [spike-0-results.md](spike-0-results.md) §5.*
+*A note on evidence: an earlier version cited the test repository here as an example of missing
+Python stubs. That measurement was wrong — the stubs are committed, betterproto2 simply dumps
+them into `__init__.py` instead of `*_pb2.py`. The mechanism holds in general, but this
+repository is not an example of it. See [spike-0-results.md](spike-0-results.md) §5.*
 
 ---
 
-## 5. Storage a cache
+## 5. Storage and cache
 
-### 5.1 Dva druhy dat
+### 5.1 Two kinds of data
 
 ```
 ~/.cache/cairn/
-  cas/                      immutable, obsahem adresované, SDÍLITELNÉ
-    blake3/ab/cd/abcd…      FileFacts záznam (msgpack, deterministická serializace)
-    blake3/…                celý SCIP index pro tree_hash (hrubá granularita)
+  cas/                      immutable, content-addressed, SHAREABLE
+    blake3/ab/cd/abcd…      a FileFacts record (msgpack, deterministic serialisation)
+    blake3/…                a whole SCIP index for a tree_hash (coarse granularity)
   ws/<workspace-id>/
-    index.sqlite            LOKÁLNÍ projekce, kdykoliv přepočitatelná z CAS
+    index.sqlite            a LOCAL projection, recomputable from the CAS at any time
     snapshot.bin
 ```
 
-**CAS = pravda a sdílený artefakt. SQLite = materializovaný pohled.**
+**The CAS is the truth and the shared artefact. SQLite is a materialised view.**
 
-Důsledek pro sdílenou cache (rozhodnuto že ano): sync vrstva je hloupý přenos souborů —
-`GET /cas/{hash}`, `PUT /cas/{hash}`. Immutable, žádná invalidace, žádné konflikty,
-žádná replikace DB. Sémantika Bazel remote cache / Nix binary cache.
+The consequence for a shared cache (decided: yes) is that the sync layer is a dumb file
+transfer — `GET /cas/{hash}`, `PUT /cas/{hash}`. Immutable, no invalidation, no conflicts, no
+database replication. The semantics of a Bazel remote cache or a Nix binary cache.
 
-**Co to stojí dnes** (a je to celá cena za to, že se návrh nebude přepisovat):
-1. žádné absolutní cesty v CAS záznamech — vše relativně ke kořeni workspace
-2. deterministická serializace — žádné pořadí `HashMap`, seřazené kolekce
-3. každý záznam nese `schema_version` + `indexer_id@version` (např. `scip-python@0.6.0`, `pyright@1.1.403`)
-4. žádná lokální ID (rowid, pointery) v přenositelných strukturách — interning ano, ale
-   **lokálně v rámci jednoho záznamu** (§5.5), nikdy odkazem do globální tabulky
-5. **adresuje se hash nekomprimovaného obsahu, ukládá se komprimovaně** — komprese je pak
-   čistě detail úložiště a změna kompresního slovníku nezpůsobí churn celé CAS
+**What that costs today** (and it is the entire price of not having to rewrite the design
+later):
+1. no absolute paths in CAS records — everything relative to the workspace root
+2. deterministic serialisation — no `HashMap` ordering, sorted collections
+3. every record carries a `schema_version` plus an `indexer_id@version` (e.g. `scip-python@0.6.0`, `pyright@1.1.403`)
+4. no local IDs (rowids, pointers) in portable structures — interning yes, but **locally within
+   one record** (§5.5), never as a reference into a global table
+5. **the hash addresses the uncompressed content, the storage is compressed** — compression is
+   then purely a storage detail, and changing the compression dictionary does not churn the whole
+   CAS
 
-### 5.2 Klíčování — nejdůležitější detail
+### 5.2 Keying — the most important detail
 
-Naivní `key = blob_id` je **nekorektní**: fakta o souboru závisí na jeho závislostech
-(`from .models import User` se nevyřeší bez `models.py`).
+The naive `key = blob_id` is **incorrect**: facts about a file depend on its dependencies
+(`from .models import User` does not resolve without `models.py`).
 
-Naivní `key = (blob_id, hash celého dependency closure)` je **k ničemu**: změna jednoho
-listu invaliduje celý strom nad ním.
+The naive `key = (blob_id, hash of the whole dependency closure)` is **useless**: changing one
+leaf invalidates the entire tree above it.
 
-Volba:
+The choice:
 
 ```
 key = (blob_id, deps_api_hash, indexer_version, schema_version)
 
-deps_api_hash = hash( pro každý importovaný modul: jeho seřazená množina
-                      exportovaných symbolů + jejich signatury )
+deps_api_hash = hash( for each imported module: its sorted set of
+                      exported symbols + their signatures )
 ```
 
-Tj. **hash veřejného rozhraní závislostí, ne jejich obsahu.** Změna těla funkce
-v `models.py` → `deps_api_hash` se nemění → všechny závislé soubory zůstávají v cache.
-Změna signatury → invaliduje se přesně to, co se invalidovat má.
+That is, **a hash of the dependencies' public interface, not of their contents.** Change a
+function body in `models.py` → `deps_api_hash` does not change → every dependent file stays in
+cache. Change a signature → exactly what should be invalidated is invalidated.
 
-Je to stejný trik jako header jars v Bazelu nebo interface hashe v Rustově inkrementální
-kompilaci. Konverguje, protože `deps_api_hash` se počítá z už zacachovaných faktů
-importovaných modulů — ne z nového parsování.
+It is the same trick as header jars in Bazel or interface hashes in Rust's incremental
+compilation. It converges, because `deps_api_hash` is computed from the already-cached facts of
+the imported modules — not from fresh parsing.
 
-*(Cykly v importech: SCC se hashuje jako celek. U Pythonu to je vzácné a malé, u Go
-to zakazuje kompilátor.)*
+*(Import cycles: an SCC is hashed as a whole. In Python that is rare and small; in Go the
+compiler forbids it.)*
 
-### 5.3 Dvě granularity sdílení
+### 5.3 Two granularities of sharing
 
-| Granularita | Klíč | Kdy pomáhá |
+| Granularity | Key | When it helps |
 |---|---|---|
-| Celý index projektu | `(git tree_hash, indexer_versions)` | Nový člen týmu / CI / čerstvý clone → **studený start = stažení, ne indexace** |
-| Per-file facts | `(blob_id, deps_api_hash, …)` | Denní práce, sdílení mezi větvemi a mezi vývojáři |
+| A whole project index | `(git tree_hash, indexer_versions)` | A new team member / CI / a fresh clone → **a cold start is a download, not an indexing run** |
+| Per-file facts | `(blob_id, deps_api_hash, …)` | Daily work, sharing between branches and between developers |
 
-### 5.4 SQLite schéma (skica)
+### 5.4 The SQLite schema (a sketch)
 
 ```sql
--- interning: řetězce žijí právě jednou
-strings(id INTEGER PK, s TEXT UNIQUE)          -- cesty, jména, deskriptory
+-- interning: a string lives exactly once
+strings(id INTEGER PK, s TEXT UNIQUE)          -- paths, names, descriptors
 symbols(id INTEGER PK,
-        parent_id INTEGER REFERENCES symbols,  -- prefix sdílení: třída → metoda
-        desc_id   INTEGER REFERENCES strings,  -- jen poslední deskriptor
+        parent_id INTEGER REFERENCES symbols,  -- prefix sharing: class → method
+        desc_id   INTEGER REFERENCES strings,  -- the last descriptor only
         lang, kind, flags)
 files(id INTEGER PK, path_id INTEGER REFERENCES strings, blob_id BLOB, lang, generated BOOL)
 
 occurrences(file_id, symbol_id, line, col_start, col_end, role)
    INDEX (symbol_id, role)          -- cairn refs
-   INDEX (file_id, line)            -- „co je na tomhle řádku"
+   INDEX (file_id, line)            -- "what is on this line"
 
 edges(src_symbol, dst_symbol, kind, confidence, source)
    -- kind:   calls | implements | overrides | binds | tests | co_changes
@@ -598,158 +615,168 @@ comments(file_id, symbol_id NULL, line, kind, text)   -- §4.5
 handles(symbol_id, handle TEXT UNIQUE)
 unknowns(file_id, line, reason, hint)
 
--- FTS5, sloupce s klesající vahou; pohání `cairn symbol` a seed pro `cairn context` (§6.4)
+-- FTS5, columns in descending weight; powers `cairn symbol` and the seed for `cairn context` (§6.4)
 search_fts(name, path, docstring, comment, commit_msg, doc_md)
 ```
 
-Dvě věci ve schématu, které se dělají den 1, protože pozdější zavedení je migrace:
+Two things in the schema that are done on day one, because introducing them later is a
+migration:
 
-- **`strings` interning.** Cesty a jména deskriptorů se opakují v každém výskytu.
-- **`symbols.parent_id`.** SCIP symbol je hierarchický řetězec
-  (`… auth/oauth.py/TokenValidator#validate().`). Ukládat celý řetězec u každého symbolu
-  znamená u třídy s 30 metodami 30× zopakovat cestu i jméno třídy. Parent pointer +
-  poslední deskriptor to složí za běhu a zároveň dá zadarmo dotaz „všechny členy této třídy".
+- **`strings` interning.** Paths and descriptor names repeat in every occurrence.
+- **`symbols.parent_id`.** A SCIP symbol is a hierarchical string
+  (`… auth/oauth.py/TokenValidator#validate().`). Storing the whole string on every symbol means
+  repeating the path and the class name 30 times for a class with 30 methods. A parent pointer
+  plus the last descriptor assembles it at run time and gives "all members of this class" for
+  free at the same time.
 
-Jednotný `edges` s `kind` + `source` + `confidence` je záměr: L1 (statické, confidence 1.0),
-L0-D (deployment, §8), L3 (statistické, confidence < 1) i binders (§7) žijí ve stejné tabulce
-a odpovědní vrstva je odděluje podle `source`.
+A single `edges` table with `kind` + `source` + `confidence` is deliberate: L1 (static,
+confidence 1.0), L0-D (deployment, §8), L3 (statistical, confidence < 1) and binders (§7) all
+live in the same table, and the answering layer separates them by `source`.
 
-**Zápisy:** jediný writer task (SQLite WAL), čtení z read poolu. Dotaz nikdy nečeká na zápis.
+**Writes:** a single writer task (SQLite WAL), reads from a read pool. A query never waits on a
+write.
 
-### 5.5 Velikost indexu a serializace
+### 5.5 Index size and serialisation
 
-Velikost není kosmetika: **studený start pro nového člena týmu = stažení indexu.** Proto je
-rozpočet definovaný přenosem, ne diskem.
+Size is not cosmetics: **a cold start for a new team member is a download of the index.** The
+budget is therefore defined by transfer, not by disk.
 
-**Cíl:** plný index pro repo o 500k řádcích ≤ 50 MB komprimovaně, aby cold start
-přes sdílenou cache vyšel pod 10 s na běžné lince. *(K ověření ve fázi 0 — surový SCIP index
-takového repa bývá řádově stovky MB, takže je potřeba 5–10×.)*
+**The target:** a full index for a 500k-line repository ≤ 50 MB compressed, so that a cold start
+over the shared cache comes in under 10 s on an ordinary connection. *(To be confirmed in phase
+0 — a raw SCIP index for a repository that size tends to be hundreds of MB, so a factor of 5–10
+is needed.)*
 
-#### Napětí, které je nutné rozřešit explicitně
+#### A tension that has to be resolved explicitly
 
-Interning na int32 a přenositelnost artefaktů jdou proti sobě: globálně přidělené ID je
-z definice lokální a nepřenositelné. Řešení je mít **dvě reprezentace**, ne kompromis:
+Interning to int32 and portable artefacts pull against each other: a globally allocated ID is by
+definition local and not portable. The solution is to have **two representations**, not a
+compromise:
 
-| | CAS záznam (trvalý, sdílený) | SQLite projekce (dotazovací) |
+| | CAS record (durable, shared) | SQLite projection (for querying) |
 |---|---|---|
-| Optimalizuje | velikost | latenci |
-| Interning | **lokální tabulka řetězců uvnitř záznamu** — záznam je samopopisný | globální `strings` tabulka |
-| Reference | int32 index do lokální tabulky | globální rowid |
-| Komprese | zstd, adresuje se nekomprimovaný hash | žádná |
-| Čte se | při plnění cache, ne při dotazu | při každém dotazu |
+| Optimises for | size | latency |
+| Interning | **a local string table inside the record** — the record is self-describing | a global `strings` table |
+| References | an int32 index into the local table | a global rowid |
+| Compression | zstd, addressed by the uncompressed hash | none |
+| Read | when filling the cache, not when querying | on every query |
 
-Tím napětí mizí: záznam v CAS je samostatně dekódovatelný na jakémkoli stroji, a přesto
-uvnitř neopakuje ani jeden řetězec. Rozhodnutí D6 (dva sklady) bylo správné právě proto.
+That dissolves the tension: a CAS record is independently decodable on any machine and still
+does not repeat a single string inside itself. Decision D6 (two stores) was right for exactly
+this reason.
 
-#### Konkrétní techniky, sestupně podle výnosu
+#### Concrete techniques, in descending order of return
 
-1. **Lokální tabulka symbolů a řetězců v každém dokumentu.** Dokument typicky odkazuje
-   desítky až stovky symbolů, ale má tisíce výskytů → int16/int32 index místo řetězce.
-   *(Tohle SCIP ve svém formátu už dělá — přebíráme, nevymýšlíme.)*
-2. **Delta + varint na pozice.** Výskyty seřadit podle pozice a ukládat rozdíly řádků
-   a sloupců. Většina delt se vejde do jednoho bajtu.
-3. **Prefixová dekompozice symbolů.** Totéž co `parent_id` v SQLite, jen v serializované
-   podobě: `(parent_index, suffix)`.
-4. **Role jako bitfield**, ne enum string.
-5. **zstd s trénovaným slovníkem.** CAS je hodně malých, vzájemně velmi podobných záznamů —
-   přesně ten případ, kde samostatná komprese malého souboru selhává a sdílený slovník
-   dává násobky. Slovník je verzovaný artefakt v CAS jako každý jiný; protože se adresuje
-   nekomprimovaný obsah, jeho výměna nezpůsobí přeadresování ničeho.
-6. **Generovaný kód ukládat, ale odděleně.** `*_pb2.py` a `*.pb.go` bývají většina bajtů
-   indexu a téměř nikdy nejsou v odpovědi (§7.3). Vlastní CAS namespace → sdílená cache
-   je může přeskočit a stáhnout lazy.
+1. **A local symbol and string table in every document.** A document typically references tens
+   to hundreds of symbols but has thousands of occurrences → an int16/int32 index instead of a
+   string. *(SCIP already does this in its own format — we adopt it rather than inventing it.)*
+2. **Delta plus varint on positions.** Sort occurrences by position and store the differences in
+   lines and columns. Most deltas fit in one byte.
+3. **Prefix decomposition of symbols.** The same thing as `parent_id` in SQLite, only in
+   serialised form: `(parent_index, suffix)`.
+4. **Roles as a bitfield**, not an enum string.
+5. **zstd with a trained dictionary.** The CAS is many small, mutually very similar records —
+   exactly the case where compressing a small file on its own fails and a shared dictionary gives
+   multiples. The dictionary is a versioned artefact in the CAS like any other; because the
+   uncompressed content is what is addressed, replacing it re-addresses nothing.
+6. **Store generated code, but separately.** `*_pb2.py` and `*.pb.go` tend to be most of the
+   index's bytes and are almost never in an answer (§7.3). A CAS namespace of their own → a
+   shared cache can skip them and fetch them lazily.
 
-Inkrementalita je tady spojenec, jak jsi psal: záznam se komprimuje jednou a čte mnohokrát,
-takže si můžeme dovolit dražší kompresi, než kdyby se přepisoval celý index.
+Incrementality is an ally here: a record is compressed once and read many times, so we can
+afford more expensive compression than if the whole index were being rewritten.
 
-#### Kde je hranice
+#### Where the line is
 
-Interning, varint a zstd jsou **schéma a serializace** — levné, permanentní, pozdější
-zavedení je bolestivá migrace. Vlastní storage engine, mmap a B+ tree jsou něco jiného
-a v §13 zůstávají na seznamu „nikdy". Tenhle rozdíl je snadné rozmazat: obojí se dá popsat
-jako „optimalizace úložiště". Není to totéž — jedno je tvar dat, druhé je vlastní databáze.
+Interning, varint and zstd are **schema and serialisation** — cheap, permanent, and painful to
+migrate to later. A custom storage engine, mmap and a B+ tree are something else and stay on the
+"never" list in §13. That difference is easy to blur: both can be described as "storage
+optimisation". They are not the same thing — one is the shape of the data, the other is a
+database of your own.
 
-### 5.6 Index a git
+### 5.6 The index and git
 
-Otázka zní, jestli index commitovat do repa a co s konflikty. Odpověď má tři patra a první
-z nich mění zadání.
+The question is whether to commit the index into the repository, and what to do about
+conflicts. The answer has three levels and the first of them changes the question.
 
-#### Konflikt způsobuje monolit, ne binárnost
+#### Conflicts are caused by the monolith, not by being binary
 
-Jeden soubor obsahující celý index bude konfliktovat při každém merge **bez ohledu na formát**.
-Textový formát nedá řešitelný konflikt, jen nečitelný — deset tisíc řádků přeházených
-záznamů, kde „vyřeš ručně" nedává smysl. Vlastní textový formát tenhle problém neřeší,
-jen ho převleče.
+A single file containing the whole index will conflict on every merge **regardless of format**.
+A textual format does not give a resolvable conflict, only an unreadable one — ten thousand
+lines of shuffled records where "resolve by hand" makes no sense. A custom text format does not
+solve this problem, it only dresses it up.
 
-Naproti tomu **obsahem adresované záznamy konfliktovat nemohou z definice.** §5.1 bod 2
-vyžaduje deterministickou serializaci — takže dva vývojáři, kteří zaindexují stejný blob,
-vyprodukují **bajt po bajtu stejný soubor**. Sloučení dvou CAS je sjednocení množin, ne merge.
-Není co řešit.
+By contrast, **content-addressed records cannot conflict by definition.** §5.1 point 2 requires
+deterministic serialisation — so two developers who index the same blob produce a **byte-for-byte
+identical file**. Merging two CASes is a union of sets, not a merge. There is nothing to resolve.
 
-Není to náhoda: **git object store je přesně tentýž nápad.** Immutable objekty pojmenované
-hashem obsahu. Nikdo neřeší konflikty v `.git/objects`.
+That is no accident: **the git object store is exactly the same idea.** Immutable objects named
+by the hash of their content. Nobody resolves conflicts in `.git/objects`.
 
-#### Ale index do repa stejně nepatří
+#### But the index does not belong in the repository anyway
 
-Zabiják není konflikt, je to **bloat**. Git si pamatuje každou verzi navždy, index se mění
-prakticky při každém commitu a binární obsah se nedeltuje dobře. Po pár stovkách commitů
-je clone nepoužitelný — a zpětně se to čistí jen přepsáním historie.
+The killer is not conflicts, it is **bloat**. Git remembers every version forever, the index
+changes on practically every commit, and binary content does not delta well. After a few hundred
+commits the clone is unusable — and cleaning it up afterwards means rewriting history.
 
-K tomu se přidává, že je to **odvozená data**. Stejná kategorie jako `node_modules`, build
-outputy a generovaný kód: každý, kdo to jednou commitnul, toho litoval. Index je z definice
-kdykoli přepočitatelný z obsahu repa (§5.1) — to je celá pointa content addressingu.
+On top of that it is **derived data**. The same category as `node_modules`, build outputs and
+generated code: everybody who committed one of those regretted it. The index is by definition
+recomputable at any time from the contents of the repository (§5.1) — that is the whole point of
+content addressing.
 
-Plus šum: každý PR by měl v diffu megabajty změn, které nikdo nečte.
+Plus the noise: every PR would carry megabytes of diff nobody reads.
 
-#### Čitelnost je vlastnost CLI, ne formátu
+#### Readability is a property of the CLI, not of the format
 
-Námitka „nečitelný, nedifovatelný" má správnou odpověď v nástroji, ne ve formátu:
+The objection "unreadable, undiffable" has its right answer in the tool, not in the format:
 
 ```
-cairn inspect <hash>        → čitelný dump záznamu
-cairn diff <hash> <hash>    → rozdíl dvou verzí faktů o souboru
+cairn inspect <hash>        → a readable dump of a record
+cairn diff <hash> <hash>    → the difference between two versions of a file's facts
 ```
 
-Přesně jako `git cat-file -p`. Nikdo kvůli čitelnosti nedělá git objekty textové.
-A diffovat dva CAS záznamy je stejně vzácná operace jako diffovat dva git blob objekty —
-zajímá tě to jednou za čas při ladění indexeru, ne v běžné práci.
+Exactly like `git cat-file -p`. Nobody makes git objects textual for the sake of readability.
+And diffing two CAS records is as rare an operation as diffing two git blob objects — it
+interests you once in a while when debugging an indexer, not in ordinary work.
 
-#### Jak tedy sdílet mezi vývojáři
+#### So how to share between developers
 
-| varianta | infra navíc | bloat repa | kdy |
+| option | extra infrastructure | repository bloat | when |
 |---|---|---|---|
-| **Nesdílet** — každý indexuje lokálně | žádná | žádný | **fáze 1–4.** Studený start ~60 s je snesitelný |
-| **Git jako transport na vlastním refu** | žádná | ano, ale prunovatelný | nejlevnější sdílení bez serveru |
-| **CI artefakt** — CI indexuje `main`, ostatní stahují | CI job | žádný | tým, který už CI má |
-| **CAS server** | server | žádný | fáze 5, monetizace |
+| **Do not share** — everyone indexes locally | none | none | **phases 1–4.** A ~60 s cold start is bearable |
+| **Git as transport on a ref of its own** | none | yes, but prunable | the cheapest sharing without a server |
+| **A CI artefact** — CI indexes `main`, everyone else downloads | a CI job | none | a team that already has CI |
+| **A CAS server** | a server | none | phase 5, monetisation |
 
-K druhé variantě, protože je nejzajímavější: CAS objekty se ukládají pod vlastní ref
-(`refs/cairn/cache`), který **není větev a není v pracovním stromě**. Nikdy se nemerguje,
-nikdy se nečekoutuje, do `git log` nezasahuje. Objekty jsou immutable a hash-pojmenované,
-takže `git push`/`fetch` na ten ref je sjednocení — konflikt nemůže nastat. Ref se dá kdykoli
-zahodit a force-pushnout znovu, protože je to čistě cache. Fetch je volitelný.
+On the second option, because it is the most interesting: CAS objects are stored under a ref of
+their own (`refs/cairn/cache`), which **is not a branch and is not in the working tree**. It is
+never merged, never checked out, and does not appear in `git log`. The objects are immutable and
+hash-named, so `git push`/`fetch` on that ref is a union — a conflict cannot arise. The ref can
+be discarded and force-pushed again at any time, because it is purely a cache. Fetching it is
+optional.
 
-Tím se dá „sdílená cache" postavit **bez jediného serveru**, jen na tom, co tým už má.
-Zůstává růst objektové databáze, ale je řízený a odděleny od historie kódu.
+That makes a "shared cache" buildable **without a single server**, on nothing but what the team
+already has. The growth of the object database remains, but it is controlled and separated from
+the history of the code.
 
-#### Co do repa naopak patří: textový souhrn topologie
+#### What does belong in the repository: a textual summary of the topology
 
-Tvoje analogie s migracemi je správná — jen ji přiložit na správnou věc. Do gitu nepatří
-`node_modules`, ale **lockfile**. Tady je tím lockfilem topologie (§8.8):
+The analogy with migrations is right — it just has to be applied to the right thing. What does
+not belong in git is `node_modules`; what does is the **lockfile**. Here the lockfile is the
+topology (§8.8):
 
 ```
 .cairn/
-  topology.txt      ← COMMITOVAT: ~300 řádků, textové, čitelné, diffovatelné
+  topology.txt      ← COMMIT THIS: ~300 lines, textual, readable, diffable
   cache/            ← .gitignore
 ```
 
-Vlastnosti, které z toho dělají opak indexu: je to malé, sémantické, mění se zřídka
-(jen když se opravdu změní tvar systému) a **konflikt je smysluplný** — dva lidé přidali
-službu — a řeší se regenerací, přesně jak jsi psal.
+The properties that make it the opposite of the index: it is small, semantic, changes rarely
+(only when the shape of the system genuinely changes) and **a conflict in it is meaningful** —
+two people added a service — and is resolved by regenerating.
 
-Hodnota navíc, kterou dnes nikdo nemá: **architektonický diff v code review.**
-Když PR přidá službu, otevře port, přidá cross-service volání nebo endpoint, je to
-v diffu vidět jako pět řádků, místo aby se to muselo najít v kódu.
+The extra value, which nobody has today: **an architectural diff in code review.** When a PR
+adds a service, opens a port, adds a cross-service call or an endpoint, it shows up in the diff
+as five lines instead of having to be found in the code.
 
 ```
  services (6)
@@ -763,104 +790,106 @@ v diffu vidět jako pět řádků, místo aby se to muselo najít v kódu.
 +  :8080  gateway  17 HTTP routes
 ```
 
-A v CI `cairn topology --check` selže, když commitnutý souhrn neodpovídá vygenerovanému —
-stejná mechanika jako `go mod tidy -diff` nebo `cargo fmt --check`.
+And in CI, `cairn topology --check` fails when the committed summary does not match the
+generated one — the same mechanic as `go mod tidy -diff` or `cargo fmt --check`.
 
 ---
 
-## 6. CLI rozhraní
+## 6. The CLI interface
 
-### 6.0 Proč CLI a ne MCP (D1)
+### 6.0 Why a CLI and not MCP (D1)
 
-Původní verze návrhu stavěla na MCP. Je to zbytečné kolo navíc.
+The original version of the design was built on MCP. It is a needless extra step.
 
-Agent umí spouštět příkazy a `gh`, `rg`, `jq` nebo `docker` používá plynule bez jakéhokoli
-protokolu. CLI **není náhražka MCP, je to nativní tvar nástroje**; MCP je obálka, která
-u lokálního read-only nástroje neřeší žádný problém, který by existoval.
+An agent can run commands, and uses `gh`, `rg`, `jq` or `docker` fluently without any protocol.
+A CLI **is not a substitute for MCP, it is the tool's native shape**; MCP is a wrapper that, for
+a local read-only tool, solves no problem that would otherwise exist.
 
-Co odpadá:
+What goes away:
 
-- implementace protokolu a životního cyklu serveru
-- **rozpočet na definice nástrojů.** Ten byl u MCP tvrdý, protože schémata jdou v každém
-  requestu. U CLI je popis v skillu, který se načte jen když je relevantní — omezení
-  „max 6 nástrojů" prostě zmizí
-- autorizace, transport, remote varianta
+- implementing the protocol and the server lifecycle
+- **the budget for tool definitions.** That was hard under MCP, because schemas travel in every
+  request. With a CLI the description is in a skill that is loaded only when it is relevant — the
+  "at most 6 tools" constraint simply disappears
+- authorisation, transport, a remote variant
 
-Co se získává:
+What is gained:
 
-- **testovatelnost** — formát odpovědi je podle §6.3 samotný produkt a v terminálu je
-  okamžitě vidět; u MCP potřebuješ k jeho vyhodnocení běžícího agenta
-- použitelnost v CI, Makefilu a skriptech, kam MCP nedosáhne
-- triviální iterace
+- **testability** — per §6.3 the answer format is the product itself, and in a terminal it is
+  visible immediately; under MCP you need a running agent to evaluate it
+- usability in CI, in a Makefile and in scripts, where MCP does not reach
+- trivial iteration
 
-Co se ztrácí — poctivě dvě věci:
+What is lost — honestly, two things:
 
-1. **Objevitelnost.** MCP host vidí schémata nástrojů vždy; CLI musí někdo agentovi
-   představit. Skill nebo dva řádky v `AGENTS.md`. Instalace skillu je ale srovnatelně
-   snadná jako instalace MCP serveru, takže je to spíš přesun než ztráta.
-2. **MCP sampling.** Odpadá možnost nechat LLM krok proběhnout na modelu hosta (§6.4).
-   Ukazuje se ale, že je to zlepšení — viz tam.
+1. **Discoverability.** An MCP host always sees the tool schemas; a CLI has to be introduced to
+   the agent by somebody. A skill, or two lines in `AGENTS.md`. Installing a skill is about as
+   easy as installing an MCP server, though, so it is more of a relocation than a loss.
+2. **MCP sampling.** The option of running an LLM step on the host's model disappears (§6.4). It
+   turns out to be an improvement — see there.
 
-**Není to sázka.** Produkt je query engine + formátovací vrstva; CLI i případné pozdější
-MCP jsou tenké frontendy nad `cairn-daemon`. Přidat MCP později stojí jeden crate,
-ne přepis.
+**This is not a bet.** The product is a query engine plus a formatting layer; the CLI, and any
+later MCP, are thin front ends over `cairn-daemon`. Adding MCP later costs one crate, not a
+rewrite.
 
-### 6.1 Sada příkazů
+### 6.1 The command set
 
 ```
-cairn symbol <query> [--lang] [--limit]   vstupní bod přes jméno / pattern
-cairn context <query>                     vstupní bod přes koncept  (§6.4)
+cairn symbol <query> [--lang] [--limit]   entry point by name / pattern
+cairn context <query>                     entry point by concept  (§6.4)
 cairn refs <handle> [--kind]              callers | impls | overrides | writes | all
-cairn tests <handle>                      testy pokrývající symbol (L0 + L3)
-cairn blast <handle> [--depth]            co rozbiju změnou  (L1 + L3, oddělené)
+cairn tests <handle>                      tests covering a symbol (L0 + L3)
+cairn blast <handle> [--depth]            what I break by changing it  (L1 + L3, separated)
 cairn expand <handle> <what> [--depth]    body | doc | neighbors | file_skeleton
-cairn topology                            mapa služeb a jejich vazeb  (§8.8)
-cairn status                              co je zaindexované, co zastaralé, co degradované
-cairn note <handle> --summary …           zápis L2 poznámky do cache  (§3.1, D15)
+cairn topology                            a map of services and their links  (§8.8)
+cairn status                              what is indexed, what is stale, what is degraded
+cairn note <handle> --summary …           write an L2 note into the cache  (§3.1, D15)
 ```
 
-Rozpočet už není tvrdý, ale **zdrženlivost zůstává** — agent musí umět vybrat správný
-příkaz a osm zapamatovatelných je lepší než třicet. Nový podpříkaz jen tehdy, když
-existující kombinace odpověď nedá.
+The budget is no longer hard, but **restraint remains** — the agent has to be able to pick the
+right command, and eight memorable ones are better than thirty. A new subcommand only when no
+combination of the existing ones gives the answer.
 
-Zvažované a zamítnuté: samostatný `implementations` (je to `refs --kind=impls`),
-`definition` (to je výstup `symbol`), cokoliv na zápis — cairn je read-only, záměrně (§4.6).
+Considered and rejected: a separate `implementations` (it is `refs --kind=impls`), `definition`
+(that is the output of `symbol`), anything that writes — cairn is read-only, deliberately (§4.6).
 
-### 6.1.1 CLI pro agenta, ne pro člověka
+### 6.1.1 A CLI for an agent, not for a human
 
-Ergonomie se liší a je potřeba se rozhodnout pro agenta:
+The ergonomics differ and a choice has to be made in the agent's favour:
 
-- **žádná interaktivita.** Nikdy prompt, nikdy pager, nikdy čekání na `stdin`.
-- **stabilní výstup.** Žádná detekce TTY, žádné barvy, žádné spinner artefakty
-  ve `stdout`. Diagnostika jde na `stderr`.
-- **exit kódy něco znamenají:** `0` nález, `1` bez nálezu, `2` chyba dotazu,
-  `3` index degradovaný (§4.6) — agent tak pozná rozdíl mezi „nic tam není"
-  a „nevidím tam".
-- **text je výchozí, `--json` je únikový východ** pro skripty. Ne naopak: text je produkt (§6.3).
-- **žádný stav mezi voláními** kromě handlů, které jsou perzistentní (§6.5).
+- **no interactivity.** Never a prompt, never a pager, never waiting on `stdin`.
+- **stable output.** No TTY detection, no colours, no spinner artefacts in `stdout`.
+  Diagnostics go to `stderr`.
+- **exit codes mean something:** `0` found, `1` nothing found, `2` a bad query, `3` the index is
+  degraded (§4.6) — so an agent can tell "there is nothing there" from "I cannot see there".
+- **text is the default and `--json` is the escape hatch** for scripts. Not the other way round:
+  the text is the product (§6.3).
+- **no state between calls** except handles, which are persistent (§6.5).
 
-### 6.2 Skill je produktová práce
+### 6.2 The skill is product work
 
-U MCP to byly popisy nástrojů, u CLI je to skill — a je to větší prostor, ne menší.
-Agent umí grep a sáhne po něm reflexivně; skill musí říct **kdy je cairn lepší**, ne co dělá:
+Under MCP this was the tool descriptions; with a CLI it is the skill — and it is more room, not
+less. An agent knows grep and reaches for it reflexively; the skill has to say **when cairn is
+better**, not what it does:
 
-> **Hledání použití symbolu.** Použij `cairn refs <handle>` místo grepu. Grep najde
-> komentáře, stringy a stejnojmenné symboly z jiných modulů — a nenajde volání přes alias
-> importu ani přes gRPC hranici mezi Pythonem a Go. `cairn refs` vrací kompaktní seznam
-> s handly, které jdou rozbalit přes `cairn expand`.
+> **Finding a symbol's uses.** Use `cairn refs <handle>` instead of grep. Grep finds comments,
+> strings and same-named symbols from other modules — and it does not find a call through an
+> import alias or across a gRPC boundary between Python and Go. `cairn refs` returns a compact
+> list with handles that can be expanded with `cairn expand`.
 >
-> **Orientace v neznámé části systému.** Začni `cairn topology`, ne čtením souborů.
+> **Getting oriented in an unfamiliar part of the system.** Start with `cairn topology`, not by
+> reading files.
 
-Výhoda skillu oproti popisům nástrojů: unese celý workflow („začni tímhle, pak expanduj,
-na hledání referencí nepoužívej grep") a neplatí se, dokud není relevantní.
+The advantage of a skill over tool descriptions: it can carry a whole workflow ("start here,
+then expand, do not use grep for finding references") and it costs nothing until it is relevant.
 
-Signál kvality zůstává: **jestli agent sáhne po `cairn` i bez skillu** — protože ho vidí
-v `AGENTS.md` nebo v historii — je nástroj zjevně lepší než grep. Když ho tam musíš tlačit,
-buď není, nebo to neumíš dost rychle ukázat.
+The quality signal stands: **if the agent reaches for `cairn` even without the skill** — because
+it sees it in `AGENTS.md` or in its history — the tool is clearly better than grep. If you have
+to push it, either it is not, or you cannot demonstrate it fast enough.
 
-### 6.3 Formát odpovědi = produkt
+### 6.3 The answer format is the product
 
-Ne JSON. Kompaktní, řádkový, ASCII.
+Not JSON. Compact, line-oriented, ASCII.
 
 ```
 $ cairn symbol validate
@@ -896,51 +925,54 @@ unknown (1)
 stale: none
 ```
 
-Poznámky k formátu:
-- **`unknown:` je povinná sekce každé odpovědi.** Prázdná = `unknown: none`. Když
-  chybí, agent předpokládá úplnost — a to je ta tichá chyba, která zastaví hledání.
-- **`suppressed:` taky.** Kolik jsme zahodili a jak si to vyžádat. Tiché ořezání se čte
-  jako „pokryto všechno".
-- Vrstva každého bloku je označená (`[L1, exact]` vs `[L3, statistical]`).
-- Handle `[a4]` — 2–4 znaky, viz §6.5.
+Notes on the format:
+- **`unknown:` is a mandatory section of every answer.** Empty means `unknown: none`. When it is
+  missing, the agent assumes completeness — and that is the silent error that stops the search.
+- **`suppressed:` likewise.** How much we dropped and how to ask for it. Silent truncation reads
+  as "everything is covered".
+- Every block's layer is labelled (`[L1, exact]` vs `[L3, statistical]`).
+- The handle `[a4]` — 2–4 characters, see §6.5.
 
-### 6.4 `cairn context` — vstupní bod přes koncept
+### 6.4 `cairn context` — the entry point by concept
 
-„Dej mi kontext k OAuthu" není symbolový dotaz. Seed se získává lacino, pak se expanduje
-deterministicky. Pořadí podle ceny:
+"Give me context on OAuth" is not a symbol query. The seed is obtained cheaply, then expanded
+deterministically. In order of cost:
 
-0. **Deployment topologie** — když termín odpovídá jménu compose služby, adresáři jejího
-   buildu nebo routě, je to nesrovnatelně lepší seed než fuzzy match na jména. „OAuth"
-   v projektu se službou `auth` je vyřešený dotaz, ne heuristika. Viz §8.
-1. **Lexikálně** — FTS5 nad jmény symbolů a cestami (`*Auth*`, `*Token*`, `/auth/`). ~60 % zbytku.
-2. **Komentáře a docstringy** (§4.5) — často jediné místo, kde jméno featury vůbec zazní.
-   Shoda vrací symbol s handlem, ne soubor, protože komentáře jsou přiřazené k symbolům.
-3. **Testy** — jména testů jsou nejlepší dokumentace konceptu v projektu.
-4. **Git** — FTS5 nad commit messages a PR titulky; soubory měněné společně v commitech zmiňujících termín.
-5. **Dokumenty** — README, ADR, `docs/`.
-6. **Nic z toho nezabralo** — vrátit slabý seed a **přiznat to**.
+0. **Deployment topology** — when the term matches the name of a compose service, its build
+   directory or a route, that is an incomparably better seed than a fuzzy match on names.
+   "OAuth" in a project with an `auth` service is a solved query, not a heuristic. See §8.
+1. **Lexically** — FTS5 over symbol names and paths (`*Auth*`, `*Token*`, `/auth/`). ~60% of the
+   rest.
+2. **Comments and docstrings** (§4.5) — often the only place a feature's name appears at all. A
+   match returns a symbol with a handle, not a file, because comments are attached to symbols.
+3. **Tests** — test names are the best documentation of a concept in a project.
+4. **Git** — FTS5 over commit messages and PR titles; files changed together in commits
+   mentioning the term.
+5. **Documents** — README, ADRs, `docs/`.
+6. **None of that worked** — return a weak seed and **say so**.
 
-**Postaveno.** Docstringy jsou zadarmo: SCIP je nese pro **77,7 % Python symbolů**
-a 10,5 % Go symbolů na testovacím repu (4,1 MB textu), takže se při ingestu jen
-nesmí zahodit. Ověřeno, že to funguje na termínech, které v žádném identifikátoru
-nejsou — `cairn context "fail-closed"` najde symboly výhradně přes prózu.
+**Built.** Docstrings are free: SCIP carries them for **77.7% of Python symbols** and 10.5% of Go
+symbols on the test repository (4.1 MB of text), so all that is needed is not to throw them away
+during ingest. Confirmed to work on terms that appear in no identifier at all — `cairn context
+"fail-closed"` finds symbols purely through prose.
 
-Dvě věci, které rozhodly o použitelnosti a nebyly zřejmé předem:
+Two things that decided usability and were not obvious in advance:
 
-- **Generovaný kód musí spadnout dolů.** První verze na dotaz „quota" vrátila
-  protobuf fieldy jménem `quota` a pohřbila `QuotaModule`, jehož vlastní dokumentace
-  říká, že je to kvótový klient. Potlačit, ne vyloučit — termín, který žije jen
-  v generovaném kódu, má pořád něco vrátit.
-- **Váha podle druhu symbolu.** Typ nebo funkce *může být* „ta část systému, na kterou
-  se ptám"; field ne. Bez toho vyhrávají shody jmen na atributech.
+- **Generated code has to fall down the ranking.** The first version, asked for "quota", returned
+  protobuf fields named `quota` and buried `QuotaModule`, whose own documentation says it is the
+  quota client. Suppress, do not exclude — a term that lives only in generated code should still
+  return something.
+- **Weighting by kind of symbol.** A type or a function *can be* "the part of the system I am
+  asking about"; a field cannot. Without that, name matches on attributes win.
 
-Každý seed nese **štítek, odkud pochází** (`[concept+name+doc]`). „Tohle někdo pojmenoval"
-a „tohle se fuzzy trefilo do jména" si zaslouží velmi různou míru důvěry a agent to
-nemá jak poznat, když mu to neřekneme.
+Every seed carries **a label saying where it came from** (`[concept+name+doc]`). "Somebody named
+this" and "this fuzzy-matched a name" deserve very different degrees of trust, and the agent has
+no way of telling unless we say so.
 
-Bod 6 je díky D1 jednodušší, než byl. Původní návrh sem chtěl LLM krok přes MCP sampling.
-U CLI sampling neexistuje — a ukazuje se, že je to zlepšení: **volající agent LLM sám je.**
-Cairn nemá dělat horší verzi toho, co si zavolá o řádek výš. Takže:
+Point 6 is simpler thanks to D1 than it was. The original design wanted an LLM step here through
+MCP sampling. With a CLI there is no sampling — and it turns out to be an improvement: **the
+calling agent is an LLM itself.** cairn should not do a worse version of what it can ask for one
+line up. So:
 
 ```
 $ cairn context "oauth"
@@ -953,193 +985,199 @@ hint: no compose service, route prefix or test name matched "oauth".
       Try `cairn topology`, or grep for the domain term this project uses.
 ```
 
-Žádný API klíč, žádné vlastní náklady, žádná závislost na podpoře v hostiteli.
-Když seed sedí, cachuje se jako L2 artefakt.
+No API key, no cost of our own, no dependence on host support. When a seed does fit, it is
+cached as an L2 artefact.
 
-Pak: expanze 1 hop přes call graph, ranking (§6.6), a vrátit **kostru 10–15 uzlů bez těl**.
+Then: expand one hop through the call graph, rank (§6.6), and return **a skeleton of 10–15 nodes
+with no bodies**.
 
-> Past, na kterou je potřeba dát pozor: když `cairn context oauth` vrátí 40 souborů
-> i s obsahem, spálil jsi stejné tokeny jako explorace, jen naráz. Úspora nevzniká
-> z toho, že máš graf — vzniká z toho, že vracíš málo a přesně.
+> A trap to watch for: if `cairn context oauth` returns 40 files with their contents, you have
+> burned the same tokens as exploration would, just all at once. The saving does not come from
+> having a graph — it comes from returning little, and precisely.
 
 ### 6.5 Handles
 
-Krátký kód pro progressive disclosure. Požadavky: krátký (token cost), deterministický,
-stabilní napříč sessions.
+A short code for progressive disclosure. Requirements: short (token cost), deterministic, stable
+across sessions.
 
-Řešení: **nejkratší unikátní prefix hashe symbolu, s perzistovanou tabulkou přiřazení.**
-`blake3(scip_symbol)` → base32 → zkrátit na 2 znaky, při kolizi prodloužit na 3, 4…
-Přiřazení se uloží do `handles`, takže je stabilní i po přidání symbolů. Typicky 2–4 znaky.
+The solution: **the shortest unique prefix of the symbol's hash, with a persisted assignment
+table.** `blake3(scip_symbol)` → base32 → truncate to 2 characters, extend to 3, 4… on a
+collision. The assignment is stored in `handles`, so it stays stable even after symbols are
+added. Typically 2–4 characters.
 
-Handle musí jít použít i po restartu daemonu a v příští session — agent si ho může
-poznamenat do svých poznámek.
+A handle has to work after a daemon restart and in the next session — an agent may write it down
+in its own notes.
 
-### 6.6 Ranking — kde se rozhoduje o kvalitě
+### 6.6 Ranking — where quality is decided
 
-`cairn symbol` může vrátit 200 shod. Vracíme 15. Který výběr, tam žije celá teze
-„vracet málo a přesně". Signály:
+`cairn symbol` may find 200 matches. We return 15. Which selection that is, is where the whole
+thesis of "return little, and precisely" lives. The signals:
 
-1. přesná shoda jména > prefix > substring > fuzzy
-2. **není generovaný kód** (§7.3) — tvrdý downrank
-3. není test (pokud se dotaz netýká testů)
-4. **je dosažitelný z entrypointu** (§8.7) — mrtvý kód dolů
-5. in-degree v call grafu (centralita)
-6. čerstvost změny (git, poslední 90 dní)
-7. blízkost k už zmíněným handlům v této session (session affinity)
+1. an exact name match > prefix > substring > fuzzy
+2. **not generated code** (§7.3) — a hard down-rank
+3. not a test (unless the query is about tests)
+4. **reachable from an entrypoint** (§8.7) — dead code goes down
+5. in-degree in the call graph (centrality)
+6. recency of change (git, the last 90 days)
+7. proximity to handles already mentioned in this session (session affinity)
 
-Ranking je testovatelná komponenta — patří do měřicího harnessu (§10), ne do „doladíme potom".
+Ranking is a testable component — it belongs in the measurement harness (§10), not in "we will
+tune it later".
 
 ---
 
-## 7. Cross-language a binders
+## 7. Cross-language and binders
 
-Reálné systémy jsou skoro vždy víc než jeden jazyk a hranice mezi nimi je právě to místo,
-kde každý single-language nástroj oslepne. Proto cross-language není pozdní fáze, ale
-základní schopnost.
+Real systems are almost always more than one language, and the boundary between them is exactly
+where every single-language tool goes blind. Cross-language is therefore not a late phase but a
+basic capability.
 
-**Obecný tvar problému:** existuje *sdílený kontrakt* — IDL, schéma, konvence — a několik
-jazykových stran, které ho implementují nebo konzumují. Kontrakt sám je v repu jako
-artefakt (`.proto`, `.graphql`, OpenAPI dokument, sdílený typový balíček). Úkolem binderu
-je propojit uzel kontraktu se symboly na obou stranách.
+**The general shape of the problem:** there is a *shared contract* — an IDL, a schema, a
+convention — and several language sides that implement or consume it. The contract itself is in
+the repository as an artefact (`.proto`, `.graphql`, an OpenAPI document, a shared type package).
+The binder's job is to connect the contract's node with the symbols on both sides.
 
-Ten tvar je stejný pro gRPC, GraphQL, OpenAPI i sdílené TS typy mezi frontendem a BFF.
-Liší se jen pravidlo, kterým se pozná, který symbol ke kterému kusu kontraktu patří.
+That shape is the same for gRPC, GraphQL, OpenAPI and shared TS types between a front end and a
+BFF. All that differs is the rule for recognising which symbol belongs to which piece of the
+contract.
 
-### 7.1 Binder = malý plugin, který vyrábí hrany mezi symbol ID
+### 7.1 A binder is a small plugin that produces edges between symbol IDs
 
-Signatura konceptuálně: `fn bind(snapshot) -> Vec<Edge>`. Nic víc. Binders zapisují
-do stejné `edges` tabulky s `source = binder_name`.
+Conceptually the signature is `fn bind(snapshot) -> Vec<Edge>`. Nothing more. Binders write into
+the same `edges` table with `source = binder_name`.
 
-### 7.2 Proto binder — první instance obecného tvaru
+### 7.2 The proto binder — the first instance of the general shape
 
 ```
 proto/auth.proto
   service AuthService { rpc Verify(VerifyReq) returns (VerifyResp); }
         │                                    │
-        ├── generuje ──► auth_pb2_grpc.py ──► AuthServiceServicer.Verify   (py)
-        └── generuje ──► auth_grpc.pb.go  ──► AuthServiceClient.Verify     (go)
+        ├── generates ──► auth_pb2_grpc.py ──► AuthServiceServicer.Verify   (py)
+        └── generates ──► auth_grpc.pb.go  ──► AuthServiceClient.Verify     (go)
 ```
 
-Binder přečte `.proto` (přes `protobuf` descriptor set nebo prosté parsování — tady je
-vlastní parser výjimečně obhajitelný, gramatika je triviální) a vytvoří hrany:
+The binder reads the `.proto` (through a `protobuf` descriptor set or by plain parsing — here a
+parser of one's own is exceptionally defensible, the grammar is trivial) and creates edges:
 
 - `proto:AuthService.Verify` → `py:AuthServiceServicer.Verify` (implements)
 - `proto:AuthService.Verify` → `go:AuthServiceClient.Verify` (calls)
-- a tím tranzitivně: `go` volající → `py` handler
+- and thereby, transitively: the `go` caller → the `py` handler
 
-**To je ten skok, který grep ani žádný single-language nástroj neudělá:** „kdo volá tenhle
-Python handler" má správnou odpověď v Go kódu.
+**That is the jump neither grep nor any single-language tool makes:** "who calls this Python
+handler" has its correct answer in Go code.
 
-#### Vazbu implementace ↔ kontrakt nese pravidlo, ne kód binderu
+#### The implementation ↔ contract binding is carried by a rule, not by the binder's code
 
-Binder z kontraktu vytáhne uzly (`proto:AuthService.Verify`). **Jak se pozná
-implementace, je pravidlo vrstvy B (§1.1)** — protože se to liší nejen mezi jazyky,
-ale i mezi knihovnami téhož jazyka:
+The binder extracts the nodes from the contract (`proto:AuthService.Verify`). **How an
+implementation is recognised is a layer-B rule (§1.1)** — because it differs not only between
+languages but between libraries within one language:
 
-| stack | tvar | pravidlo |
+| stack | shape | rule |
 |---|---|---|
 | Python / grpclib | `inherits` | `class $X(…, $pkg.{Service}Base)` |
 | Python / grpcio | `call_pattern` | `add_{Service}Servicer_to_server($impl, $srv)` |
 | Go / protoc-gen-go-grpc | `call_pattern` | `Register{Service}Server($srv, $impl)` |
-| TS / connect-es, nice-grpc | `collection_literal` | mapa metod → handlery |
+| TS / connect-es, nice-grpc | `collection_literal` | a map of methods → handlers |
 
-Stojí za pozornost, že u dědičnosti **binder nepotřebuje dělat nic navíc** — `implements`
-hranu dá L0 zadarmo a zbývá jen namapovat jméno generované báze zpět na kontrakt.
-Konvence pojmenování je taky pravidlo, ne kód.
+It is worth noting that with inheritance **the binder needs to do nothing extra** — L0 gives the
+`implements` edge for free and all that remains is mapping the generated base's name back to the
+contract. The naming convention is also a rule, not code.
 
-*Důkaz (§16): v testovacím repu jsou první tři řádky tabulky reálné —
-`class ChatServiceHandler(…, orders_api.ChatServiceBase)` na Python straně,
-`regions_api.RegisterAreaQueryServiceServer(server, area.NewHandler(app))` na Go straně.
-Dva různé tvary v jednom repu jsou přesně ten důvod, proč to nesmí být zadrátované.*
+*Evidence (§16): in the test repository the first three rows of that table are real —
+`class ChatServiceHandler(…, orders_api.ChatServiceBase)` on the Python side,
+`regions_api.RegisterAreaQueryServiceServer(server, area.NewHandler(app))` on the Go side. Two
+different shapes in one repository are exactly why this must not be hard-wired.*
 
-#### Kontrakt existuje i bez vygenerovaného kódu
+#### The contract exists even without generated code
 
-Hrana `kontrakt → očekávaný symbol` jde postavit i tehdy, když generovaný artefakt chybí,
-protože pojmenování je dané konvencí. Cíl se pak označí `expected`, ne `resolved`.
-Kód, který generované typy *importuje*, se bez nich nerozřeší nikdy — a to je ta drahá
-část, odtud degradovaný režim v §4.6.
+The `contract → expected symbol` edge can be built even when the generated artefact is missing,
+because the naming is fixed by convention. The target is then marked `expected` rather than
+`resolved`. Code that *imports* the generated types will never resolve without them — and that
+is the expensive part, hence the degraded mode in §4.6.
 
-Nedělat z toho ambici generovat cokoli vlastními silami. Konvence stačí na hranu,
-na tělo je potřeba build.
+Do not turn this into an ambition to generate anything ourselves. A convention is enough for an
+edge; a body needs a build.
 
-### 7.3 Generated-code detekce (malá fičura, obrovský efekt)
+### 7.3 Generated-code detection (a small feature with an enormous effect)
 
-Generovaný kód bývá objemově většina repa a v odpovědích ho skoro nikdo nechce.
-Bez potlačení každý dotaz utone.
+Generated code tends to be most of a repository by volume and almost nobody wants it in an
+answer. Without suppression every query drowns.
 
-Detekce je jazykově neutrální a stojí na třech signálech, v tomhle pořadí:
+Detection is language-neutral and rests on three signals, in this order:
 
-1. **hlavičkový marker** — `Code generated by … DO NOT EDIT.` (Go), `@generated` (běžné
-   v JS/TS ekosystému i jinde), `# Generated by …`
-2. **`.gitattributes linguist-generated`** — repo si to samo označuje
-3. **cestové vzory z pravidel** (vrstva B) — `**/*_pb2.py`, `**/*.pb.go`, `**/generated/**`,
+1. **a header marker** — `Code generated by … DO NOT EDIT.` (Go), `@generated` (common in the
+   JS/TS ecosystem and elsewhere), `# Generated by …`
+2. **`.gitattributes linguist-generated`** — the repository marks it itself
+3. **path patterns from rules** (layer B) — `**/*_pb2.py`, `**/*.pb.go`, `**/generated/**`,
    `.next/**`, `dist/**`
 
-Efekt: sbalit do jednoho řádku —
-`+ 47 refs in generated code (suppressed; rerun with --include-generated)`.
-Plus vlastní CAS namespace, aby šel generovaný kód ve sdílené cache přeskočit (§5.5).
+The effect: collapse it into one line —
+`+ 47 refs in generated code (suppressed; rerun with --include-generated)`. Plus a CAS namespace
+of its own, so generated code can be skipped in the shared cache (§5.5).
 
-*Důkaz rozsahu (§16): 103 176 ze 158 874 řádků Go v testovacím repu je generovaných — 65 %.
-Ve frontend repu bude podíl jiný, ale problém tentýž.*
+*Evidence of scale (§16): 103,176 of the 158,874 lines of Go in the test repository are
+generated — 65%. In a front-end repository the proportion will differ, but the problem is the
+same.*
 
-### 7.4 Další binders (později, stejný mechanismus)
+### 7.4 Further binders (later, the same mechanism)
 
-GraphQL schéma ↔ resolvery ↔ klientské dotazy · OpenAPI ↔ server ↔ generovaný klient ·
-ORM model ↔ tabulka ↔ migrace · env var ↔ čtení konfigurace · sdílené typy mezi repy ·
-SQL v raw dotazech.
+A GraphQL schema ↔ resolvers ↔ client queries · OpenAPI ↔ server ↔ generated client · an ORM
+model ↔ a table ↔ migrations · an env var ↔ reading configuration · shared types between
+repositories · SQL in raw queries.
 
 ---
 
-## 8. Deployment topologie — entrypointy a hranice služeb
+## 8. Deployment topology — entrypoints and service boundaries
 
-### 8.1 Proč to není doplněk
+### 8.1 Why this is not an add-on
 
-Call graph bez kořenů je polévka. Bez entrypointů neumíš odpovědět na otázky, které
-u webového projektu padnou nejdřív:
+A call graph with no roots is soup. Without entrypoints you cannot answer the questions that come
+up first on a web project:
 
-- Je tenhle kód vůbec dosažitelný?
-- Ve které službě tenhle symbol běží?
-- Který endpoint sem vede?
-- Co se musí nasadit, když tohle změním?
+- Is this code reachable at all?
+- Which service does this symbol run in?
+- Which endpoint leads here?
+- What has to be deployed when I change this?
 
-`docker-compose.yml` dává grafu dvě věci, které z jazykových serverů nikdy nevypadnou:
-**kořeny** (entrypointy) a **oddíly** (služby). Teprve tím se dosažitelnost a blast radius
-stanou smysluplné.
+`docker-compose.yml` gives the graph two things that never fall out of language servers:
+**roots** (entrypoints) and **partitions** (services). Only then do reachability and blast radius
+become meaningful.
 
-A hlavně: compose je **jediný soubor v repu, který popisuje systém jako celek** — je strojově
-čitelný, je nutně udržovaný (jinak nejede `docker compose up`) a de facto je to nejlepší
-existující dokumentace toho, jak spolu komponenty komunikují. Ignorovat ho a hledat topologii
-v kódu je práce navíc pro horší výsledek.
+And above all: compose is **the only file in the repository that describes the system as a
+whole** — it is machine-readable, it is necessarily maintained (otherwise `docker compose up`
+does not run) and it is in practice the best existing documentation of how the components talk to
+each other. Ignoring it and looking for the topology in the code is extra work for a worse
+result.
 
-### 8.2 Řetěz: služba → proces → symbol → routa
+### 8.2 The chain: service → process → symbol → route
 
-Oba příklady jsou **ověřené na testovacím repu** (§16), ne ilustrace.
+Both examples are **verified against the test repository** (§16), not illustrations.
 
-**Python — mapa vzniká z volume mountu, ne z Dockerfile:**
+**Python — the map comes from the volume mount, not from the Dockerfile:**
 
 ```
 compose.yaml
   x-build-py: &build-py
     context: srcpy
   services.orders-grpc:
-    <<: *base-service                          ← kotva: init, env_file
-    build: *build-py                           ← kotva: context srcpy
+    <<: *base-service                          ← anchor: init, env_file
+    build: *build-py                           ← anchor: context srcpy
     command: python3 -m domains.orders.grpc.server
     environment: [DJANGO_SETTINGS_MODULE=domains.orders.grpc.settings]
-    volumes: ["./srcpy:/app/"]                 ← mapa kontejner ↔ repo
+    volumes: ["./srcpy:/app/"]                 ← the container ↔ repo map
          │
          ▼  launcher resolver  (§8.4)
   srcpy/domains/orders/grpc/server.py :: __main__
          │
          ▼  route binder  (§8.6) / proto binder (§7.2)
-  grpc OrderService.* → handlery
+  grpc OrderService.* → handlers
 ```
 
-**Go — dva hopy přes multi-stage build:**
+**Go — two hops through a multi-stage build:**
 
 ```
   services.scoring-grpc:
-    build: *build-go                           ← kotva: context srcgo
+    build: *build-go                           ← anchor: context srcgo
     command: /bin/grpcserver
          │
          ▼  srcgo/Dockerfile, runtime stage
@@ -1153,87 +1191,88 @@ compose.yaml
   srcgo/domains/orders/cmd/grpcserver/server.go :: main
 ```
 
-Každá šipka je deterministická a levná. Žádný LLM, žádná heuristika — jen parsování
-a tabulka známých vzorů. Ale těch šipek je víc, než se na první pohled zdá: u Go vede cesta
-přes dvě `COPY --from` / `-o` mapování a přes wrapper `xx-go` (buildx cross-compile),
-ne přes holé `go build`.
+Every arrow is deterministic and cheap. No LLM, no heuristics — just parsing and a table of known
+patterns. But there are more arrows than it first appears: in Go the path runs through two
+`COPY --from` / `-o` mappings and through the `xx-go` wrapper (buildx cross-compilation), not
+through a bare `go build`.
 
-### 8.3 Deployment deskriptor — obecně a pak compose
+### 8.3 The deployment descriptor — in general, and then compose
 
-Compose je **jedna instance obecnějšího pojmu: deskriptoru, který pojmenovává procesy
-a jejich startovní příkazy.** Jádro z každého takového deskriptoru chce vždy totéž:
+Compose is **one instance of a more general notion: a descriptor that names processes and their
+start commands.** From any such descriptor the core always wants the same things:
 
-| co jádro potřebuje | proč |
+| what the core needs | why |
 |---|---|
-| seznam nasaditelných jednotek | oddíly grafu |
-| startovní příkaz každé z nich | vstup pro launcher resolver (§8.4) |
-| most jednotka → zdrojový adresář | kde ten kód vůbec leží |
-| mapa běhová cesta ↔ cesta v repu | překlad stack trace, runtime trace (§9) |
-| co je dostupné zvenku | veřejná plocha systému |
-| konfigurace a vazby mezi jednotkami | cross-service hrany (§8.5) |
+| a list of deployable units | the graph's partitions |
+| the start command of each | input for the launcher resolver (§8.4) |
+| a bridge from unit to source directory | where that code actually lives |
+| a map from runtime path to repository path | stack-trace translation, runtime traces (§9) |
+| what is reachable from outside | the system's public surface |
+| configuration and links between units | cross-service edges (§8.5) |
 
-Známé deskriptory a jejich pokrytí těch šesti položek:
+Known descriptors and their coverage of those six items:
 
-| deskriptor | pokrývá | poznámka |
+| descriptor | covers | note |
 |---|---|---|
-| **Docker Compose + Dockerfile** | vše | první implementace |
-| `package.json` `scripts` | jednotky, příkazy | v JS/TS repu často jediný zdroj; monorepo přes workspaces |
-| Procfile / systemd unit | jednotky, příkazy | triviální parser |
-| Kubernetes / Helm | vše, ale přes šablonování | §8.9 — až bude compose ověřený |
-| `Makefile` cíle | příkazy | poslední záchrana, nespolehlivé |
+| **Docker Compose + Dockerfile** | everything | the first implementation |
+| `package.json` `scripts` | units, commands | often the only source in a JS/TS repository; monorepos via workspaces |
+| Procfile / systemd unit | units, commands | a trivial parser |
+| Kubernetes / Helm | everything, but through templating | §8.9 — once compose is proven |
+| `Makefile` targets | commands | a last resort, unreliable |
 
-Jádro pracuje s tím sjednoceným tvarem; každý deskriptor je adaptér vrstvy C (§1.1).
-**Repo bez Dockeru tedy není mimo rozsah** — jen dostane méně vyplněných políček
-a řekne to v `unknown:`.
+The core works with that unified shape; every descriptor is a layer-C adapter (§1.1). **A
+repository without Docker is therefore not out of scope** — it simply gets fewer fields filled in
+and says so in `unknown:`.
 
-#### compose (`docker-compose.yml`, `compose.yaml`, override soubory, `profiles`)
+#### compose (`docker-compose.yml`, `compose.yaml`, override files, `profiles`)
 
-| pole | co z toho je |
+| field | what it gives |
 |---|---|
-| `services.*` | seznam nasaditelných jednotek = **oddíly grafu** |
-| `build.context` / `build.dockerfile` | most compose → Dockerfile → zdrojový adresář |
-| `image` bez `build` | externí závislost (postgres, redis, nats) — uzel, ale ne kód |
-| `depends_on` | hrany mezi službami |
-| `ports` / `expose` | co je dostupné zvenku = **veřejná plocha systému** |
-| `networks` | kdo na koho vůbec dosáhne |
-| `environment` / `env_file` | vstup pro env binder (§8.5) |
-| `command` | override — má přednost před `CMD` v Dockerfile |
-| `healthcheck` | často nejpřesnější ukazatel, kde služba doopravdy poslouchá |
-| `volumes` | **mapa kontejner ↔ repo pro lokální vývoj** — přebíjí `COPY` z Dockerfile (§8.7) |
-| `networks.*.aliases` | další DNS jména služby — bez nich env binder ztrácí hrany (§8.5) |
+| `services.*` | the list of deployable units = **the graph's partitions** |
+| `build.context` / `build.dockerfile` | the bridge compose → Dockerfile → source directory |
+| `image` without `build` | an external dependency (postgres, redis, nats) — a node, but not code |
+| `depends_on` | edges between services |
+| `ports` / `expose` | what is reachable from outside = **the system's public surface** |
+| `networks` | who can reach whom at all |
+| `environment` / `env_file` | input for the env binder (§8.5) |
+| `command` | an override — it takes precedence over `CMD` in the Dockerfile |
+| `healthcheck` | often the most accurate indicator of where a service actually listens |
+| `volumes` | **the container ↔ repo map for local development** — it overrides `COPY` from the Dockerfile (§8.7) |
+| `networks.*.aliases` | further DNS names for a service — without them the env binder loses edges (§8.5) |
 
-**Korekce po ověření na testovacím repu:** dřívější verze tohoto návrhu odkládala
-`x-` extensions jako okrajové. To je špatně a v praxi to znamená neparsovat nic:
+**A correction after checking against the test repository:** an earlier version of this design
+deferred `x-` extensions as marginal. That is wrong, and in practice it means parsing nothing:
 
-- **`x-` bloky nesou kotvy.** V testovacím repu žijí v `x-base-service`, `x-build-go`,
-  `x-build-py` a `x-healthcheck-*` úplně všechny sdílené definice; služby si je berou
-  přes merge klíč `<<: *base-service`. Bez rozřešení kotev a aliasů nedostaneš ani
-  build context, ani `env_file`.
-- **Interpolace umí být vnořená.** `${IMAGE_PREFIX:-${COMPOSE_PROJECT_NAME:-platform}}` je
-  reálný řádek. Potřeba implementovat compose interpolaci včetně `:-` defaultů a `.env`.
-- **`name:` na úrovni souboru** určuje jméno projektu a tím i DNS jména.
+- **`x-` blocks carry the anchors.** In the test repository every shared definition lives in
+  `x-base-service`, `x-build-go`, `x-build-py` and `x-healthcheck-*`; services pull them in
+  through the merge key `<<: *base-service`. Without resolving anchors and aliases you get neither
+  the build context nor `env_file`.
+- **Interpolation can be nested.** `${IMAGE_PREFIX:-${COMPOSE_PROJECT_NAME:-platform}}` is a real
+  line. Compose interpolation has to be implemented, including `:-` defaults and `.env`.
+- **`name:` at file level** determines the project name and therefore the DNS names.
 
-YAML parser tedy musí zachovat kotvy a merge klíče, ne je jen načíst do mapy.
-Kam nechodit dál: šablonování build args, `.dockerignore` sémantika, `profiles` kombinatorika.
+The YAML parser must therefore preserve anchors and merge keys, not merely load them into a map.
+Where not to go further: templating of build args, `.dockerignore` semantics, `profiles`
+combinatorics.
 
 **Dockerfile:**
 
-| direktiva | co z toho je |
+| directive | what it gives |
 |---|---|
-| `WORKDIR` + `COPY`/`ADD` | **mapa kontejnerová cesta ↔ cesta v repu** — nutná i pro L3 runtime trace (§9) |
-| `ENTRYPOINT` + `CMD` | skutečný startovní příkaz (rozlišit shell vs exec form) |
-| `FROM … AS build` + `COPY --from=build` | která stage produkuje runtime artefakt |
-| `RUN go build -o /app/server ./cmd/server` | most binárka ↔ balíček |
+| `WORKDIR` + `COPY`/`ADD` | **the container path ↔ repository path map** — needed for the L3 runtime trace too (§9) |
+| `ENTRYPOINT` + `CMD` | the actual start command (distinguish shell from exec form) |
+| `FROM … AS build` + `COPY --from=build` | which stage produces the runtime artefact |
+| `RUN go build -o /app/server ./cmd/server` | the binary ↔ package bridge |
 
-Merge sémantiku compose (override soubory, `extends`) respektovat. Do `x-` extensions,
-šablonování build args a `.dockerignore` sémantiky **nechodit** — tam začíná králičí nora
-a hodnota strmě klesá.
+Respect compose's merge semantics (override files, `extends`). **Do not go into** `x-` extension
+templating of build args or `.dockerignore` semantics — that is where the rabbit hole starts and
+the value drops off steeply.
 
-### 8.4 Launcher resolver — příkaz → symbol
+### 8.4 The launcher resolver — command → symbol
 
-Vstupem je **řetězec startovního příkazu**, ať přišel odkud chce (§8.3). Výstupem je
-symbol, nebo poctivé `unknown`. Není to interpret shellu, ale **tvar `command_string`
-z §1.1** — pravidla v datech, resolver v jádře.
+The input is **the start command as a string**, wherever it came from (§8.3). The output is a
+symbol, or an honest `unknown`. It is not a shell interpreter but **the `command_string` shape
+from §1.1** — rules in data, the resolver in the core.
 
 ```toml
 [[launcher]]
@@ -1242,113 +1281,116 @@ match = "python3? -m (?<mod>[\\w.]+)"
 emit  = { module = "{mod}", symbol = "__main__" }
 ```
 
-Ukázky pravidel napříč ekosystémy — účel je vidět, že se liší jen data:
+Sample rules across ecosystems — the point is to see that only the data differs:
 
-| ekosystém | příkaz | kořen |
+| ecosystem | command | root |
 |---|---|---|
 | Python | `python -m pkg.server` | `pkg/server/__main__.py` |
-| Python | `gunicorn pkg.wsgi:application` | symbol `application` |
-| Python | `celery -A proj worker` | **každý `@shared_task` je vlastní kořen** |
-| Go | `/bin/srv` | zpětně přes `build -o` → `cmd/srv/main.go::main` |
-| Node | `node dist/server.js` | přes source map / build config zpět do `src/` |
-| Node | `next start` | **konvence: `app/**/route.ts`, `pages/api/**`** (§8.6) |
-| Node | `npm run start` | rozbalit přes `package.json` `scripts` a řešit znovu |
-| JVM | `java -jar app.jar` | manifest `Main-Class` |
+| Python | `gunicorn pkg.wsgi:application` | the `application` symbol |
+| Python | `celery -A proj worker` | **every `@shared_task` is a root of its own** |
+| Go | `/bin/srv` | backwards through `build -o` → `cmd/srv/main.go::main` |
+| Node | `node dist/server.js` | through a source map / build config back into `src/` |
+| Node | `next start` | **by convention: `app/**/route.ts`, `pages/api/**`** (§8.6) |
+| Node | `npm run start` | unfold through `package.json` `scripts` and resolve again |
+| JVM | `java -jar app.jar` | the manifest's `Main-Class` |
 
-Dvě věci, které pravidlo neunese a patří do vrstvy C:
+Two things a rule cannot carry, which belong in layer C:
 
-- **rekurze přes nepřímost.** `npm run start` → `scripts.start` → další příkaz.
-  Resolver musí umět zavolat sám sebe s limitem hloubky.
-- **build artefakt ≠ zdroj.** U Go to řeší `-o` mapování z Dockerfile, u Node bundler
-  (`dist/`, `.next/`) a tam je most buď source map, nebo konfigurace bundleru.
-  Tohle je u JS/TS podstatně horší než u Go a je to hlavní riziko §17.
+- **recursion through indirection.** `npm run start` → `scripts.start` → another command. The
+  resolver has to be able to call itself with a depth limit.
+- **a build artefact is not the source.** In Go the `-o` mapping from the Dockerfile solves it; in
+  Node it is the bundler (`dist/`, `.next/`) and there the bridge is either a source map or the
+  bundler's configuration. This is considerably worse in JS/TS than in Go and it is the main risk
+  in §17.
 
-Obalové skripty (`entrypoint.sh`, `docker-entrypoint.sh`) jsou v praxi časté: přečíst
-a hledat závěrečný `exec …`.
+Wrapper scripts (`entrypoint.sh`, `docker-entrypoint.sh`) are common in practice: read them and
+look for the final `exec …`.
 
-Když se cokoli z toho nepovede rozřešit, jde to do **`unknown:`** — ne tichý fail. To je
-přímý důsledek D8 a tady na tom záleží víc než kdekoli jinde, protože **chybějící kořen
-tiše prohlásí živý kód za mrtvý** (§8.7).
+When any of that fails to resolve, it goes into **`unknown:`** — not a silent failure. That is a
+direct consequence of D8 and it matters here more than anywhere else, because **a missing root
+silently declares live code dead** (§8.7).
 
-### 8.5 Env binder
+### 8.5 The env binder
 
-`environment:` a `env_file:` dají množinu proměnných. V kódu se hledají čtení:
-`os.environ[…]`, `os.getenv`, `os.Getenv`, `settings.X` u Djanga, `envconfig`/`viper` u Go.
+`environment:` and `env_file:` give a set of variables. In the code we look for reads:
+`os.environ[…]`, `os.getenv`, `os.Getenv`, `settings.X` in Django, `envconfig`/`viper` in Go.
 
-Vznikají dva druhy hran a ten druhý je cennější:
+Two kinds of edge arise and the second is the more valuable:
 
-- `auth.env.DATABASE_URL` → `db/session.py:14` — **kdo to čte**
-- `gateway.env.AUTH_GRPC_ADDR = auth:50051` → **služba `auth`** — kdo je cíl
+- `auth.env.DATABASE_URL` → `db/session.py:14` — **who reads it**
+- `gateway.env.AUTH_GRPC_ADDR = auth:50051` → **the `auth` service** — who the target is
 
-Druhá hrana je doložená runtime vazba mezi službami: host v URL odpovídá jménu jiné compose
-služby. Dohromady s proto binderem (§7.2) vzniká uzavřený obrázek — `gateway` (Go) volá
-`AuthService.Verify`, implementaci má `auth` (Python), a compose potvrzuje, že to jsou
-dva různé procesy komunikující přes `auth:50051`. Ani jeden z těch tří zdrojů to neví sám.
+The second edge is a documented runtime link between services: the host in the URL matches the
+name of another compose service. Together with the proto binder (§7.2) a closed picture emerges —
+`gateway` (Go) calls `AuthService.Verify`, `auth` (Python) holds the implementation, and compose
+confirms that these are two separate processes talking over `auth:50051`. Not one of those three
+sources knows it alone.
 
-**Korekce: párovat na jméno služby nestačí.** V testovacím repu má `orders-grpc`
-v `networks.default.aliases` navíc `orders-api_grpc-python`
-a `orders_grpc-python`. URL v env proměnné jiné služby míří na alias, ne na
-jméno služby — naivní párování by tu hranu neviděla vůbec. Binder proto staví
-**tabulku všech DNS jmen** (jméno služby + `container_name` + všechny aliasy napříč sítěmi)
-a páruje proti ní.
+**A correction: matching on the service name is not enough.** In the test repository `orders-grpc`
+also has `orders-api_grpc-python` and `orders_grpc-python` in `networks.default.aliases`. The URL
+in another service's env variable points at an alias, not at the service name — naive matching
+would not see that edge at all. The binder therefore builds **a table of all DNS names** (the
+service name + `container_name` + every alias across all networks) and matches against that.
 
-`DJANGO_SETTINGS_MODULE` stojí za zvláštní zmínku: je to env proměnná, ale zároveň
-**ukazatel na modul** (`domains.orders.grpc.settings`). Dává per-službu konfiguraci
-Djanga a je to zároveň nejlevnější způsob, jak správně nakonfigurovat `django-stubs`
-pro každou službu zvlášť (§4.4).
+`DJANGO_SETTINGS_MODULE` deserves a special mention: it is an env variable, but it is also **a
+pointer to a module** (`domains.orders.grpc.settings`). It gives Django's per-service
+configuration and is at the same time the cheapest way to configure `django-stubs` correctly for
+each service separately (§4.4).
 
-### 8.6 Route binder — request-level entrypointy
+### 8.6 The route binder — request-level entrypoints
 
-Compose dává kořeny na úrovni procesů. Webový projekt potřebuje kořeny na úrovni requestů.
+Compose gives roots at the level of processes. A web project needs roots at the level of
+requests.
 
-Obava „na tohle bychom museli znát všechny frameworky" je pochopitelná, ale při pohledu
-na reálné frameworky se rozpadá: **routu deklaruje jeden ze čtyř tvarů z §1.1** a jádro
-z nich skládá cestu vždy stejně.
+The worry that "we would have to know every framework for this" is understandable, but it falls
+apart on inspection of real frameworks: **a route is declared by one of four shapes from §1.1**
+and the core always assembles the path from them the same way.
 
-| tvar | frameworky | pravidlo |
+| shape | frameworks | rule |
 |---|---|---|
 | `decorator` | FastAPI, Flask, NestJS, Spring | `@$router.{method}($path)` |
 | `call_pattern` | Express, chi, gin, stdlib `ServeMux` | `$app.{method}($path, $handler)` |
-| `collection_literal` | Django `urlpatterns`, Vue/React Router | seznam `($path, $handler)` |
-| `path_convention` | **Next.js, Remix, SvelteKit, Nuxt** | `app/**/route.ts` → cesta ze struktury adresářů |
+| `collection_literal` | Django `urlpatterns`, Vue/React Router | a list of `($path, $handler)` |
+| `path_convention` | **Next.js, Remix, SvelteKit, Nuxt** | `app/**/route.ts` → the path from the directory structure |
 
-Skládání cesty je pak textové: prefix routeru/mountu + cesta z pravidla + vnoření.
+Assembling the path is then textual: the router/mount prefix + the path from the rule + nesting.
 
-**`path_convention` je ten tvar, který přijde s JS/TS** a v Pythonu ani Go nemá obdobu —
-routa není nikde deklarovaná, je zakódovaná v *cestě k souboru*. Proto je v seznamu
-šesti tvarů (§1.1) od začátku, ne až jako pozdější dodatek.
+**`path_convention` is the shape that arrives with JS/TS** and has no analogue in Python or Go —
+the route is declared nowhere, it is encoded in the *file path*. That is why it is in the list of
+six shapes (§1.1) from the start, rather than being added later.
 
-**Dvě informace navíc, které stojí za to vytáhnout, když je framework nabízí:**
+**Two extra pieces of information worth extracting when a framework offers them:**
 
-- **stabilní identita routy.** FastAPI `operation_id`, NestJS jméno metody, Next.js cesta
-  souboru. Je stabilnější než URL a je to lepší primární klíč než cesta.
-- **autentizace.** Když se middleware/guard/dependency připíná deklarativně
-  (`dependencies=[Depends(auth)]`, `@UseGuards(...)`, `middleware.ts`), jde staticky
-  odvodit, které routy jsou veřejné. Pro auditní doménu je to samostatně prodejný výstup.
+- **a stable identity for the route.** FastAPI's `operation_id`, NestJS's method name, Next.js's
+  file path. It is more stable than the URL and a better primary key than the path.
+- **authentication.** When middleware/a guard/a dependency is attached declaratively
+  (`dependencies=[Depends(auth)]`, `@UseGuards(...)`, `middleware.ts`), which routes are public
+  can be derived statically. For the audit domain that is a saleable output on its own.
 
-*Důkaz (§16): v testovacím repu jsou reálně tři z těch čtyř tvarů — FastAPI dekorátory
-(122 endpointů, včetně staticky viditelné autentizace), Django `urlpatterns` a jediný
-stdlib `ServeMux` v Go. Žádné chi, gin ani echo. Detaily v
+*Evidence (§16): three of those four shapes are real in the test repository — FastAPI decorators
+(122 endpoints, including statically visible authentication), Django `urlpatterns`, and a single
+stdlib `ServeMux` in Go. No chi, gin or echo. Details in
 [coverage-analysis.md](coverage-analysis.md).*
 
-**Levný univerzální únik, kdyby vzory nestačily.** Většina web frameworků umí vypsat
-svou routovací tabulku: FastAPI `app.openapi()`, Django `get_resolver().url_patterns`,
-Flask `app.url_map`. Cena je, že se musí naimportovat aplikace — je to tedy runtime
-probe, ne statická analýza, a patří do L3 (§9), ne do L0. Má to přesně tutéž dualitu jako
-zbytek návrhu: **statika je úplná ale přibližná, runtime je přesný ale jen po dosažitelnou
-část.** Když se ty dva zdroje rozejdou, je to nález, ne chyba.
+**A cheap universal escape hatch, if the patterns were not enough.** Most web frameworks can print
+their own routing table: FastAPI `app.openapi()`, Django `get_resolver().url_patterns`, Flask
+`app.url_map`. The price is that the application has to be imported — so it is a runtime probe,
+not static analysis, and it belongs in L3 (§9), not in L0. It has exactly the same duality as the
+rest of the design: **static analysis is complete but approximate, runtime is exact but only over
+the part it reaches.** When those two sources disagree, that is a finding, not a fault.
 
-Doporučení: statické vzory teď, runtime dump jako opt-in booster ve stejné fázi jako
-coverage (§9). Rozhodně ne obráceně — runtime probe by z read-only nástroje udělal něco,
-co spouští cizí kód.
+Recommendation: static patterns now, a runtime dump as an opt-in booster in the same phase as
+coverage (§9). Definitely not the other way round — a runtime probe would turn a read-only tool
+into one that executes someone else's code.
 
-Výstup je hrana `route:POST /onboarding/signup` → handler symbol. Tím jde odpovědět na
-„který endpoint vede k tomuhle kódu", což je u auditu a code review nejčastější otázka vůbec.
+The output is an edge `route:POST /onboarding/signup` → the handler symbol. That answers "which
+endpoint leads to this code", which in audit work and code review is the most frequent question
+of all.
 
-### 8.7 Co z toho plyne pro ostatní vrstvy
+### 8.7 What follows for the other layers
 
-**Service attribution.** Reachability z kořenů dá každému symbolu štítek služeb.
-Levné a mění to tvar odpovědí:
+**Service attribution.** Reachability from the roots gives every symbol a set of service labels.
+Cheap, and it changes the shape of answers:
 
 ```
 $ cairn blast a4 --depth 2
@@ -1360,41 +1402,43 @@ externally reachable via
   POST /oauth/token · POST /oauth/refresh                  [route]
 ```
 
-**Dead code.** Symbol nedosažitelný z žádného kořene a nepokrytý testem je kandidát.
-Vracet jako signál s confidence, nikdy jako fakt — reflexe, dynamický import a nerozřešený
-entrypoint to umí obejít.
+**Dead code.** A symbol unreachable from any root and not covered by a test is a candidate.
+Return it as a signal with a confidence, never as a fact — reflection, dynamic imports and an
+unresolved entrypoint can all get round it.
 
-**Lepší seed pro `cairn context`** — zařazeno jako zdroj 0 v §6.4.
+**A better seed for `cairn context`** — listed as source 0 in §6.4.
 
-**Předpoklad pro L3 runtime trace.** Stack trace z běžícího kontejneru říká
-`/app/domains/orders/grpc/server.py`, repo říká `srcpy/domains/orders/grpc/server.py`.
-Bez mapy je runtime trace nepoužitelný. Proto tahle sekce předchází §9.
+**A prerequisite for the L3 runtime trace.** A stack trace from a running container says
+`/app/domains/orders/grpc/server.py`, the repository says
+`srcpy/domains/orders/grpc/server.py`. Without the map a runtime trace is useless. That is why
+this section precedes §9.
 
-**Korekce, odkud ta mapa je.** Dřívější verze ji brala z `WORKDIR` + `COPY` v Dockerfile.
-Na testovacím repu to nestačí: `orders-grpc` má `volumes: ["./srcpy:/app/"]`, což
-`COPY . .` z buildu **přebije** — v běžícím kontejneru je pod `/app` bind mount, ne
-zkopírovaný obsah. Pořadí priority je tedy:
+**A correction about where that map comes from.** An earlier version took it from `WORKDIR` +
+`COPY` in the Dockerfile. On the test repository that is not enough: `orders-grpc` has
+`volumes: ["./srcpy:/app/"]`, which **overrides** the `COPY . .` from the build — in the running
+container what is under `/app` is a bind mount, not copied content. The order of priority is
+therefore:
 
-1. `volumes` bind mount ve compose *(autoritativní pro lokální vývoj — náš případ)*
-2. `WORKDIR` + `COPY`/`ADD` v Dockerfile *(platí pro produkční image bez mountů)*
-3. `build.context` jako poslední záchrana
+1. a `volumes` bind mount in compose *(authoritative for local development — our case)*
+2. `WORKDIR` + `COPY`/`ADD` in the Dockerfile *(applies to a production image without mounts)*
+3. `build.context` as a last resort
 
-**Služba není image.** V testovacím repu běží 15 služeb ze **dvou** build image
-(`x-build-py`, `x-build-go`) — `orders-grpc`, `orders-api`, `catalog-pipeline`
-a další sdílejí týž strom `srcpy`. Ze souborového systému proto **nejde zjistit, do které
-služby modul patří**; řekne to jedině dosažitelnost z entrypointu. To není okrajový případ,
-to je nejsilnější argument pro existenci celé téhle sekce.
+**A service is not an image.** In the test repository 15 services run from **two** build images
+(`x-build-py`, `x-build-go`) — `orders-grpc`, `orders-api`, `catalog-pipeline` and others share
+the same `srcpy` tree. **Which service a module belongs to therefore cannot be determined from
+the filesystem**; only reachability from an entrypoint says so. That is not an edge case, it is
+the strongest argument for this section existing at all.
 
-### 8.8 `cairn topology` — mapa systému na ~400 tokenů
+### 8.8 `cairn topology` — a map of the system in ~400 tokens
 
-Ideální první příkaz, který agent v neznámém repu spustí. Skill to říká výslovně:
-*„Než začneš číst soubory, spusť `cairn topology`."* Service attribution se pak
-propisuje jako anotace do odpovědí ostatních příkazů.
+The ideal first command for an agent to run in an unfamiliar repository. The skill says so
+explicitly: *"Before you start reading files, run `cairn topology`."* Service attribution then
+propagates as an annotation into the answers of the other commands.
 
-Původní návrh z toho dělal MCP resource, aby se ušetřil rozpočet nástrojů. S D1
-ten důvod zmizel — je to prostě podpříkaz, a navíc si ho může spustit i člověk.
+The original design made this an MCP resource in order to save the tool budget. With D1 that
+reason disappeared — it is simply a subcommand, and a human can run it too.
 
-Reálný tvar pro testovací repo (§16), zkráceno:
+The real shape for the test repository (§16), abbreviated:
 
 ```
 $ cairn topology
@@ -1426,333 +1470,340 @@ unknown (0)
 stale: none
 ```
 
-Řádek `12 unauthenticated` není kosmetika — plyne z toho, že
-`app.include_router(x, dependencies=[Depends(get_authenticator())])` nese informaci
-o autentizaci staticky (§8.6). Pro auditní doménu je to samo o sobě prodejný výstup.
+The `12 unauthenticated` line is not cosmetics — it follows from the fact that
+`app.include_router(x, dependencies=[Depends(get_authenticator())])` carries the authentication
+information statically (§8.6). For the audit domain that is a saleable output in itself.
 
-### 8.9 Co teď ne
+### 8.9 What not to do now
 
-Kubernetes / Helm (stejný mechanismus, jiný parser — až bude compose ověřený),
-Terraform, šablonování build args, obecné Go routery, service mesh konfigurace.
-Compose + Dockerfile je 90 % hodnoty za 10 % práce.
+Kubernetes / Helm (the same mechanism, a different parser — once compose is proven), Terraform,
+build-arg templating, Go routers in general, service mesh configuration. Compose + Dockerfile is
+90% of the value for 10% of the work.
 
 ---
 
 ## 9. L3 — execution knowledge
 
-Nejlepší poměr hodnota/cena v celém dokumentu. Bez LLM.
+The best value-for-cost ratio in the whole document. Without an LLM.
 
-**Z git historie** (gix, žádný shell-out):
-- **co-change matice** z `git log --name-only` nad posledními N commity; skóre = PMI / lift,
-  ne prostý počet (jinak vyhraje `README.md` a `go.mod`)
-- **test impact heuristika** — testy měněné společně se zdrojem
-- **recency & ownership** pro ranking
+**From git history** (gix, no shelling out):
+- a **co-change matrix** from `git log --name-only` over the last N commits; the score is PMI /
+  lift, not a plain count (otherwise `README.md` and `go.mod` win)
+- a **test impact heuristic** — tests changed together with the source
+- **recency and ownership** for ranking
 
-**Z běhu** (fáze 2+):
-- Python: `coverage.py` s **contexts** (`--context=test`) → mapa test → řádky. To je skutečný
-  test impact, ne heuristika. Jeden pytest plugin.
-- Go: `go test -coverprofile` per balíček, případně per test.
-- Dynamické importy / skutečný call graph: `sys.settrace`. Precedent MonkeyType (Instagram).
+**From execution** (phase 2+):
+- Python: `coverage.py` with **contexts** (`--context=test`) → a map from test to lines. That is
+  real test impact, not a heuristic. One pytest plugin.
+- Go: `go test -coverprofile` per package, or per test.
+- Dynamic imports / a real call graph: `sys.settrace`. Precedent: MonkeyType (Instagram).
 
-L3 artefakty jdou do stejného CAS + `edges` s `confidence < 1.0` a `source = git|coverage|trace`.
-V odpovědi vždy vizuálně oddělené od L1.
+L3 artefacts go into the same CAS and the same `edges` table with `confidence < 1.0` and
+`source = git|coverage|trace`. In an answer they are always visually separated from L1.
 
 ---
 
-## 10. Měření — komponenta, ne příloha
+## 10. Measurement — a component, not an appendix
 
-Bez tohohle je celý projekt hypotéza. `cairn-eval` je crate, ne skript.
+Without this the whole project is a hypothesis. `cairn-eval` is a crate, not a script.
 
-20 reálných úkolů z testovacího repa, spuštěné proti baseline agentovi a proti cairn agentovi:
+20 real tasks from the test repository, run against a baseline agent and against a cairn agent:
 
-| Metrika | Cíl | Poznámka |
+| Metric | Target | Note |
 |---|---|---|
-| Tokeny na úkol | −50 % | hlavní teze |
-| Kol do první editace | −50 % | zkrácení explorační smyčky |
-| Wall clock | ≤ baseline | nesmí být pomalejší |
-| Recall na L0/L1 dotazech | **100 %** | pod 100 % je produkt nebezpečný |
-| Latence dotazu p95 | ≤ 20 ms | na 500k řádcích |
-| Studený start | ≤ 60 s | bez sdílené cache; s ní ≤ 10 s |
+| Tokens per task | −50% | the main thesis |
+| Rounds to the first edit | −50% | shortening the exploration loop |
+| Wall clock | ≤ baseline | must not be slower |
+| Recall on L0/L1 queries | **100%** | below 100% the product is dangerous |
+| Query latency p95 | ≤ 20 ms | on 500k lines |
+| Cold start | ≤ 60 s | without a shared cache; with one ≤ 10 s |
 
-**Baseline musí mít zapnutý prompt caching.** Bez toho porovnáváš proti slaměnému panákovi.
+**The baseline must have prompt caching switched on.** Without that you are comparing against a
+straw man.
 
-Recall se měří proti zlatému standardu vygenerovanému nezávisle (hrubá síla: LSP crawl
-přes všechny symboly, jednou, offline).
+Recall is measured against a gold standard generated independently (brute force: an LSP crawl
+over every symbol, once, offline).
 
 ---
 
-## 11. Rozvržení kódu
+## 11. Code layout
 
 ```
 cairn/
   crates/
-    cairn-cli       binárka: `cairn symbol|refs|blast|topology|status|daemon|index|eval`
-    cairn-proto     sdílené typy, msgpack, socket protokol frontend↔daemon
-    cairn-skill     skill pro agenta (§6.2) — text, ne kód, ale verzuje se s CLI
-    cairn-fmt       renderer kompaktních odpovědí  ← produktová plocha, testuje se snapshoty
-    cairn-daemon    supervizor, socket server, scheduler, deadliny
-    cairn-store     CAS, SQLite projekce, snapshot, cache klíčování
-    cairn-index     SCIP ingest, LSP klient pool, extrakce faktů
-    cairn-rules     engine šesti tvarů (§1.1) + načítání rules/*.toml a .cairn/rules.toml
-    cairn-lang      language providers (vrstva C): python · go · typescript
-    cairn-binders   adaptéry, které pravidlo neunese: proto, deployment deskriptory
-    cairn-graph     L1 derivace: reference, call graph, blast radius, reachability, ranking
-    cairn-git       gix, co-change, test impact, snapshoty z tree
-    cairn-eval      měřicí harness
+    cairn-cli       the binary: `cairn symbol|refs|blast|topology|status|daemon|index|eval`
+    cairn-proto     shared types, msgpack, the front end↔daemon socket protocol
+    cairn-skill     the skill for the agent (§6.2) — text, not code, but versioned with the CLI
+    cairn-fmt       the renderer for compact answers  ← product surface, tested with snapshots
+    cairn-daemon    supervisor, socket server, scheduler, deadlines
+    cairn-store     CAS, the SQLite projection, snapshots, cache keying
+    cairn-index     SCIP ingest, the LSP client pool, fact extraction
+    cairn-rules     the engine for the six shapes (§1.1) + loading rules/*.toml and .cairn/rules.toml
+    cairn-lang      language providers (layer C): python · go · typescript
+    cairn-binders   adapters a rule cannot carry: proto, deployment descriptors
+    cairn-graph     L1 derivation: references, call graph, blast radius, reachability, ranking
+    cairn-git       gix, co-change, test impact, snapshots from a tree
+    cairn-eval      the measurement harness
   docs/
     architecture.md
     adr/
 ```
 
-Rozdělení odpovídá vrstvám z §1.1. `cairn-rules` a `cairn-lang` jsou hranice, přes kterou
-se přidávají ekosystémy; `cairn-graph`, `cairn-store` a `cairn-fmt` o žádném jazyce nevědí
-a **při přidání jazyka se do nich nesahá** — to je testovatelná podmínka D16, ne zbožné přání.
+The split follows the layers from §1.1. `cairn-rules` and `cairn-lang` are the boundary through
+which ecosystems are added; `cairn-graph`, `cairn-store` and `cairn-fmt` know about no language
+and **are not touched when a language is added** — that is the testable condition of D16, not a
+pious hope.
 
-Balíčky pravidel (`rules/*.toml`) se do binárky vestavějí, ale jdou přebít souborem
-`.cairn/rules.toml` v repu.
+Rule packs (`rules/*.toml`) are built into the binary but can be overridden by a
+`.cairn/rules.toml` file in the repository.
 
-**Runtime:** tokio. **Klíčové crates:** `gix`, `rusqlite` (bundled, WAL), `notify`, `blake3`,
-`rmp-serde`, `zstd` (s trénovaným slovníkem, §5.5), `tower-lsp` nebo vlastní tenký LSP klient,
-`scip` (protobuf schéma), `tree-sitter` + gramatiky **jen na komentáře** (§4.5),
-YAML parser zachovávající merge sémantiku compose.
+**Runtime:** tokio. **Key crates:** `gix`, `rusqlite` (bundled, WAL), `notify`, `blake3`,
+`rmp-serde`, `zstd` (with a trained dictionary, §5.5), `tower-lsp` or a thin LSP client of our
+own, `scip` (the protobuf schema), `tree-sitter` plus grammars **for comments only** (§4.5), and a
+YAML parser that preserves compose's merge semantics.
 
-**Watcher:** `notify` s 50ms debounce, ignore `.git`, `node_modules`, `__pycache__`,
-`target`, `vendor`, respektovat `.gitignore`.
+**Watcher:** `notify` with a 50 ms debounce, ignoring `.git`, `node_modules`, `__pycache__`,
+`target`, `vendor`, and respecting `.gitignore`.
 
 ---
 
-## 12. Latence a rozvrh práce
+## 12. Latency and scheduling
 
-Princip D7: **dotaz má deadline (výchozí 200 ms) a nikdy neblokuje na indexaci.**
+The D7 principle: **a query has a deadline (200 ms by default) and never blocks on indexing.**
 
 ```
-query přijde
-  ├─ vše čerstvé v SQLite?          → odpověz  (~2–20 ms)
-  ├─ dotčený soubor je dirty?       → LSP re-resolve jen toho souboru (10–100 ms)
-  │                                    stihl se do deadline? → odpověz
-  │                                    nestihl? → odpověz ze staré báze + `stale: auth/oauth.py`
-  └─ vůbec nezaindexováno?          → odpověz co víš + `stale: cold index in progress (37%)`
+a query arrives
+  ├─ everything fresh in SQLite?     → answer  (~2–20 ms)
+  ├─ the file involved is dirty?     → LSP re-resolve of that file only (10–100 ms)
+  │                                    made the deadline? → answer
+  │                                    missed it? → answer from the old base + `stale: auth/oauth.py`
+  └─ not indexed at all?             → answer what you know + `stale: cold index in progress (37%)`
 ```
 
-Fronta na pozadí, prioritně: dirty soubory > jejich přímé závislé > zbytek projektu > L3 > L2.
+A background queue, in priority order: dirty files > their direct dependents > the rest of the
+project > L3 > L2.
 
 ---
 
-## 13. Roadmapa
+## 13. Roadmap
 
-| Fáze | Obsah | Výstup |
+| Phase | Contents | Output |
 |---|---|---|
-| **0** — týden 1 | Spike na testovacím repu (§16), **celý v kontejneru** (D13): `make pbgen` → `scip-python` + `scip-go` → podíl nevyřešených symbolů, čas, **syrová velikost indexu** (vstup pro §5.5). Měřit **dvakrát: s vygenerovanými stuby a bez nich** — rozdíl je cena §4.6. | Go/no-go pro D3, kalibrace D10 |
-| **1** — týdny 2–6 | Daemon + store + CAS + snapshot + dirty overlay. Extrakce komentářů (§4.5) — je zadarmo a schéma FTS ji musí mít od začátku. `cairn symbol|refs|expand`. CLI frontend + skill. | Použitelný produkt |
-| **2a** — týden 7 | Compose + Dockerfile binder, launcher resolver, `cairn topology`, service attribution, commitnutelný `.cairn/topology.txt` + `topology --check`. | Mapa systému; nejlevnější kus v celém plánu |
-| **2b** — týdny 8–9 | Proto binder + route binder + generated-code detekce → cross-language a cross-service hrany. `cairn blast`. | **Diferenciátor, který nikdo nemá** |
-| **3** — týdny 10–12 | L3 z gitu (co-change, test impact). `cairn tests`. `cairn-eval` a první měření proti baseline. | **Tady se rozhodne, jestli teze platí** |
-| **4** | `cairn context`, ranking, progressive disclosure tuning. Skill. | Produktová vrstva |
-| **4b** | **Druhý ekosystém: JS/TS** (§17). Provider + balíček pravidel, nula změn v jádře. | Ověření D16 v praxi |
-| **5a** | Sdílení přes `refs/cairn/cache` — nepotřebuje žádnou infrastrukturu (§5.6). | Sdílená cache za pár dní |
-| **5b** | CAS server (sync vrstva nad hotovým CAS). | Monetizace |
-| **6** | L2 sémantika. Coverage contexts. | Až nad hotovou strukturou |
+| **0** — week 1 | A spike on the test repository (§16), **entirely in a container** (D13): `make pbgen` → `scip-python` + `scip-go` → the proportion of unresolved symbols, the time, **the raw index size** (input for §5.5). Measure **twice: with the generated stubs and without** — the difference is the cost of §4.6. | Go/no-go on D3, calibration of D10 |
+| **1** — weeks 2–6 | Daemon + store + CAS + snapshot + the dirty overlay. Comment extraction (§4.5) — it is free and the FTS schema has to have it from the start. `cairn symbol|refs|expand`. The CLI front end + the skill. | A usable product |
+| **2a** — week 7 | The compose + Dockerfile binder, the launcher resolver, `cairn topology`, service attribution, a committable `.cairn/topology.txt` + `topology --check`. | A map of the system; the cheapest piece in the whole plan |
+| **2b** — weeks 8–9 | The proto binder + the route binder + generated-code detection → cross-language and cross-service edges. `cairn blast`. | **The differentiator nobody else has** |
+| **3** — weeks 10–12 | L3 from git (co-change, test impact). `cairn tests`. `cairn-eval` and the first measurement against a baseline. | **This is where it is decided whether the thesis holds** |
+| **4** | `cairn context`, ranking, progressive-disclosure tuning. The skill. | The product layer |
+| **4b** | **A second ecosystem: JS/TS** (§17). A provider plus a rule pack, zero changes in the core. | D16 confirmed in practice |
+| **5a** | Sharing through `refs/cairn/cache` — needs no infrastructure at all (§5.6). | A shared cache in a few days |
+| **5b** | A CAS server (a sync layer over the finished CAS). | Monetisation |
+| **6** | L2 semantics. Coverage contexts. | Only on top of a finished structure |
 
-**Nikdy** (dokud to prokazatelně nebolí): vlastní parsery, vlastní storage engine,
-vlastní event sourcing, mmap + B+ tree.
+**Never** (until it demonstrably hurts): parsers of our own, a storage engine of our own, event
+sourcing of our own, mmap + a B+ tree.
 
-Git už je append-only event log a `git log` je replay. Vlastní event store je měsíce práce
-duplikující něco, co je zadarmo.
+Git is already an append-only event log and `git log` is the replay. An event store of our own is
+months of work duplicating something that is free.
 
 ---
 
-## 14. Rizika
+## 14. Risks
 
-| Riziko | Dopad | Mitigace |
+| Risk | Impact | Mitigation |
 |---|---|---|
-| ~~`scip-python` neustojí Django~~ | — | **Vyřešeno měřením: 0,11 % nerozřešených.** Fáze 0 uzavřena |
-| Studený start ~3 min místo 60 s | Horší první dojem | Naměřeno. Sdílená cache (§5.6) se tím posouvá z „monetizace" na „to, co dělá první běh snesitelným" |
-| scip-python nemá per-file inkrementalitu | LSP hot path je povinný, ne volitelný | Potvrzeno měřením — §4.2 je od fáze 1, ne později |
-| Package field v SCIP symbolu není hranice projektu | Třetí strany se tiše mísí do odpovědí | scip-python mylně připisuje ~37k referencí projektu. Vlastnictví odvozovat z indexované množiny souborů |
-| Agent nástroj nepoužije, sáhne po grepu | Produkt neexistuje | Skill jako produktová práce (§6.2). Měřit podíl `cairn` volání vůči grepu, i bez skillu |
-| `deps_api_hash` nekonverguje na reálném kódu | Cache je k ničemu | Změřit hit rate ve fázi 1; fallback na hrubší klíč |
-| Serena / konkurence dorazí dřív | Delta zmizí | Delta je perzistence + cross-language binders + L3, ne „máme graf". Zaměřit se na ně |
-| Recall < 100 % na L0 | **Produkt je nebezpečný** | Zlatý standard + regrese v CI. Radši vrátit `unknown` než hádat |
-| Nerozřešený entrypoint → živý kód označen za mrtvý | Tichá a velmi škodlivá chyba | Nerozřešený launcher je vždy `unknown`; dead-code signál se **nikdy** nevrací, pokud v projektu zbyl byť jeden nerozřešený kořen |
-| Index nedosáhne velikostního cíle | Sdílená cache ztrácí smysl | Změřit ve fázi 0 na surovém SCIP indexu. Techniky §5.5 jsou přírůstkové, dá se přidávat |
-| Binders bobtnají (K8s, Terraform, každý Go router) | Scope creep zadními vrátky | §8.9 je závazný seznam. Nový binder jen s doloženým výskytem v testovacím repu |
-| Komentáře zaplaví fulltext šumem | `cairn context` zhorší, ne zlepší | Vážené FTS sloupce, detekce zakomentovaného kódu, měřit precision seedu odděleně (§10) |
-| Agent vezme zastaralý komentář jako fakt | Tichá chyba typu, kterému se celý návrh vyhýbá | Komentář v odpovědi je vždy `[comment, unverified]`; nikdy nevstupuje do L0/L1 tvrzení |
-| `refs/cairn/cache` nafoukne objektovou DB | Pomalý clone/fetch | Ref je prunovatelný a force-pushovatelný; fetch volitelný. Když bolí, přejít na CI artefakt |
-| Indexace nad nevygenerovaným codegenem | Tichý propad recallu, který vypadá jako selhání indexeru | §4.6: detekovat, degradovat, přiznat v každé odpovědi. Nikdy neindexovat naslepo |
-| `inotify` přes bind mount na Docker Desktopu (D13) | Dirty overlay přestane fungovat, agent dostává zastaralá data | Fallback na polling; frontend umí poslat explicitní invalidaci. Na Linuxu nativně OK |
-| Kontejnerové cesty prosáknou do odpovědí | Agent nedokáže otevřít soubor, o kterém mu cairn říká | Absolutní cesty jsou zakázané už kvůli §5.1; snapshot testy `cairn-fmt` to hlídají |
-| Návrh se utáhne na testovací repo | Přenos na JS/TS = přepis | D16 a §17. Pravidla v datech; při přidání jazyka se nesmí sáhnout do vrstvy A |
-| Jazyk pravidel bobtná do DSL | Vlastní parser v jiném převleku | Uzavřená šestice tvarů (§1.1). Nový tvar až na dva nezávislé reálné případy |
-| JS/TS bundling rozbije řetěz příkaz → symbol | Entrypointy ve frontend repu nedohledatelné | §17.4: přeskočit bundler přes konvenci zdrojů; kde nejde, poctivé `unknown` |
-| Scope creep | Rok bez produktu | V dokumentu je jeden produkt. Držet fázi 0–3 |
+| ~~`scip-python` cannot cope with Django~~ | — | **Settled by measurement: 0.11% unresolved.** Phase 0 closed |
+| A cold start of ~3 min instead of 60 s | A worse first impression | Measured. The shared cache (§5.6) thereby moves from "monetisation" to "the thing that makes the first run bearable" |
+| scip-python has no per-file incrementality | The LSP hot path is mandatory, not optional | Confirmed by measurement — §4.2 belongs to phase 1, not later |
+| The package field in a SCIP symbol is not a project boundary | Third parties silently mix into answers | scip-python misattributes ~37k references to the project. Derive ownership from the set of indexed files |
+| The agent does not use the tool and reaches for grep | The product does not exist | The skill as product work (§6.2). Measure the share of `cairn` calls against grep, even without the skill |
+| `deps_api_hash` does not converge on real code | The cache is useless | Measure the hit rate in phase 1; fall back to a coarser key |
+| Serena / a competitor arrives first | The delta disappears | The delta is persistence + cross-language binders + L3, not "we have a graph". Focus on those |
+| Recall < 100% on L0 | **The product is dangerous** | A gold standard plus a regression in CI. Better to return `unknown` than to guess |
+| An unresolved entrypoint → live code marked dead | A silent and very damaging error | An unresolved launcher is always `unknown`; the dead-code signal is **never** returned while even one unresolved root remains in the project |
+| The index misses its size target | The shared cache loses its point | Measure in phase 0 on the raw SCIP index. The §5.5 techniques are incremental and can be added |
+| Binders bloat (K8s, Terraform, every Go router) | Scope creep by the back door | §8.9 is a binding list. A new binder only with a documented occurrence in the test repository |
+| Comments flood the full text with noise | `cairn context` gets worse, not better | Weighted FTS columns, detection of commented-out code, measure seed precision separately (§10) |
+| The agent takes a stale comment as fact | Exactly the kind of silent error the whole design avoids | A comment in an answer is always `[comment, unverified]`; it never enters an L0/L1 assertion |
+| `refs/cairn/cache` inflates the object database | Slow clone/fetch | The ref is prunable and force-pushable; fetching is optional. When it hurts, move to a CI artefact |
+| Indexing over ungenerated codegen | A silent drop in recall that looks like an indexer failure | §4.6: detect, degrade, admit it in every answer. Never index blind |
+| `inotify` over a bind mount on Docker Desktop (D13) | The dirty overlay stops working and the agent gets stale data | Fall back to polling; the front end can send an explicit invalidation. Native and fine on Linux |
+| Container paths leak into answers | The agent cannot open a file cairn is telling it about | Absolute paths are already forbidden by §5.1; `cairn-fmt` snapshot tests guard it |
+| The design overfits the test repository | Porting to JS/TS = a rewrite | D16 and §17. Rules in data; adding a language must not touch layer A |
+| The rule language bloats into a DSL | Our own parser in a different disguise | The closed set of six shapes (§1.1). A new shape only on two independent real cases |
+| JS/TS bundling breaks the command → symbol chain | Entrypoints in a front-end repository become untraceable | §17.4: skip the bundler through a source convention; where that fails, an honest `unknown` |
+| Scope creep | A year with no product | There is one product in this document. Hold to phases 0–3 |
 
 ---
 
-## 15. Otevřené k rozhodnutí
+## 15. Open for decision
 
-1. **Jméno a licence** — `cairn` je pracovní. Open core (server MIT, sdílená cache placená)?
-2. **Ne-kódová znalost** — PR diskuze, issues, ADR. „Proč je tohle takhle" tam bývá častěji
-   než v AST. Zapadá jako další binder + L2, ale je to samostatný produkt. Zatím mimo scope.
-3. **Multi-repo** — SCIP to umí ze své podstaty. Až bude jeden repo hotový.
-4. **Windows** — named pipes místo unix socketu; jinak beze změny. Kdy?
-5. **`orders-tools`** — testovací repo už jeden MCP server provozuje. Stojí za to zjistit,
-   co dělá, než postavíme druhý: buď je to nesouvisející doména, nebo je to signál o tom,
-   jak tým MCP používá.
+1. **Name and licence** — `cairn` is a working title. Open core (the server MIT, the shared cache
+   paid)?
+2. **Non-code knowledge** — PR discussions, issues, ADRs. "Why is this like this" is more often
+   there than in the AST. It fits as another binder plus L2, but it is a product of its own. Out
+   of scope for now.
+3. **Multi-repo** — SCIP handles it by its nature. Once one repository is finished.
+4. **Windows** — named pipes instead of a unix socket; otherwise unchanged. When?
+5. **`orders-tools`** — the test repository already runs one MCP server. It is worth finding out
+   what it does before we build a second: either it is an unrelated domain, or it is a signal
+   about how the team uses MCP.
 
 ---
 
-## 16. Kalibrace na testovacím repu
+## 16. Calibration against the test repository
 
-an internal repository, změřeno 30. 7. 2026.
+An internal repository, measured 2026-07-30.
 
-**Tahle sekce je důkaz, ne specifikace.** Čísla dole slouží ke kalibraci fáze 0 a k doložení,
-že mechanismy z §7 a §8 nejsou hypotézy. Nic z toho nesmí být zadrátované v jádře —
-viz D16 a §1.1. Zkouška opačným směrem, na JS/TS, je v §17.
+**This section is evidence, not a specification.** The numbers below serve to calibrate phase 0
+and to show that the mechanisms in §7 and §8 are not hypotheses. None of it may be hard-wired
+into the core — see D16 and §1.1. The test in the other direction, on JS/TS, is in §17.
 
 | | |
 |---|---|
-| Velikost pracovního stromu | 34 MB |
-| **Naměřeno ve fázi 0** | [spike-0-results.md](spike-0-results.md) |
-| Python | 218 193 řádků / 1 184 souborů · Django 5.2.6, pytest-django |
-| Go | 158 874 řádků / 516 souborů |
-| Proto | 9 768 řádků / 139 souborů |
-| **Generovaný Go** | **103 176 řádků = 65 % Go kódu** (220 × `.pb.go`) |
-| Generovaný Python | 13 souborů / **48 952 řádků**, 51 `*ServiceBase` (betterproto2 sype do `__init__.py`, ne `*_pb2.py` — snadno se přehlédne) |
-| Compose služby | 16 (15 vlastních + postgres) ze **2 build image** |
-| Compose soubory | `compose.yaml`, `compose.local.yaml`, `compose.test.yaml` |
-| Dockerfily | 7 (`srcpy`, `srcgo`, jejich interpreter/compiler báze, `pbgen`, sentinel, postgres) |
-| Go binárek z jednoho Dockerfile | 8, přes `xx-go build -o` + `COPY --from=builder` |
+| Working tree size | 34 MB |
+| **Measured in phase 0** | [spike-0-results.md](spike-0-results.md) |
+| Python | 218,193 lines / 1,184 files · Django 5.2.6, pytest-django |
+| Go | 158,874 lines / 516 files |
+| Proto | 9,768 lines / 139 files |
+| **Generated Go** | **103,176 lines = 65% of the Go code** (220 × `.pb.go`) |
+| Generated Python | 13 files / **48,952 lines**, 51 `*ServiceBase` (betterproto2 dumps into `__init__.py`, not `*_pb2.py` — easy to miss) |
+| Compose services | 16 (15 our own + postgres) from **2 build images** |
+| Compose files | `compose.yaml`, `compose.local.yaml`, `compose.test.yaml` |
+| Dockerfiles | 7 (`srcpy`, `srcgo`, their interpreter/compiler bases, `pbgen`, sentinel, postgres) |
+| Go binaries from one Dockerfile | 8, through `xx-go build -o` + `COPY --from=builder` |
 
-Co z toho přímo vyplynulo do návrhu: §2.1 (D13), §4.6 (D14), korekce v §7.2, §7.3, §8.2,
-§8.3, §8.5 a §8.7.
+What fed directly from this into the design: §2.1 (D13), §4.6 (D14), and the corrections in §7.2,
+§7.3, §8.2, §8.3, §8.5 and §8.7.
 
-Co je potřeba doměřit ve fázi 0:
+What still has to be measured in phase 0:
 
-1. podíl symbolů, které `scip-python` nerozřeší — **zvlášť s `make pbgen` a bez něj**
-2. syrová velikost SCIP indexu pro obě části → kalibrace cíle 50 MB (§5.5)
-3. jestli launcher resolver (§8.4) trefí všech 15 služeb, nebo kolik skončí v `unknown`
-4. kolik `.proto` služeb má obě strany (Go klient i Python servicer) — velikost §7.2 delty
-5. jestli `orders-admin` / `catalog-admin` jsou Django admin, a tedy
-   jestli je potřeba route binder i pro admin URL
+1. the proportion of symbols `scip-python` fails to resolve — **separately with `make pbgen` and
+   without it**
+2. the raw SCIP index size for both parts → calibration against the 50 MB target (§5.5)
+3. whether the launcher resolver (§8.4) hits all 15 services, or how many end up in `unknown`
+4. how many `.proto` services have both sides (a Go client and a Python servicer) — the size of
+   the §7.2 delta
+5. whether `orders-admin` / `catalog-admin` are Django admin, and therefore whether a route binder
+   is needed for admin URLs as well
 
 ---
 
-## 17. Zkouška abstrakce: co stojí přidat JS/TS
+## 17. Testing the abstraction: what it costs to add JS/TS
 
-Podmínka z D16 zní: **přidání ekosystému = jeden language provider (vrstva C) + jeden
-balíček pravidel (vrstva B), nula změn ve vrstvě A.** Tady je průchod pro JS/TS,
-protože to je reálně další cíl (frontend repo). Slouží zároveň jako kontrola, jestli
-návrh drží — kdyby vyšlo, že je potřeba sahat do jádra, je návrh špatně **teď**,
-ne za rok.
+The condition from D16 reads: **adding an ecosystem = one language provider (layer C) plus one
+rule pack (layer B), zero changes in layer A.** Here is the walk-through for JS/TS, because that
+is realistically the next target (the front-end repository). It also serves as a check on whether
+the design holds — if it turned out that the core had to be touched, the design is wrong **now**,
+not in a year.
 
-### 17.1 Vrstva A — beze změny
+### 17.1 Layer A — unchanged
 
-Snapshot, CAS, `deps_api_hash`, graf, ranking, handles, formátování, git L3, daemon, CLI.
-Nic z toho neví, jaký jazyk indexuje. ✅
+Snapshot, CAS, `deps_api_hash`, the graph, ranking, handles, formatting, git L3, the daemon, the
+CLI. None of it knows what language it is indexing. ✅
 
-### 17.2 Vrstva C — jeden provider
+### 17.2 Layer C — one provider
 
-| slot | pro JS/TS |
+| slot | for JS/TS |
 |---|---|
-| dávkový indexer | `scip-typescript` (Sourcegraph, pokrývá JS i TS) |
-| LSP pro dirty soubory | `typescript-language-server` / `tsserver` |
-| gramatika komentářů | `tree-sitter-typescript`, `tree-sitter-tsx` |
-| resolver konfigurace | **`tsconfig.json` `paths` / `baseUrl`** — nutné, jinak se `@/lib/x` nerozřeší |
+| batch indexer | `scip-typescript` (Sourcegraph's, covers both JS and TS) |
+| LSP for dirty files | `typescript-language-server` / `tsserver` |
+| comment grammar | `tree-sitter-typescript`, `tree-sitter-tsx` |
+| configuration resolver | **`tsconfig.json` `paths` / `baseUrl`** — necessary, otherwise `@/lib/x` does not resolve |
 
-Poslední řádek je jediná skutečně nová práce ve vrstvě C. Je to obdoba toho, co u Pythonu
-dělá `DJANGO_SETTINGS_MODULE` a u Go `go.mod` — každý ekosystém má svoje místo, kde je
-uložené mapování modulů, a jádro ho nesmí předpokládat.
+The last row is the only genuinely new work in layer C. It is the analogue of what
+`DJANGO_SETTINGS_MODULE` does for Python and `go.mod` for Go — every ecosystem has its own place
+where the module mapping is stored, and the core must not assume it.
 
-### 17.3 Vrstva B — balíček pravidel
+### 17.3 Layer B — a rule pack
 
 ```
 rules/typescript.toml
   launcher:  node dist/*.js · next start · vite preview · nest start · npm run <script>
   routes:    express call_pattern · nest decorator · next/remix path_convention
-  codegen:   prisma client · graphql-codegen · next build types · openapi klienti
+  codegen:   prisma client · graphql-codegen · next build types · openapi clients
   generated: **/dist/** · **/.next/** · **/*.generated.ts · @generated marker
-  contract:  tRPC router · GraphQL schéma · sdílené TS typy
+  contract:  tRPC router · GraphQL schema · shared TS types
 ```
 
-Nic z toho nevyžaduje nový tvar kromě `path_convention` — a ten je v šestici od začátku
-právě proto, že se vědělo, že přijde s JS/TS.
+None of that requires a new shape except `path_convention` — and that has been among the six from
+the start precisely because it was known it would arrive with JS/TS.
 
-### 17.4 Kde to bude nepříjemné (a je lepší to vědět teď)
+### 17.4 Where it will be unpleasant (and it is better to know now)
 
-| problém | proč je horší než u Python/Go | co s tím |
+| problem | why it is worse than in Python/Go | what to do |
 |---|---|---|
-| **Bundling** | Nasazuje se `dist/` nebo `.next/`, ne zdroj. Řetěz „příkaz → symbol" se láme na artefaktu, který v repu ani není. | Přeskočit bundler: pravidlo mapuje `next start` rovnou na konvenci zdrojů, ne na build výstup. Kde to nejde, `unknown:`. |
-| **Monorepo** | pnpm/yarn workspaces, turbo. „Služba" může být balíček, ne kontejner. | Deskriptor `package.json` workspaces (§8.3) jako zdroj jednotek vedle compose. |
-| **Roztříštěnost routerů** | Express, Fastify, Nest, Next, Remix, SvelteKit vedle sebe. | Právě proto pravidla v datech. Přidat vzor = řádek v TOML. |
-| **`node_modules`** | Obrovské, `scip-typescript` je umí zatáhnout do indexu. | Tvrdé vyloučení + vlastní CAS namespace jako u generovaného kódu (§7.3). |
-| **Sdílené typy mezi repy** | Frontend importuje typy generované z backendového kontraktu. | To je multi-repo (§15 bod 3), zatím mimo. Zůstane `unknown` na hranici. |
+| **Bundling** | What is deployed is `dist/` or `.next/`, not the source. The "command → symbol" chain breaks on an artefact that is not even in the repository. | Skip the bundler: a rule maps `next start` straight onto a source convention rather than onto the build output. Where that does not work, `unknown:`. |
+| **Monorepos** | pnpm/yarn workspaces, turbo. A "service" may be a package, not a container. | The `package.json` workspaces descriptor (§8.3) as a source of units alongside compose. |
+| **Router fragmentation** | Express, Fastify, Nest, Next, Remix, SvelteKit side by side. | Precisely why the rules are data. Adding a pattern is a line of TOML. |
+| **`node_modules`** | Enormous, and `scip-typescript` can pull it into the index. | A hard exclusion plus a CAS namespace of its own, as with generated code (§7.3). |
+| **Types shared between repositories** | The front end imports types generated from a backend contract. | That is multi-repo (§15 point 3), out of scope for now. It stays `unknown` at the boundary. |
 
-### 17.5 Verdikt
+### 17.5 Verdict
 
-Podmínka D16 vychází: **nula změn ve vrstvě A, jeden provider, jeden balíček pravidel.**
-Jediná strukturální novinka je tvar `path_convention` a ten je v návrhu už teď.
+The D16 condition holds: **zero changes in layer A, one provider, one rule pack.** The only
+structural novelty is the `path_convention` shape and that is already in the design.
 
-Bundling je reálné riziko a je specifické pro JS/TS. Není to ale díra v architektuře —
-je to místo, kde bude `unknown:` sekce delší, což je přesně to, k čemu je.
+Bundling is a real risk and it is specific to JS/TS. It is not a hole in the architecture,
+though — it is a place where the `unknown:` section will be longer, which is exactly what it is
+for.
 
 ---
 
-## 18. Řízení kontextu — nástroj neví, kolik toho chce agent
+## 18. Controlling context — the tool does not know how much the agent wants
 
-Dosud návrh mlčky předpokládal, že cairn sám ví, co vrátit. To je špatně: **kolik kontextu
-a jakého tvaru je potřeba, ví jen volající**, a mění se to dotaz od dotazu. Audit chce
-šířku, oprava konkrétní chyby hloubku, a agent s 20 tisíci volnými tokeny chce něco jiného
-než agent s dvěma sty.
+Until now the design has tacitly assumed that cairn itself knows what to return. That is wrong:
+**how much context is needed, and in what shape, is known only to the caller**, and it changes
+from query to query. An audit wants breadth, fixing a specific bug wants depth, and an agent with
+twenty thousand free tokens wants something different from an agent with two hundred.
 
-Rozhraní tedy potřebuje **ovládání**, ne jen dotazy. Ne dvacet přepínačů, ale čtyři
-ortogonální osy.
+The interface therefore needs **controls**, not only queries. Not twenty switches, but four
+orthogonal axes.
 
-### 18.1 Čtyři osy
+### 18.1 Four axes
 
-| osa | co říká | příklad |
+| axis | what it says | example |
 |---|---|---|
-| **detail** | kolik z každého uzlu | `--detail skeleton\|signature\|doc\|body` |
-| **šířka × hloubka** | jak daleko se jde | `--depth 2 --fanout 8` |
-| **aspekt** | které hrany se prochází | `--aspect callers,impls,tests,routes,services` |
-| **rozpočet** | tvrdý strop | `--budget 2000` (tokenů) |
-| **pohled** | jak se to vykreslí | `--view list\|tree\|path\|skeleton` |
+| **detail** | how much of each node | `--detail skeleton\|signature\|doc\|body` |
+| **breadth × depth** | how far to go | `--depth 2 --fanout 8` |
+| **aspect** | which edges are walked | `--aspect callers,impls,tests,routes,services` |
+| **budget** | a hard ceiling | `--budget 2000` (tokens) |
+| **view** | how it is rendered | `--view list\|tree\|path\|skeleton` |
 
-První tři jsou zřejmé. Čtvrtá je ta zajímavá. Pátá je ta, která rozhoduje o tom,
-jestli se kód nerozpadne.
+The first three are obvious. The fourth is the interesting one. The fifth is the one that decides
+whether the code falls apart.
 
-#### Detail platí na průchod, ne jen na jeden symbol
+#### Detail applies to a walk, not just to one symbol
 
-Osa detailu není o zobrazení jednoho symbolu — je o tom, **kolik kódu se vytiskne z každého
-uzlu, kterým procházíme**. To je tvar, který potřebuje audit: „projdi volající téhle funkce
-a ukaž mi jejich těla", protože hledání edge cases, porušených konvencí, bezpečnostních děr
-i výkonnostních problémů se nedá dělat ze seznamu jmen.
+The detail axis is not about displaying one symbol — it is about **how much code is printed from
+every node we pass through**. That is the shape an audit needs: "walk this function's callers and
+show me their bodies", because hunting for edge cases, broken conventions, security holes and
+performance problems cannot be done from a list of names.
 
-Ve výchozím stavu je to vypnuté, protože je to nejdražší věc, kterou nástroj umí vydat —
-a právě proto je to zároveň místo, kde `--budget` (§18.2) rozhoduje nejvíc. Dvě pojistky:
-tělo jednoho symbolu má vlastní strop v řádcích, aby jedna dlouhá funkce nespolkla celý
-rozpočet a průchod neskončil po prvním uzlu; a když indexer nezná rozsah těla, vypíše se
-jen definiční řádek **a řekne se to**, místo aby se hádalo, kde tělo končí.
+It is off by default, because it is the most expensive thing the tool can emit — and precisely
+therefore it is also where `--budget` (§18.2) matters most. Two safeguards: one symbol's body has
+its own ceiling in lines, so that a single long function cannot swallow the whole budget and end
+the walk after the first node; and when the indexer does not know the extent of a body, only the
+definition line is printed **and that is said**, rather than guessing where the body ends.
 
-#### Pohled je oddělený od výběru
+#### The view is separate from the selection
 
-Jakmile přibude call graph, přibudou i způsoby, jak tutéž znalost zobrazit — plochý
-seznam, strom, cesta A→B, kostra souboru, graf hran. Kombinace **osy × pohledy** roste
-násobně, a kdyby si každý dotaz nesl vlastní formátování, skončí to jako N×M kopií.
+As soon as a call graph exists, so do ways of displaying the same knowledge — a flat list, a
+tree, an A→B path, a file skeleton, a graph of edges. The combination of **axes × views** grows
+multiplicatively, and if every query carried its own formatting it would end as N×M copies.
 
-Proto tvrdé rozdělení: **cairn-store vybírá** (co, jak hluboko, po kterých hranách)
-a vrací neutrální `Walk`; **cairn-fmt vykresluje** a o dotazech nic neví. Nový pohled
-je pak jeden `match` arm, ne nový dotaz, a nový dotaz umí okamžitě všechny pohledy.
+Hence the hard split: **cairn-store selects** (what, how deep, along which edges) and returns a
+neutral `Walk`; **cairn-fmt renders** and knows nothing about queries. A new view is then one
+`match` arm, not a new query, and a new query immediately supports every view.
 
-To je zároveň důvod, proč `--view` není jen kosmetika: `tree` a `list` mají velmi
-odlišnou cenu v tokenech za tutéž informaci, takže je to ve skutečnosti další
-rozpočtová páka.
+That is also why `--view` is not merely cosmetic: `tree` and `list` have very different token
+costs for the same information, so it is in fact another budget lever.
 
-### 18.2 Rozpočet jako prvotřídní vstup
+### 18.2 The budget as a first-class input
 
-Dnešní agent musí velikost odpovědi hádat přes `--limit` a pak litovat. Obrátit to:
-**volající řekne strop, nástroj je odpovědný za to, že ho vyplní tím nejcennějším** —
-a povinně vypíše, co kvůli tomu vypustil.
+Today's agent has to guess the size of an answer through `--limit` and then regret it. Turn it
+round: **the caller states a ceiling, and the tool is responsible for filling it with the most
+valuable things** — and must report what it left out to do so.
 
 ```
 $ cairn blast a4 --budget 1500
@@ -1764,53 +1815,55 @@ suppressed: 7 callers below the budget cut
             (expand: cairn blast a4 --budget 4000, or --aspect callers --detail skeleton)
 ```
 
-Proč to sedí k tezi produktu: celý pitch je „levnější kontext". Nechat agenta hádat limit
-znamená, že buď utratí zbytečně, nebo si vyžádá druhé kolo — a druhé kolo je přesně ta
-explorační smyčka, kterou máme rušit. **Rozpočet je jediné místo, kde nástroj může
-optimalizovat lépe než volající**, protože jako jediný ví, co všechno má k dispozici
-a jak je to seřazené.
+Why this fits the product's thesis: the whole pitch is "cheaper context". Letting the agent guess
+a limit means it either overspends or asks for a second round — and a second round is exactly the
+exploration loop we are here to remove. **The budget is the only place where the tool can
+optimise better than the caller**, because it alone knows everything it has available and how it
+is ranked.
 
-Odhad tokenů: `cairn-fmt` počítá vlastní výstup, takže strop je vůči skutečné odpovědi,
-ne vůči odhadu. Přibližný počet (znaky / 3,7) stačí — nemá cenu tahat tokenizér.
+Estimating tokens: `cairn-fmt` counts its own output, so the ceiling applies to the real answer
+rather than to an estimate. An approximate count (characters / 3.7) is enough — there is no point
+pulling in a tokeniser.
 
-### 18.3 Zápis: nejen shrnutí
+### 18.3 Writing: not only summaries
 
-`cairn note` (§3.1) zapisuje L2 shrnutí. Volající ale ví i věci, které se vyplatí uložit
-a které nejsou shrnutí:
+`cairn note` (§3.1) writes L2 summaries. But the caller also knows things worth storing that are
+not summaries:
 
-| co | proč to agent ví a cairn ne |
+| what | why the agent knows it and cairn does not |
 |---|---|
-| **potvrzení nebo vyvrácení slabé hrany** (§18.4) | agent kód přečetl a viděl, jestli to volání skutečně existuje |
-| **role symbolu** („tohle je jediný vstupní bod do plateb") | plyne z úkolu, ne z AST |
-| **negativní znalost** („tady jsem hledal, není to tu") | ušetří příští session celé kolo |
-| **doménový alias** („čemu tady říkají *order*, jinde je *listing*") | most mezi žargonem a jmény |
+| **confirming or refuting a weak edge** (§18.4) | the agent read the code and saw whether that call really exists |
+| **a symbol's role** ("this is the only entry point into payments") | it follows from the task, not from the AST |
+| **negative knowledge** ("I looked here, it is not here") | it saves the next session a whole round |
+| **a domain alias** ("what they call *order* here is *listing* elsewhere") | a bridge between jargon and names |
 
-Všechno jde do L2, tedy s `confidence`, odstranitelné, a **nikdy nevstupuje do L0/L1
-výpočtu** (D15). Negativní znalost je z toho nejlevnější a nejpodceněnější: „tady to není"
-je informace, kterou dnes každá session objevuje znovu.
+All of it goes into L2, that is, with a `confidence`, removable, and **never entering an L0/L1
+computation** (D15). Negative knowledge is the cheapest and most underrated of these: "it is not
+here" is information every session rediscovers today.
 
-### 18.4 Skryté vazby — co statika nevidí a přesto jde najít
+### 18.4 Hidden links — what static analysis cannot see and can still be found
 
-Ptáš se, jestli existují vazby, které jsme neodhalili. Existují, a některé jsou levné.
-Společné mají to, že jsou **nejisté** — proto nesmí do L1 mezi exaktní hrany, ale patří
-do vlastní vrstvy **L1-W (weak)** s confidence a s povinným označením v odpovědi.
+You ask whether there are links we have not uncovered. There are, and some are cheap. What they
+have in common is being **uncertain** — so they must not go into L1 among the exact edges, but
+belong in a layer of their own, **L1-W (weak)**, with a confidence and a mandatory label in the
+answer.
 
-| detektor | mechanismus | cena |
+| detector | mechanism | cost |
 |---|---|---|
-| **Řetězcové literály shodné se jménem symbolu** | index literálů × jména symbolů | triviální, vysoký recall |
-| Jméno v konfiguraci / env / feature flagu | totéž nad hodnotami z §8.5 | triviální |
-| Django `"app.Model"`, jména Celery úloh, DI klíče | vzor `call_pattern` s literálem | pravidlo |
-| Jméno tabulky v SQL ↔ ORM model | lexikální shoda | levné |
-| URL literál v jedné službě ↔ routa v jiné | průnik §8.6 a literálů | levné, cross-service |
-| Jméno pytest fixture ↔ parametr testu | lexikální, per framework | pravidlo |
-| Co se mění společně | git (§9) | už v návrhu |
+| **String literals matching a symbol's name** | an index of literals × symbol names | trivial, high recall |
+| A name in configuration / env / a feature flag | the same over the values from §8.5 | trivial |
+| Django `"app.Model"`, Celery task names, DI keys | the `call_pattern` shape with a literal | a rule |
+| A table name in SQL ↔ an ORM model | lexical matching | cheap |
+| A URL literal in one service ↔ a route in another | the intersection of §8.6 and literals | cheap, cross-service |
+| A pytest fixture's name ↔ a test's parameter | lexical, per framework | a rule |
+| What changes together | git (§9) | already in the design |
 
-První řádek stojí za rozvedení, protože je to nejlepší poměr cena/výnos v celé tabulce:
-**každý řetězcový literál v repu, který se přesně shoduje se jménem nějakého symbolu, je
-kandidát na dynamickou referenci.** Pokrývá `getattr`, `importlib`, registry pluginů,
-routing přes stringy i serializační mapy — tedy velkou část těch 123 dynamických míst
-z coverage analýzy. Je to čistě deterministické (D15), je to jeden join, a výsledek se
-vrací jako:
+The first row is worth expanding on, because it is the best cost/return ratio in the whole table:
+**every string literal in the repository that exactly matches the name of some symbol is a
+candidate dynamic reference.** It covers `getattr`, `importlib`, plugin registries, string-keyed
+routing and serialisation maps — that is, a large share of those 123 dynamic sites from the
+coverage analysis. It is purely deterministic (D15), it is one join, and the result comes back
+as:
 
 ```
 weak links (2)                                    [L1-W, unverified]
@@ -1818,88 +1871,93 @@ weak links (2)                                    [L1-W, unverified]
   config/services.yaml:8 literal "auth.TokenValidator" matches [a4]
 ```
 
-Agent to buď potvrdí přečtením kódu, nebo zamítne — a přes §18.3 to může zapsat zpátky,
-takže se příště neptá.
+The agent either confirms it by reading the code or rejects it — and through §18.3 it can write
+that back, so next time it does not have to ask.
 
-### 18.4b Ručně dopsané vazby a jejich zastarání
+### 18.4b Hand-written links and their expiry
 
-Slabé hrany z §18.4 jsou strojové kandidáty. Vedle nich musí jít **vazbu prostě
-napsat**: agent nebo člověk kód přečetl a ví, že spojení existuje, i když ho statika
-nikdy neuvidí — dispatch přes konfiguraci, kontrakt držený konvencí, runtime závislost.
+The weak edges from §18.4 are machine candidates. Alongside them it must be possible to **simply
+write a link down**: an agent or a human read the code and knows the connection exists even
+though static analysis will never see it — dispatch through configuration, a contract held by
+convention, a runtime dependency.
 
 ```
-cairn link <od> <do> --note "proč" --by agent|human
+cairn link <from> <to> --note "why" --by agent|human
 ```
 
-Zásadní je, co se s takovou vazbou stane při reindexu. **Je ukotvená v místě v kódu**
-(soubor + řádek definice zdrojového symbolu) a to místo se hashuje. Když se změní:
+What matters is what happens to such a link on reindexing. **It is anchored to a place in the
+code** (the file plus the line of the source symbol's definition) and that place is hashed. When
+it changes:
 
-- **nesmí se tiše zahodit** — byla by to ztráta práce, kterou statika neumí zopakovat
-- **nesmí se tiše ponechat** — zastaralé tvrzení by se vydávalo za fakt
+- **it must not be silently discarded** — that would lose work static analysis cannot repeat
+- **it must not be silently kept** — a stale assertion would be presented as fact
 
-Takže se **označí `needs_review` a poctivě se to reportuje**: tady vznikla díra,
-kterou statický průchod neumí zacelit, a je potřeba na ni znovu pustit model.
-Příznak se nikdy nemaže automaticky — smaže ho jedině nový úsudek.
+So it is **marked `needs_review` and honestly reported**: a hole has opened here that the static
+pass cannot close, and a model needs to be run at it again. The flag is never cleared
+automatically — only a fresh judgement clears it.
 
-Provenience je součástí typu hrany (`L2, agent-asserted` / `L2, human-asserted`),
-takže se ručně psaná vazba nikdy nesmíchá s exaktní.
+Provenance is part of the edge's type (`L2, agent-asserted` / `L2, human-asserted`), so a
+hand-written link never mixes with an exact one.
 
-### 18.6 Jeden graf, ne dva
+### 18.6 One graph, not two
 
-Zvažovaná varianta: nechat agenta stavět si vedle našeho grafu vlastní, s primitivními
-grafovými nástroji. **Zamítnuto**, a stojí za to napsat proč, protože ta potřeba za tím
-je reálná.
+An option considered: let the agent build its own graph alongside ours, with primitive graph
+tools. **Rejected**, and it is worth writing down why, because the need behind it is real.
 
-**Dvě pravdy jsou horší než jedna neúplná.** Teze produktu je, že existuje vrstva, které
-agent věří a přestane si ji hlídat. S vlastním grafem bez provenience a invalidace by je
-musel při každém dotazu smiřovat — a to je ta explorační smyčka, jen o patro výš.
+**Two truths are worse than one incomplete one.** The product's thesis is that there is a layer
+the agent trusts and stops double-checking. With a graph of its own, without provenance and
+without invalidation, it would have to reconcile them on every query — and that is the
+exploration loop, just one floor up.
 
-**Invalidace se nepřenáší.** Náš graf zneplatňují hashe obsahu; ruční vazba funguje jen
-proto, že je ukotvená v kódu (§18.4b). Volný graf nemá kde být ukotvený, takže tiše shnije.
+**Invalidation does not carry over.** Our graph is invalidated by content hashes; a hand-written
+link works only because it is anchored in the code (§18.4b). A free-floating graph has nowhere to
+be anchored, so it rots silently.
 
-**A byla by to jiná firma.** Obecné grafové úložiště je memory produkt, ne navigace
-v kódu — patřilo by na seznam „nikdy" hned vedle vlastních parserů a storage enginu.
+**And it would be a different company.** A general graph store is a memory product, not code
+navigation — it would belong on the "never" list right next to our own parsers and our own
+storage engine.
 
-#### Co ta potřeba reálně byla: uzly, které nejsou symboly
+#### What the need actually was: nodes that are not symbols
 
-Chyběl přesně jeden typ uzlu. „OAuth flow", „billing doména" nejsou symboly a žádný
-indexer je nevydá — takže agent, který se něco dozví, je nemá kam uložit. Řešením není
-druhý graf, ale **koncepty v tom našem**, plus hrany koncept ↔ symbol. Mimochodem je to
-i to, co potřebuje `cairn context` (§6.4).
+Exactly one kind of node was missing. "The OAuth flow", "the billing domain" are not symbols and
+no indexer will emit them — so an agent that learns something has nowhere to put it. The solution
+is not a second graph but **concepts inside ours**, plus concept ↔ symbol edges. Incidentally
+that is also what `cairn context` (§6.4) needs.
 
-Tři podmínky, které z toho nedělají grafovou databázi:
+Three conditions that keep this from being a graph database:
 
-| podmínka | proč |
+| condition | why |
 |---|---|
-| **Ukotvení** k místu v kódu, s hashem | jinak se tvrzení nedá zneplatnit a tiše shnije |
-| **Jmenné prostory** | domněnky jedné session jdou filtrovat i zahodit vcelku, bez dopadu na sdílené |
-| **Žádné property, žádný dotazovací jazyk** | koncept má jméno, poznámku a vazby; víc už je graf DB |
+| **An anchor** to a place in the code, with a hash | otherwise an assertion cannot be invalidated and rots silently |
+| **Namespaces** | one session's guesses can be filtered or discarded wholesale, without affecting shared ones |
+| **No properties, no query language** | a concept has a name, a note and links; more than that is a graph DB |
 
-Typ vztahu (`part-of`, `entry-point`, `owns`) je naopak volný text — slovník patří tomu,
-kdo tvrdí, a uzavřený výčet by ho jen vyhnal zpátky k vlastnímu úložišti.
+The relation type (`part-of`, `entry-point`, `owns`) is by contrast free text — the vocabulary
+belongs to whoever is asserting, and a closed enumeration would only drive them back to a store
+of their own.
 
-#### Autorská znalost žije ve vlastním souboru
+#### Authored knowledge lives in a file of its own
 
-`index.sqlite` je projekce a při reindexu i změně schématu se zahazuje. Autorská znalost
-je jediná věc, která se **nedá znovu odvodit**, takže sdílet ten osud nesmí — bydlí
-v `index-knowledge.sqlite` vedle a připojuje se přes `ATTACH`.
+`index.sqlite` is a projection and is discarded on reindexing and on a schema change. Authored
+knowledge is the one thing that **cannot be re-derived**, so it must not share that fate — it
+lives in `index-knowledge.sqlite` beside it and is attached with `ATTACH`.
 
-Z toho plyne druhá věc: **autorské řádky odkazují na symboly hashem, ne rowid.** Rowid se
-přiděluje při každé indexaci znovu a po přestavbě by visel v prázdnu. Hash je stabilní
-napříč přestavbami i stroji ze své podstaty (§5.1).
+A second thing follows: **authored rows reference symbols by hash, not by rowid.** A rowid is
+reassigned on every indexing run and after a rebuild would point into nothing. A hash is stable
+across rebuilds and across machines by its nature (§5.1).
 
-Když symbol z indexu zmizí úplně — kód byl přejmenován nebo smazán — vazba se
-**nezahazuje ani netváří jako platná**, ale reportuje se jako `symbol gone`.
+When a symbol disappears from the index entirely — the code was renamed or deleted — the link is
+**neither discarded nor presented as valid**, but reported as `symbol gone`.
 
-#### Co tím zároveň podporujeme
+#### What this supports at the same time
 
-Scénář „postavím si vlastní pohled" jsme neodstřihli — `path:start-end` v každém řádku
-a reference graph znamenají, že agent si vlastní graf **postavit může**, kdykoli chce.
-Podporujeme to tím, že jsme dobrý *zdroj*, ne tím, že mu budeme dělat databázi.
+We have not cut off the "I will build my own view" scenario — `path:start-end` on every line and
+the reference graph mean the agent **can** build its own graph whenever it wants. We support that
+by being a good *source*, not by being its database.
 
-### 18.5 Co tím nechceme
+### 18.5 What we do not want from this
 
-Ne agenta uvnitř nástroje. Osy z §18.1 jsou parametry deterministického výběru, ne
-plánovač. A ne neomezenou sadu detektorů: každý slabý detektor, který má nízkou precision
-a nikdo ho nepotvrzuje, jen nafukuje `weak links` a učí agenta tu sekci ignorovat —
-což by zabilo i ty užitečné.
+Not an agent inside the tool. The axes in §18.1 are parameters of a deterministic selection, not
+a planner. And not an unbounded set of detectors: every weak detector with low precision that
+nobody confirms only inflates `weak links` and teaches the agent to ignore that section — which
+would kill the useful ones too.
