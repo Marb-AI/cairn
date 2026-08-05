@@ -1142,8 +1142,16 @@ pub fn unreached(
     );
     let mut shown = 0usize;
     for (i, r) in rows.iter().enumerate() {
+        // The reference count is part of the claim, not a detail. "no callers" on a symbol
+        // with references reads as "delete me" and is a trap: the enum that surfaced this
+        // had ten, every one of them the table built from its own members. Saying the
+        // number keeps the row — it is still a deletion candidate — while telling the
+        // reader it costs more than one line.
         let why = match r.why {
             cairn_store::Unreached::TestsOnly => format!("tests only ({})", r.test_callers),
+            cairn_store::Unreached::Never if r.prod_refs > 0 => {
+                format!("no calls, {} ref(s)", r.prod_refs)
+            }
             cairn_store::Unreached::Never => "no callers".to_string(),
         };
         if !budget.push(

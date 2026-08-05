@@ -1658,3 +1658,40 @@ scenario** — recomputed at its own derived 1.43 s it reproduces 2/2/4, 9/10/11
 The correction moves a number in this tool's favour, which is why it is derived rather than
 chosen. The valley is where it is; the same rule would have moved it the other way had the
 data said so, and the plateau means no honest choice within it changes a conclusion.
+
+### `unreached` was wrong about a third category, and the first fix for it was worse
+
+A new invariant pairs `unreached` against `usage`: the first says "symbols under a path
+that production code never calls" and prints `no callers`, the second says how many sites
+use a symbol. Two commands, one fact.
+
+It fired immediately on `OkoliTyp`, an enum listed as having no production caller while
+`usage` reported it at **10 sites** — every one of them the lookup table built from its own
+members, ten lines below the definition. Both commands were literally right: a type is
+referenced, not called. But `unreached` exists to find deletable code, and a reader acting
+on that row deletes live code.
+
+**The first fix was to drop such symbols from the list, and it was wrong.** Applied, it
+turned up a second case immediately: `flush`, a *function*, whose single production
+reference is a re-export in the package `__init__.py`. Dropping it would have lost a true
+positive — `flush` really is uncalled, it just costs two lines to remove instead of one.
+The distinction I had drawn, types versus functions, does not survive contact with that:
+in both cases the real fact is *there is a reference that breaks when this goes*.
+
+So the rows stay and the count is printed: `no calls, 10 ref(s)` against a bare
+`no callers`. The finding is kept, the trap is gone, and the invariant now only flags a row
+that claims nothing while `usage` reports sites — a row that states its own reference count
+has already told the reader what the other command would.
+
+This is the third category this command has been wrong about (handlers, then constructors,
+now anything referenced without being called), and the second time today that a fix had to
+be undone in favour of stating the truth rather than filtering it.
+
+**A guard in the check itself was also wrong, and the coverage line caught it.** `usage`
+exits 1 for a symbol with no sites — which is the answer this check wants, not a failure.
+Treating it as an error meant the check only ever reached an assertion when it was about to
+report one, and `16 checks, 15 reached` said so on the next run. The line added this morning
+to catch checks that do not run caught one written this afternoon.
+
+**Running total: six real defects, seven false findings**, and the harness is now 16 checks —
+16 of 16 exercised on the real corpus, 15 on the fixture.

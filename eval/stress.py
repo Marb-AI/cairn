@@ -87,6 +87,25 @@ def sample(db, n):
     return picks
 
 
+def prefixes(db, n):
+    """Directories with enough hand-written code to be worth surveying, deterministically.
+
+    Two levels down: a whole-tree prefix answers about everything and a leaf answers about
+    almost nothing, and `unreached` is a question people ask about a package."""
+    c = sqlite3.connect(db)
+    seen = {}
+    for (path,) in c.execute(
+        "SELECT p.s FROM files f JOIN strings p ON p.id = f.path_id "
+        "WHERE f.generated = 0 AND coalesce(f.is_test, 0) = 0"
+    ):
+        parts = path.split("/")
+        if len(parts) > 2:
+            d = "/".join(parts[:3])
+            seen[d] = seen.get(d, 0) + 1
+    ranked = sorted(seen.items(), key=lambda kv: (-kv[1], kv[0]))
+    return [d for d, _ in ranked[:n]]
+
+
 def shared_names(db, n):
     """Names carried by more than one non-generated symbol, deterministically sampled.
 
@@ -311,6 +330,52 @@ def enclosing_type(db, handle):
         (handle,),
     ).fetchone()
     return row[0] if row else None
+
+
+def check_unreached_is_really_unused(db, prefix, f):
+    """Contract: `unreached` lists "symbols under a path that production code never
+    calls", and the rows say `no callers`. So nothing it names may have production use
+    sites, which is the same fact `usage` reports.
+
+    The two disagreed on an enum: `unreached` said no callers, `usage` said ten sites, and
+    all ten were the lookup table built from its own members ten lines below it. Both were
+    literally right — a type is referenced, not called — and a reader acting on the command
+    whose purpose is finding deletable code would have deleted live code. That is the
+    failure this file exists to catch, and it is the third time this command has been
+    wrong about a whole category (handlers, then constructors, now types).
+    """
+    code, out, _ = run(db, "unreached", prefix, "--limit", "40")
+    if code != 0:
+        return
+    # Only the rows claiming *nothing*. A row that says `no calls, N ref(s)` has already
+    # told the reader what `usage` would, so the two do not disagree — which is the whole
+    # difference between an answer that states its gap and one that hides it.
+    bare = set()
+    for line in out.splitlines():
+        if not line.startswith("  no callers"):
+            continue
+        for h in handles_in(line):
+            bare.add(h)
+    for handle in sorted(bare):
+        # 0 found, 1 nothing - and "nothing" is the answer this check wants, not a
+        # failure. Treating exit 1 as an error skipped every genuinely unused symbol and
+        # left the check reaching an assertion only when it was about to report one, which
+        # the coverage line then correctly called an absence of evidence.
+        uc, uout, _ = run(db, "usage", handle)
+        if uc not in (0, 1):
+            continue
+        head = uout.splitlines()[0] if uout else ""
+        f.ran("unreached is really unused")
+        if " used at 0 sites" in head:
+            continue
+        f.note(
+            "unreached says no callers where usage says used",
+            handle,
+            f"`unreached {prefix}` lists [{handle}] as `no callers` with no reference "
+            f"count, but `usage` says: {head.strip()}",
+            f"cairn unreached {prefix}; cairn usage {handle}",
+        )
+        return
 
 
 def check_affects_covers_methods(db, handle, f):
@@ -848,6 +913,7 @@ ALL_CHECKS = [
     "chain followed to where it says",
     "both purposes pick the same symbol",
     "printed line is the definition line",
+    "unreached is really unused",
 ]
 
 
@@ -899,6 +965,8 @@ def main():
     check_staleness_agrees(db, repo, f)
     for name in shared:
         check_both_purposes_resolve_the_same_subject(db, name, f)
+    for prefix in prefixes(db, 6):
+        check_unreached_is_really_unused(db, prefix, f)
     for i, (label, handle) in enumerate(picks, 1):
         check_reaches_symmetry(db, handle, f, generated)
         check_nothing_reaches_itself_across_a_boundary(db, handle, f)

@@ -37,6 +37,10 @@ pub struct UnreachedSymbol {
     pub symbol: SymbolRow,
     pub why: Unreached,
     pub test_callers: i64,
+    /// Production references that are not calls: a re-export, a name in a table, a type
+    /// used to build something. Zero means the symbol can go on its own; anything else is
+    /// what else has to change with it.
+    pub prod_refs: i64,
 }
 
 /// One entry in a module outline.
@@ -73,7 +77,22 @@ impl Store {
                       JOIN symbols c   ON c.id = e.src_symbol
                       LEFT JOIN files cf ON cf.id = c.def_file_id
                      WHERE e.dst_symbol = s.id AND e.kind = 0
-                       AND coalesce(cf.is_test, 0) = 1)  AS test_callers
+                       AND coalesce(cf.is_test, 0) = 1)  AS test_callers,
+                   -- References that are not calls, in production code, excluding the
+                   -- definition. A symbol with none is deletable; a symbol with some has
+                   -- something that breaks when it goes, and the row has to say so.
+                   --
+                   -- Measured two ways, both found by the stress harness: an enum with
+                   -- ten references building the table below it, and a function whose one
+                   -- reference is a re-export in the package `__init__`. Dropping such
+                   -- rows was the first fix and it was wrong — both are still deletion
+                   -- candidates, they just cost more than one line. Naming the count
+                   -- keeps the finding and removes the trap.
+                   (SELECT count(*) FROM occurrences o
+                      JOIN files rf ON rf.id = o.file_id
+                     WHERE o.symbol_id = s.id AND (o.role & 1) = 0
+                       AND coalesce(rf.is_test, 0) = 0
+                       AND rf.generated = 0)             AS prod_refs
               FROM symbols s
               JOIN strings n ON n.id = s.name_id
               JOIN files   f ON f.id = s.def_file_id
@@ -112,11 +131,12 @@ impl Store {
                 r.get::<_, i64>(0)?,
                 r.get::<_, i64>(1)?,
                 r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
             ))
         })?;
         let mut out = Vec::new();
         for row in rows {
-            let (id, _prod, tests) = row?;
+            let (id, _prod, tests, refs) = row?;
             let Some(symbol) = self.symbol(id)? else {
                 continue;
             };
@@ -128,6 +148,7 @@ impl Store {
                     Unreached::Never
                 },
                 test_callers: tests,
+                prod_refs: refs,
             });
         }
         Ok(out)
