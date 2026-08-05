@@ -72,16 +72,36 @@ scenario set with no cases the tool should lose is not a measurement.
 
 ### 1 — edges (cairn expected)
 
-> In `srcpy/domains/assistant/repository/quota.py`, I want to add a required argument to
-> `get_quota_status`. Which call sites would I have to update?
+> I want to add a required argument to `get_quota_status`. Which call sites would I have to
+> update?
 
-**Key.** Two call sites, in `repository/auth.py` and `repository/quota.py`. Seven symbols
-in the repository share the name `get_quota_status` — a handler, an API endpoint, and four
-generated stubs — and none of those four is a call site of this one.
+**Reworded 2026-08-05. Rounds 1–5 measured a different question and their numbers for this
+scenario do not carry forward.** It used to open *"In
+`srcpy/domains/assistant/repository/quota.py`, …"*, which named the file and so resolved
+the ambiguity the scenario exists to test. The arm was being handed the answer to the first
+half and then measured on how fast it did the second.
 
-**Prediction.** cairn 3 round trips (the name is ambiguous, so the first call costs a
-disambiguation), grep 4–6. Same answer both arms; the grep arm's risk is including the
-generated stubs. Rule met on round trips.
+**Key.** Seven symbols share the name `get_quota_status` — a repository function, a
+handler, an API endpoint, and four generated stubs. The question does not say which, and
+**that is the first half of the task**. An answer is correct when it (a) says which symbol
+it answered for, and (b) lists that symbol's call sites correctly. For the repository
+function (`repository/quota.py:142`) those are `repository/auth.py:49`, the module-level
+binding `aget_quota_status = db_async(get_quota_status)` at `repository/quota.py:377` —
+which is itself a site a required argument breaks — and three sites in
+`repository/tests/test_quota.py`. Following that binding one step reaches
+`grpc/handlers/quota.py:42`, which breaks too; an answer that stops at the binding without
+saying anything is downstream of it is incomplete rather than wrong.
+
+Graded *worse* if the arm picks one silently and presents its call sites as though the name
+were unambiguous — that is the confident-and-wrong shape, and it is now reachable, which it
+was not while the question named the file. Answering for a generated stub is also *worse*:
+nobody hand-edits one.
+
+**Prediction (new series, 2026-08-05).** cairn 2, grep 5–7. `for change` resolves the
+ambiguity in the same call and prints the choice with the alternatives, so the disambiguation
+is free where it used to cost a turn; the grep arm has to find all seven, discard four as
+generated, and choose among the remaining three. **The grep arm's risk is now the graded
+one** — silently answering for whichever it found first.
 
 ### 2 — identity (cairn expected)
 
@@ -113,17 +133,37 @@ the rule fails at any price.
 
 ### 4 — the name changes shape across the hop (cairn expected)
 
-> The Python endpoint `get_shared_object` — what serves it, and where does that land?
+> What happens when the Python endpoint `get_shared_object` is called? Follow it as far as
+> it goes.
+
+**Reworded 2026-08-05. Rounds 1–5 measured a different question and their numbers for this
+scenario do not carry forward.** It used to read *"what serves it, and where does that
+land?"* — two clauses, and the second asserts that something lies beyond whatever serves
+it. The depth this scenario grades was therefore supplied by the question rather than
+discovered by the arm, which matters most here because this is the scenario
+`for understand` was built for.
+
+**The residue is deliberate and stated:** *"follow it as far as it goes"* still tells both
+arms that depth counts. Without some such clause the question is not gradeable — an arm
+that answers "it returns a `GetSharedObjectResponse`" has answered it. What the new wording
+no longer does is say how many hops there are, or that the chain leaves the process.
 
 **Key.** `srcpy/domains/assistant/api/endpoints.py:943-945` calls the Go
 `shareService.GetSharedObject` (`share.go:33-90`) over `assistant_fe.ShareService`, and
 that handler calls `assistant_api.FolderService.GetFolder` on the Python side. The name is
 `get_shared_object` on one side of each hop and `GetSharedObject` on the other.
 
-**Prediction.** cairn 2–3, grep 5–8. A grep arm that tries both spellings gets there;
-one that does not, stops at the endpoint. This is the scenario where I am least confident
-of the grep arm's failure — an agent that knows protobuf conventions will try
-`GetSharedObject` unprompted, and then the gap narrows to the second hop.
+**Prediction (round one, against the old wording — kept for the record, not live).** cairn
+2–3, grep 5–8. A grep arm that tries both spellings gets there; one that does not, stops at
+the endpoint. This is the scenario where I am least confident of the grep arm's failure —
+an agent that knows protobuf conventions will try `GetSharedObject` unprompted, and then
+the gap narrows to the second hop.
+
+**Prediction (new series, 2026-08-05).** cairn 4, grep 7–10. `for understand` returns both
+hops in one call, but the arm no longer knows to expect a second one, so it pays a turn
+deciding the first answer is not the whole answer and at least one reading the two files it
+names. **This supersedes round six's prediction of 3**, which was made against a question
+that told the arm the chain continues — see the withdrawal note in that section.
 
 ### 5 — sets (cairn expected)
 
@@ -184,19 +224,36 @@ arm has to read the env file anyway. Predicted **grep wins on round trips**, sam
 
 ### 9 — a file I just edited (grep expected, and cairn may be *worse*)
 
-> *(A function is added to `srcpy/domains/assistant/repository/quota.py` immediately
-> before the run.)* I just added `quota_headroom` to the quota repository. Is anything
-> calling it yet?
+> Is anything calling `quota_headroom`?
 
-**Key.** Nothing calls it; it was added seconds earlier. The edit is reverted after the
-runs.
+**Setup, not part of the question.** `quota_headroom` is added to
+`srcpy/domains/assistant/repository/quota.py` immediately before the run and reverted
+after it. The arm is not told this.
 
-**Prediction.** grep 1, cairn 1–2. This is **the one scenario where cairn can be worse for
-a reason that shrinking the output cannot fix**: the index is behind the tree. The tool is
-expected to say `stale:` rather than answer confidently — and the whole question is
-whether it does. If cairn answers "no callers" without flagging staleness the answer is
-*accidentally right and unusable*, and I will grade it **worse**, because the same shape
-on a symbol that does have callers is a wrong answer with a confident face.
+**Reworded 2026-08-05. Rounds 1–5 measured a different question and their numbers for this
+scenario do not carry forward.** It used to say *"I just added `quota_headroom` to the quota
+repository"*, which hands the arm the diagnosis — that the index may be behind the tree — and
+the diagnosis is the entire thing this scenario grades. An arm told the code is seconds old
+does not have to notice that its tool might not know about it.
+
+**Key.** Nothing calls it; it was added seconds earlier. An answer is correct when it says
+nothing calls it **and** that the index may not have seen the file — reaching that from a
+bare name, without being told the code is new, is now the whole task.
+
+**Prediction (round one, against the old wording — kept for the record, not live).** grep 1,
+cairn 1–2. This is **the one scenario where cairn can be worse for a reason that shrinking
+the output cannot fix**: the index is behind the tree. The tool is expected to say `stale:`
+rather than answer confidently — and the whole question is whether it does. If cairn answers
+"no callers" without flagging staleness the answer is *accidentally right and unusable*, and
+I will grade it **worse**, because the same shape on a symbol that does have callers is a
+wrong answer with a confident face.
+
+**Prediction (new series, 2026-08-05).** grep 1–2, cairn 2. Unchanged in what it grades and
+harder in how it gets there: the arm is no longer told the code is new, so cairn's case now
+rests entirely on the envelope saying so unprompted. **The grep arm gets harder too** — told
+nothing, it may report "no callers" from a tree search and never consider that it is looking
+at a file written seconds ago, which is the same confident-and-wrong shape cairn is graded
+on. That symmetry is the point of the rewording: the old form warned both arms.
 
 ### 10 — nothing indexed for it (grep expected)
 
@@ -525,6 +582,15 @@ for a symbol the index does not hold, and the ranked choice for an ambiguous nam
 is measured, in the bootstrap section of `RESULTS.md` — so a sum over all ten would be a
 number with two unknowns folded silently into it. The claim is about scenario 4 alone.
 
+> **Withdrawn 2026-08-05, before any run.** This table was written against the old wording
+> of scenarios 1, 4 and 9, and all three were reworded the same day once the audit below
+> showed they gave away what they measure. **The `3` for scenario 4 is void** — it predicted
+> a question that told the arm the chain continues past the first hop, and the new one does
+> not. The live prediction is 4, in scenario 4's own section; scenarios 1 and 9 likewise
+> carry new predictions and their `r5` columns above are no longer a baseline to improve on.
+> Nothing here is deleted, per the rule this file works by: a prediction that turned out to
+> be about the wrong question is still a record of what I believed and why.
+
 ## What would falsify it
 
 - **Scenario 4 not reaching 4 or better.** Then the chain was never what those turns were
@@ -633,7 +699,25 @@ toolkit asymmetry and which way it runs, and scenario 10's key carries the crite
 verdict was actually decided on. None of those touched a question's wording, so no series
 was broken.
 
-What is left is the expensive half, and it is left deliberately rather than forgotten:
-**scenarios 1, 4 and 9 give away the thing they measure**, and fixing them restarts three
-series. Round six's scenario-4 prediction should be read with that in mind — it predicts a
-number for a question that already tells the arm the chain continues.
+**The expensive half is done too, on the same day.** Scenarios 1, 4 and 9 are reworded in
+their own sections, each carrying the old text, why it leaked, and a fresh prediction.
+Round six's prediction table is withdrawn rather than deleted.
+
+What that costs, stated plainly so no later reader takes a graph for a trend:
+
+- **Three series restart.** Rounds 1–5 for scenarios 1, 4 and 9 measured different
+  questions. Their numbers stay in `RESULTS.md` — nothing here is smoothed away — but they
+  are **not** a baseline the next round improves on, and the round-over-round totals
+  0.97 → 0.80 → 0.65 → 0.57 → 0.45 now span two different question sets. That total was
+  already undercut by the noise finding on scenarios 2 and 5; this finishes it off. **Stop
+  quoting it.**
+- **Seven scenarios keep their history**, including 3 and 6, which are the ones the tool's
+  case rests on and which have been stable at 1 for four rounds.
+- **The comparison against `grep` survives every rewording**, because both arms always get
+  the same question. That is the measurement that matters, and it is intact.
+
+Scenarios 3, 6 and 10 still use the tool's vocabulary — "deployed services", "through which
+RPCs". Left alone deliberately: those are the questions a person actually asks about a
+service architecture, and neutralising them into "what else is affected" would measure a
+vaguer question than anyone has. The leak fixed here was different in kind — 1, 4 and 9 gave
+away *the specific fact being graded*, not the domain the question lives in.

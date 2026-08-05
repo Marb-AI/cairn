@@ -1304,9 +1304,34 @@ arm gets 40% *more* than the baseline, reversing what round three recorded), the
 asymmetry is stated along with which way it runs, and scenario 10's key matches what
 scenario 10 was graded on.
 
-What is left is the expensive half: scenarios 1, 4 and 9 give away the thing they measure,
-and rewording them restarts three series. Round six's scenario-4 prediction should be read
-against that — it predicts a number for a question that already supplies half the answer.
+**The expensive half was done the same day.** Scenarios 1, 4 and 9 are reworded, each
+keeping its old text and the reason it leaked:
+
+| # | was | is |
+|---|---|---|
+| 1 | "**In `srcpy/…/quota.py`**, I want to add a required argument to `get_quota_status`…" | "I want to add a required argument to `get_quota_status`…" |
+| 4 | "…what serves it, **and where does that land**?" | "What happens when it is called? **Follow it as far as it goes.**" |
+| 9 | "**I just added** `quota_headroom` to the quota repository. Is anything calling it **yet**?" | "Is anything calling `quota_headroom`?" |
+
+Round six's prediction table is **withdrawn before it was ever run**: its `3` for scenario 4
+was a prediction about a question that told the arm the chain continues. The live figure is
+4, and scenarios 1 and 9 carry fresh predictions too.
+
+**What it costs, said plainly: three series restart.** Rounds 1–5 for those scenarios
+measured different questions. Their numbers stay in this file, but they are not a baseline
+the next round improves on — which means the headline
+**0.97 → 0.80 → 0.65 → 0.57 → 0.45 now spans two different question sets and should not be
+quoted again.** It was already undercut by the noise finding on scenarios 2 and 5; this
+finishes it. Seven scenarios keep their history, including 3 and 6, which are the ones the
+tool's case actually rests on. And the comparison against `grep` survives every rewording
+intact, because both arms always get the same question — that is the measurement that
+matters and it was never in doubt.
+
+Scenarios 3, 6 and 10 keep the tool's vocabulary ("deployed services", "through which
+RPCs") deliberately. Those are the questions a person actually asks about a service
+architecture; neutralising them would measure a vaguer question than anyone has. The leak
+in 1, 4 and 9 was different in kind — they gave away the specific fact being graded, not
+the domain the question lives in.
 
 ### Gates
 
