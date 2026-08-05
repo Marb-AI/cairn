@@ -1222,6 +1222,35 @@ sends an agent to before anything else, were the only commands in the binary it 
 The table is now (before-handle, after-handle) pairs and both are in it. 40 symbols × 14
 commands against the real index: 75 s, no contract violation, no latency ceiling reached.
 
+### Where knowledge of the measured repository still leaks into a result
+
+Asked directly whether the fixes encode anything about the checkout they were found on. The
+mechanisms do not — each is a statement about SCIP or about protobuf, and the two unit
+tests that were written with real package names and a real path have been rewritten to a
+synthetic gateway. But "no repository-specific strings in the code" is not the same claim
+as "no repository-specific influence on a result", and three places remain where it is:
+
+1. **`stress.py` hardcoded a word from the private checkout.** The envelope check ran
+   `for find Kontomatik`. On the fixture corpus — the one CI runs — that string does not
+   exist, `for find` exits 1, and the assertion's `if code != 0: continue` skipped. So the
+   only command that reads the working tree was unchecked exactly where the check runs
+   automatically. Now the needle is drawn from the corpus's own literals; both corpora
+   return exit 0, so the assertion fires on both. **A constant borrowed from one repository
+   is the quietest way to disable a check on every other**, and this is the second time in
+   one day that a check turned out not to run.
+
+2. **`tests/sweep.rs` and `tests/corpus.rs` prefer the real index when it exists.** On a
+   workstation they sweep the private checkout; on a runner they fall back to the fixture.
+   That is deliberate and it is why the fixture exists, but it means a local green and a CI
+   green are not the same statement. `eval/corpus/cases.yaml`, the hand-written expectations
+   about that checkout, is untracked — the repository carries only the fixture's cases.
+
+3. **Every number in this file is from one repository.** 119 → 100 embed links, 10 of 66
+   silent zeros, the round-trip ratios: all measured on a single Python+Go codebase. The
+   defects behind them are general — a package split plus Go embedding, a 0-based line
+   number — but *how much* they matter anywhere else is unmeasured, and the roadmap has
+   said since the start that generality is a claim about the design and not a measurement.
+
 ### Gates
 
 166 tests (was 164), clippy clean on Linux and on the Windows target, sweep clean on both

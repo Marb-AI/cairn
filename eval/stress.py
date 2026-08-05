@@ -379,6 +379,26 @@ ENVELOPE_COMMANDS = [
 ]
 
 
+def a_text_that_is_in_this_repo(db):
+    """A literal the corpus actually contains, so `for find` returns something.
+
+    This used to be a fixed word taken from the checkout the harness was written on. On
+    any other corpus `for find` then exited 1 and the envelope assertion below skipped
+    itself — so the one command that reads the working tree was unchecked precisely on
+    the fixture, which is the corpus CI runs. A constant borrowed from one repository is
+    the quietest way to disable a check on every other."""
+    c = sqlite3.connect(db)
+    row = c.execute(
+        # Trimmed, and no whitespace or braces inside: a needle like `+ {positive}` is a
+        # format string whose spacing the tree search has to match exactly, which tests
+        # the fixture's quoting rather than the command.
+        "SELECT trim(text) t FROM literals "
+        " WHERE length(t) BETWEEN 6 AND 30 AND t GLOB '[A-Za-z]*'"
+        "   AND t NOT GLOB '*[ {}%\"]*' ORDER BY t LIMIT 1"
+    ).fetchone()
+    return row[0] if row else "the"
+
+
 def first_handle(db):
     """Any real symbol, chosen the same way on every run. The envelope check needs a
     subject that resolves and does not care which one it is."""
@@ -399,7 +419,7 @@ def check_envelope_and_exit_codes(db, repo, f):
     that looks complete because nothing said otherwise. An exit code outside the contract
     is worse, because the caller acts on it without reading anything."""
     for cmd in ENVELOPE_COMMANDS + [
-        ["for", "find", "Kontomatik", "--repo", repo],
+        ["for", "find", a_text_that_is_in_this_repo(db), "--repo", repo],
         # The assembled answers too, and by handle so they resolve on any corpus. One
         # command was already found missing two thirds of its own envelope; the ones that
         # fuse several blocks are where a missing line is least likely to be noticed by
