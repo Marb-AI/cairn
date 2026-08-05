@@ -1788,3 +1788,32 @@ reported a check that never ran.
 
 Two of those three are defects in work done today, found because CI's own coverage number
 was honest about not running something.
+
+### s02 at the seven runs it was always going to need
+
+The three-run re-measurement above put s02 at 0.71 and said, in the same paragraph, that
+three runs cannot resolve this scenario. They could not:
+
+| | runs | median | ratio |
+|---|---|---|---|
+| round five | [9, 10, 11] | 10 | **1.43** |
+| three runs | [5, 5, 6] | 5 | 0.71 |
+| **seven runs** | **[5, 5, 5, 6, 6, 7, 8]** | **6** | **0.86** |
+
+**The seven-run number supersedes the three-run one, and it moved against the tool.** 0.71
+was a flattering draw from a spread of 5–8; the honest figure is 0.86. That is the bootstrap
+section of this file being right about its own scenario, on the scenario it was written for.
+
+Checked before believing it: the four later runs were made while two wide hunts were
+saturating the machine, so the obvious suspect was contention stretching gaps and splitting
+turns. It is not — the widest within-turn gaps are 0.15–0.86 s in the later batch against
+0.58–0.85 s in the earlier one. The spread is the arms, not the machine.
+
+**What stands:** s02 is no longer a loss. Cairn was worse than grep by 43% and is now better
+by 14%. **What does not:** 0.86 is nowhere near the acceptance rule's 0.5, and the earlier
+0.71 should not be quoted.
+
+The measurement cost is worth recording too. Seven runs to move one scenario from
+"unresolved" to "0.86", after four runs were thrown away because the logging hook had been
+unregistered as tidying-up minutes before they launched — the same class of self-inflicted
+gap this file keeps finding in the tool, in the procedure instead.
