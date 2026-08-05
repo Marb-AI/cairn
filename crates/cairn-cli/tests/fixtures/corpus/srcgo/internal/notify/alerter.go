@@ -75,3 +75,22 @@ func (a *Alerter) Stats() (open int, dropped int) {
 	defer a.mu.Unlock()
 	return len(a.raised), a.dropped
 }
+
+// SendAlert raises one alert on an explicitly supplied client.
+//
+// A package-level function taking the client as a parameter, rather than a method reading
+// it off a struct field. The distinction is not stylistic: `a.client.RaiseAlert(...)` in
+// Raise above produces no call edge that survives into the index, so the whole Go-to-Python
+// direction of this corpus is invisible to the graph. The Python side of the same corpus
+// calls its stub through an attribute and *is* resolved, so the asymmetry is between the
+// two indexers rather than between the two call shapes.
+//
+// This exists so the fixture can express a chain that crosses the boundary twice, which is
+// what `chain followed to where it says` needs in order to run at all.
+func SendAlert(ctx context.Context, client telemetry.AlertServiceClient, stationID, reason string) error {
+	_, err := client.RaiseAlert(ctx, &telemetry.AlertRequest{
+		StationId: stationID,
+		Reason:    reason,
+	})
+	return err
+}

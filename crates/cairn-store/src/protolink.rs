@@ -854,10 +854,19 @@ impl Store {
 /// How many in-language callees of a hop are asked whether *they* cross a boundary.
 ///
 /// Every one costs an `rpc_targets` query, and the walk asks at two local levels, so this
-/// is the number that decides whether a chain answers in milliseconds or in seconds. Four
-/// is enough for the delegation shape it exists to catch (a handler calling one or two
-/// helpers) and cheap enough that a wide handler does not blow the latency ceiling.
-const LOCAL_FANOUT: usize = 4;
+/// is the number that decides whether a chain answers in milliseconds or in seconds.
+///
+/// **This was 4, reasoned rather than measured, and 4 was wrong.** The justification was
+/// that a handler delegating to "one or two helpers" is the shape being recovered — but a
+/// handler's callees are not only its helpers, they are every field, constant and type it
+/// touches, and the helper that makes the call is not reliably in the first four. The
+/// fixture corpus reproduces exactly this: its Go handler reaches the Python alert service
+/// through a helper, and at 4 the second hop was invisible while at 12 it appears.
+///
+/// Measured on the real corpus at 12: 0.03-0.14 s for the worst-shaped symbols, against a
+/// 10 s sweep ceiling and a round trip measured in seconds. The cost of being generous
+/// here is nothing; the cost of being tight was a silently short chain.
+const LOCAL_FANOUT: usize = 12;
 
 /// One service hop: where it leaves from, where it lands, and how strong the claim is.
 #[derive(Debug, Clone)]

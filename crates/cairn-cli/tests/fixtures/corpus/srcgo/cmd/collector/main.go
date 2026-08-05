@@ -45,7 +45,7 @@ func seedRegistry() *station.Registry {
 func run() error {
 	reg := seedRegistry()
 	alerter := notify.NewAlerter(loopbackConn{})
-	svc := ingest.NewService(reg, alerter)
+	svc := ingest.NewService(reg, alerter, telemetry.NewAlertServiceClient(conn))
 
 	srv := &server{}
 	telemetry.RegisterTelemetryServiceServer(srv, svc)

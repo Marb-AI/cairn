@@ -26,7 +26,7 @@ func newFixture(t *testing.T) (*Service, *stubConn) {
 		t.Fatalf("seeding the registry: %v", err)
 	}
 	conn := &stubConn{}
-	return NewService(reg, notify.NewAlerter(conn)), conn
+	return NewService(reg, notify.NewAlerter(conn), telemetry.NewAlertServiceClient(conn)), conn
 }
 
 func TestUploadAcceptsAPlainReading(t *testing.T) {

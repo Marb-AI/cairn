@@ -1755,3 +1755,36 @@ using the assembled answer that already existed.
 
 At 0.71 it still fails the acceptance rule, like s01. But it is no longer a loss, and the
 claim "cairn is worse than grep somewhere" no longer has an instance.
+
+### CI reaches 16 of 16, and the last gap was two defects rather than a small fixture
+
+`chain followed to where it says` had never run in CI. The stated reason was that the
+fixture's only chain is one hop deep. That was true, and it was not the whole reason.
+
+**First: the fixture could not express a second hop at all.** Its Go side calls the alert
+client as `a.client.RaiseAlert(...)` — a method on a struct field — and scip-go emits no
+call edge for that. The Python side of the same corpus calls its stub through an attribute
+and *is* resolved, so the asymmetry is between the two indexers, not between the two call
+shapes. The fixture was reproducing D1, the limitation `for understand` documents.
+
+A bounded experiment settled what scip-go will resolve: a package-level function taking the
+client as a parameter. The fixture now has one, called from the handler, and SCIP was
+regenerated. Checked for leakage from the private corpus afterwards, source and `.scip`
+both: clean.
+
+**Second, and this one is mine: `LOCAL_FANOUT` was 4 and 4 was too small.** I chose it
+this afternoon with the reasoning that a handler delegating to "one or two helpers" is the
+shape being recovered. A handler's callees are not only its helpers — they are every field,
+constant and type it touches — and the helper that makes the call is not reliably in the
+first four. With the fixture's chain now expressible, 4 still found one hop and 12 found
+two. Measured on the real corpus at 12: 0.03–0.14 s against a 10 s ceiling. The cost of
+being generous is nothing; the cost of being tight was a silently short chain.
+
+**Third, the same guard mistake as an hour earlier.** The check bailed when
+`reaches <target> --outgoing` exited 1 — which is "no targets", the ordinary state of the
+far end of a chain and exactly what the check wants to confirm. So it only ever reached an
+assertion when a hop had further hops. Caught the same way as last time: the coverage line
+reported a check that never ran.
+
+Two of those three are defects in work done today, found because CI's own coverage number
+was honest about not running something.

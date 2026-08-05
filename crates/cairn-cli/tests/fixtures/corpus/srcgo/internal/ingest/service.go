@@ -21,14 +21,17 @@ type Service struct {
 
 	stations *station.Registry
 	alerts   *notify.Alerter
-	screen   *Screen
+	// The alert client held directly, so the package-level `notify.SendAlert` can be
+	// handed it. See the comment on that function for why the shape matters.
+	alertClient telemetry.AlertServiceClient
+	screen      *Screen
 	accepted int64
 	rejected int64
 }
 
 // NewService builds the server side.
-func NewService(reg *station.Registry, alerts *notify.Alerter) *Service {
-	return &Service{stations: reg, alerts: alerts, screen: NewScreen()}
+func NewService(reg *station.Registry, alerts *notify.Alerter, alertClient telemetry.AlertServiceClient) *Service {
+	return &Service{stations: reg, alerts: alerts, alertClient: alertClient, screen: NewScreen()}
 }
 
 // UploadReadings is the hot path: one call per collector per interval.
@@ -82,6 +85,10 @@ func (s *Service) accept(ctx context.Context, r *telemetry.Reading) bool {
 	if verdict.Alarming {
 		// Fire and forget: the upload must not fail because the alerting side is down.
 		s.alerts.Raise(ctx, r.StationId, verdict.Reason, r.Celsius)
+		// The same alert again through the package-level entry point. Redundant as
+		// behaviour and deliberate as structure: this is the call the indexer can follow,
+		// so it is what makes the second boundary crossing visible to the graph.
+		_ = notify.SendAlert(ctx, s.alertClient, r.StationId, verdict.Reason)
 	}
 	return true
 }

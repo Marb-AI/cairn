@@ -795,8 +795,13 @@ def check_the_chain_was_followed_to_where_it_says(db, handle, f):
         # are what the cap would have cut, and the guard above covers that case.
         if depth >= 4:
             continue
+        # 0 found, 1 nothing. "Nothing" is the ordinary case for the far end of a chain
+        # and is exactly what this check wants to confirm, so treating exit 1 as a failure
+        # meant the check only ran when a hop had further hops - the same guard mistake
+        # made in `unreached is really unused` an hour earlier, and caught the same way,
+        # by the coverage line reporting a check that never reached an assertion.
         tc, tout, _ = run(db, "reaches", target, "--outgoing")
-        if tc != 0:
+        if tc not in (0, 1):
             continue
         f.ran("chain followed to where it says")
         missing = (handles_in(tout) - {target, handle}) - printed
