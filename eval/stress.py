@@ -243,6 +243,52 @@ def members_of(db, handle):
     }
 
 
+def check_nothing_reaches_itself_across_a_boundary(db, handle, f):
+    """`reaches` answers "who reaches this **across a gRPC boundary**". A boundary is
+    between two processes, so a handler type cannot be on both ends of one: its own methods
+    are not callers of it, and neither is the type itself.
+
+    Cheap, and it is the check that would have named the `link_services` defect on sight
+    rather than by way of a symmetry failure three steps removed. `reaches searchService`
+    listed seven of its own methods among fourteen callers, each row individually plausible
+    — a Go function, a real file, a real RPC name — and the whole set reading as more
+    thorough than the correct answer of seven.
+    """
+    code, out, _ = run(db, "reaches", handle)
+    if code != 0:
+        return
+    family = members_of(db, handle) | {handle}
+    owner = enclosing_type(db, handle)
+    if owner:
+        family |= members_of(db, owner) | {owner}
+    # Result rows only. The header names the subject (`[6gj5] searchService — 7 caller(s)`)
+    # and reading that as a row makes every answer report itself, which is the check
+    # failing on its own output rather than on the tool's.
+    rows = "\n".join(l for l in out.splitlines() if l.startswith("  "))
+    for caller in handles_in(rows) & family:
+        f.note(
+            "reaches names the subject's own family as a caller across the boundary",
+            handle,
+            f"[{caller}] is [{handle}] or a member of its type, and a type cannot call "
+            f"itself over gRPC",
+            f"cairn reaches {handle}",
+        )
+        return
+
+
+def enclosing_type(db, handle):
+    """The type a method belongs to, by the same containment the store's queries use."""
+    c = sqlite3.connect(db)
+    row = c.execute(
+        "SELECT t.handle FROM symbols me JOIN handles h ON h.symbol_id = me.id "
+        "JOIN symbols ty ON ty.def_file_id = me.def_file_id AND ty.kind = 1 "
+        "AND ty.name_id = me.container_leaf_id AND ty.id <> me.id "
+        "JOIN handles t ON t.symbol_id = ty.id WHERE h.handle = ? LIMIT 1",
+        (handle,),
+    ).fetchone()
+    return row[0] if row else None
+
+
 def check_affects_covers_methods(db, handle, f):
     """A handler class must affect at least the services its own methods affect. The class
     is the name in the file and the name an outline hands back, so an answer smaller than
@@ -744,6 +790,7 @@ def main():
         check_both_purposes_resolve_the_same_subject(db, name, f)
     for i, (label, handle) in enumerate(picks, 1):
         check_reaches_symmetry(db, handle, f, generated)
+        check_nothing_reaches_itself_across_a_boundary(db, handle, f)
         check_affects_covers_methods(db, handle, f)
         check_usage_within_refs(db, handle, f)
         check_determinism(db, handle, f)

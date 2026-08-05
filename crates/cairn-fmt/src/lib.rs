@@ -1422,8 +1422,12 @@ pub fn rpc_targets(
         body,
         "  {}",
         if from_call_sites {
-            "where this lands, in the other language. Each row is the handler that serves \
-             an RPC this code was seen to call"
+            // Not "in the other language" any more. That wording described a filter that
+            // was hiding every Python service calling another Python one, and a header
+            // that promises a narrower answer than the command gives is the same defect
+            // as one that promises a wider one.
+            "where this lands, in the process that serves it. Each row is the handler \
+             that serves an RPC this code was seen to call"
         } else {
             "this code holds a generated client for these services; each row is a handler \
              they serve. No call site was resolved, so a row here is what it *can* reach, \

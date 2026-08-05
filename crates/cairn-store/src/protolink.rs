@@ -22,6 +22,11 @@
 //! and `orders_fe` both define `AuthService` and they are *different* services — so
 //! the package is part of the key, not decoration.
 //!
+//! **A boundary is between processes, not between languages.** The cross-language case is
+//! what nothing else can answer and so it is what this file is named for, but a Python CLI
+//! calling a Python gRPC service crosses exactly the same boundary and has to be answered
+//! the same way. Treating "other language" as the test once hid every one of those.
+//!
 //! Everything here is a convention, which per D16 belongs in a rule pack once that
 //! engine exists. It is written out longhand for now, in one file, so the boundary
 //! stays visible.
@@ -684,12 +689,22 @@ impl Store {
             "#,
         )?;
 
-        // Both sides of a boundary can be registered as servers of a service the
-        // convention spells the same way, so the join returns the caller itself and its
-        // same-language siblings alongside the real targets. This command answers "where
-        // does this land, in the other language"; a row in the caller's own language is
-        // not that, and a row that is the caller is nothing at all.
+        // What has to be excluded is the caller's own file, not the caller's own language.
+        //
+        // This used to drop every same-language row, because a name collision in
+        // `link_services` bound each Go proxy to both packages of a same-named service and
+        // the join then returned the caller and its siblings alongside the real targets.
+        // Dropping by language hid that — and hid, with it, **every Python service calling
+        // another Python service**. The CLI commands that reach `dataplatform-grpc` over
+        // `dataplatform_api.EstateProviderService` are exactly that shape: the incoming
+        // direction listed nine of them, the outgoing direction answered `0 targets` for
+        // each, and a silent zero is indistinguishable from a service nothing calls.
+        //
+        // With the collision fixed at its root, the file is the honest exclusion: a
+        // "target" defined beside the caller is the handler this code *is*, or its
+        // sibling, and not something it reaches over a network.
         let me = self.symbol(symbol_id)?;
+        let my_file = me.as_ref().and_then(|m| m.def.as_ref()).map(|d| &d.path);
         let mut out = Vec::new();
         let mut seen = std::collections::HashSet::new();
         for (service_id, pkg, service, rpc) in wanted {
@@ -702,8 +717,11 @@ impl Store {
                 let Some(symbol) = self.symbol(id)? else {
                     continue;
                 };
-                if me.as_ref().is_some_and(|m| m.lang == symbol.lang) {
-                    continue;
+                if let (Some(mine), Some(theirs)) = (my_file, symbol.def.as_ref().map(|d| &d.path))
+                {
+                    if mine == theirs {
+                        continue;
+                    }
                 }
                 out.push(RpcCaller {
                     pkg: pkg.clone(),

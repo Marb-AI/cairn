@@ -1149,13 +1149,69 @@ indistinguishable from a service nothing calls. Scenario 3's key answer is uncha
 callers, nine in `folder.go` plus `shareService.GetSharedObject` in `share.go`, including
 the tenth that a reader assembling it by hand misses.
 
+**What the wrong rows actually were.** Running `affects` and `reaches` over 25 handler types
+against the before and after indexes, 4 of 50 answers changed, and the changed ones changed
+a lot: `reaches searchService` went from **14 callers to 7**. Every one of the seven removed
+was `searchService.<method>` — *the type's own methods, listed as callers of the type across
+a network boundary*. A type cannot call itself over gRPC. The seven that remain are the real
+ones, all Python, all reaching it over `assistant_fe`:
+
+```
+before  [sce]  searchService.CreateSearch      go  …/resttransform/search.go   [assistant_api.…]
+after   [vz]   search_and_score_estates        py  …/api/endpoints.py          [assistant_fe.…]
+```
+
+So on those symbols the answer was half wrong, and wrong in the direction that reads as
+thorough — more rows, each individually plausible, none of them flagged.
+
 Pinned by a `link_services` test that fails without the fix (verified by removing the join
 and watching it fail), and the harness that found it now runs clean at 48 symbols.
 
-**Running total for the shell harness: three real defects, seven false findings.** Every
-false one came from a check written stronger than the contract it enforces; the third real
-one was found only because the sample was widened, which is the more useful lesson — the
-checks were not weak, they were pointed at symbols that could not exercise them.
+**Running total for the shell harness: four real defects, seven false findings.** Every
+false one came from a check written stronger than the contract it enforces; the last two
+real ones were found only because the sample was widened, which is the more useful lesson —
+the checks were not weak, they were pointed at symbols that could not exercise them.
+
+A fifth invariant was added afterwards, and it is the one that would have named the
+`link_services` defect on sight rather than three steps removed: **nothing reaches itself
+across a boundary.** A handler type cannot be on both ends of one, so its own methods are
+not among its callers. Verified both ways against the kept pre-fix index — 2 findings there,
+0 after. It also caught itself first: the initial version read the answer's *header*, which
+names the subject, and so reported every symbol. That would have been false finding number
+eight.
+
+### Fixing the root cause made a workaround removable, and the workaround was a fourth defect
+
+Widening the sample again — 120 symbols — turned up `reaches ixa` naming
+`[4xa] Command._run` as a caller, while `reaches 4xa --outgoing` answered **0 targets**.
+Both are Python. The outgoing direction had a same-language filter, and its own comment
+says what it was for:
+
+> Both sides of a boundary can be registered as servers of a service the convention spells
+> the same way, so the join returns the caller itself and its same-language siblings
+> alongside the real targets.
+
+That is a description of the `link_services` collision fixed above. The filter was a
+workaround for it — and it was suppressing, along with the phantom rows, **every case of one
+Python service calling another**. The `assistant` CLI commands reaching `dataplatform-grpc`
+over `dataplatform_api.EstateProviderService` are exactly that: the incoming direction listed
+nine of them, the outgoing direction returned zero for each, and a zero is indistinguishable
+from a service nothing calls.
+
+With the root cause gone, the honest exclusion is the caller's own **file** — a "target"
+defined beside the caller is the handler this code *is*, or its sibling. Measured over a
+deterministic 1-in-5 sample of the 326 symbols that start a chain: **10 of 66 were a silent
+zero before**, 15%, every one of them a same-language service call.
+
+`reaches --outgoing` also stopped claiming "in the other language" in its header, because it
+no longer means it. A boundary is between processes; the cross-language case is the one
+nothing else can answer, which is why the file is named for it, but it was never the
+definition.
+
+**This is the more useful shape of the whole afternoon**: one wrong join produced a wrong
+answer, a workaround written to hide the wrong answer produced a second and opposite wrong
+answer, and neither was visible until a sample was widened enough to put a symbol of the
+right shape in front of the checks.
 
 ### The contract sweep was not running the commands the guide recommends first
 
