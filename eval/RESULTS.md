@@ -851,3 +851,70 @@ decimal place of any total in this file is not.
 runs scenarios 2 and 5 actually need. Five rounds of three-run medians have produced two
 scenarios whose numbers cannot be trusted, and no amount of further tool work fixes a
 measurement that cannot tell an effect from a draw.
+
+---
+
+## How many runs the noisy scenarios need — 2026-08-05
+
+Computed from the 15 runs each of scenarios 2 and 5 already in `runs/`, no new agent runs.
+
+| | within-round SD | round medians | swing |
+|---|---|---|---|
+| s03 | 0.25 | 1, 1, 1, 1, 1 | 0 |
+| s06 | 0.25 | 15, 1, 1, 1, 1 | (the tool changed) |
+| **s02** | **1.24** | 9, 9, 6, 5, 10 | 5 |
+| **s05** | **1.69** | 5, 8, 7, 3, 8 | 5 |
+
+**A permutation test says the between-round swing is noise.** Shuffling the 15 runs of each
+scenario between rounds produces a swing of 5 or more with p = 0.33 (s02) and p = 0.73
+(s05). Round membership explains nothing about either. The earlier conclusion — that three
+runs cannot tell an effect from a draw for these two — holds, and now has a number behind
+it.
+
+Bootstrapping the median of *n* runs against the pooled within-round spread:
+
+| | ±1 turn | ±0 turns |
+|---|---|---|
+| s02 | **7 runs** | 13 |
+| s05 | **13 runs** | not reached at 21 |
+| s03, s06 | 3 (already there) | 3 |
+
+So the honest options for those two are 7 and 13 runs, or dropping them from any headline
+number and reporting them as unresolved with their range. Four to seven times the cost, for
+the two scenarios the tool's case does not rest on. The cheap scenarios are cheap because
+they are decided in one command; the expensive ones are expensive because they are open
+questions an agent can answer at several depths, and no number of runs changes that.
+
+---
+
+## A harness that drives cairn from the shell — 2026-08-05
+
+`eval/stress.py`. Every defect this project found by measurement had one shape: two
+commands disagreeing about the same fact. None of them needed a model in the loop. This
+runs command pairs over a deterministic stratified sample of the index and reports the
+disagreements — 24 symbols in 24 seconds, no agents.
+
+**First run: three classes of finding. One was real.**
+
+- **Real, and fixed: `affects` was not deterministic.** On a symbol attributed to three
+  services, the list came back in a different order on each invocation.
+  `reachable_by_service` returned a `HashMap` straight into a `Vec`, and Rust randomises
+  that order per process; every consumer preserved it. Now sorted at the source. Five
+  consecutive invocations are byte-identical.
+- **Not real: `reaches` asymmetry.** Asked about a *generated* server stub, the incoming
+  direction reports its callers while the outgoing direction resolves them to the
+  hand-written handler that serves the RPC — different symbols on purpose.
+- **Not real: `affects` on a class smaller than on its method.** The checker read RPC names
+  off the hop detail lines as though they were service names.
+
+After correcting both invariants — skip generated definitions; accept the type *or a
+member* as the return trip — the sample yields one finding, itself a third granularity
+difference: `--outgoing` has two modes, the precise one naming handler symbols and the
+convention fallback naming services, so their outputs cannot be compared by shape. That is
+a real inconsistency and not a wrong answer; it is written down rather than fixed.
+
+**The honest hit rate is one real defect in three first-run findings**, and the two false
+ones were both the invariant being stronger than the contract. That is the cost of this
+approach and it is still cheap: an afternoon of agent runs costs more than every stress run
+this file will ever need, and the defect it found — an answer that reorders itself between
+invocations — is one that would have quietly undermined every diff-based claim here.

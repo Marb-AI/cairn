@@ -768,7 +768,14 @@ impl Store {
         if map.is_empty() {
             return self.reachable_by_service_walk(max_depth);
         }
-        Ok(map.into_iter().collect())
+        // Sorted, because a HashMap iterates in an order that changes per process and
+        // every consumer here preserves it. Found by the stress harness: `affects` on a
+        // symbol attributed to three services listed them in a different order on each
+        // invocation. An answer that reorders itself cannot be diffed, and every claim in
+        // eval/ rests on being able to re-run a command and compare.
+        let mut out: Vec<_> = map.into_iter().collect();
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(out)
     }
 
     /// Everything each service can reach, computed once.
