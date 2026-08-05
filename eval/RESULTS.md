@@ -1490,3 +1490,24 @@ to say so where the answer is.
 
 That is the round's most useful lesson about this tool: **three independent agents found a
 gap by reading a file, and the fix for it was not code but a sentence.**
+
+### The corpus was patched afterwards, which changes what s04 can find again
+
+The nil-principal bug the round surfaced has been fixed in `repos/backend`:
+`share.go:78` now passes `&common_types.Principal{SecretToken: secret}` instead of `nil`,
+and `transform/folder.go:91` uses the generated nil-safe getters and accepts a principal
+carrying either a user id **or** a secret token. Both files keep their exact line count, so
+every line number this file and `SCENARIOS.md` cite — `share.go:33-90`, `folder.go:91` —
+still resolves after reindexing.
+
+The fix is the same shape the estate branch already had: the downstream Python handler
+guards personalisation with `if message.principal and message.principal.user_id:` and works
+fine without one, so the Go-side guard was stricter than the service it called. Estate ids
+still come from the `SharedObject` the secret unlocked, so nothing is newly exposed.
+Compiled against `golang:1.26-alpine`; `gofmt` clean.
+
+**A later reader should expect s04 to stop producing that finding.** Six of six runs
+reported it in this round; a re-run against the patched corpus will not, and that is a
+change in the corpus rather than a regression in either arm. `repos/backend` has no `.git`,
+so the change lives only in this working copy — the applicable patch is kept outside the
+repository, since a private backend's source does not belong in this one.
