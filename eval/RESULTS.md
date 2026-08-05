@@ -1888,3 +1888,46 @@ did not account for**, by 1 to 17 occurrences. Much of that is comments and homo
 
 **The general rule this establishes:** a negative may only be printed by a component that
 can prove it looked. Everything else must say it did not.
+
+### Corroborating the negatives with the text — 2026-08-05
+
+The rule from the section above — *a negative may only be printed by a component that can
+prove it looked* — applied where the graph is the thing that failed.
+
+**The measurement first.** Every RPC method name a generated client in the index exposes
+(334 of them), searched for as `.Name(` in hand-written, non-generated, non-test code:
+
+- **1 305** RPC-shaped calls, in 193 files
+- **375** distinct production functions contain one
+- **53 of those 375** get `0 targets` from `reaches --outgoing`
+
+A 14% silent-zero rate on the exact question that command exists to answer. The cause is
+D1: `a.client.RaiseAlert(...)` is a call on an unresolved receiver, scip-go emits no edge,
+and the graph then reports the absence of its own evidence as a fact about the world.
+
+**The fix is evidence, not a verdict.** When `--outgoing` resolves nothing, the body is read
+from the working tree and scanned for names that are RPCs of services this repository
+speaks. If any are found the answer says so:
+
+```
+the graph resolved no hop, but the body spells 1 name(s) that are RPCs of services this
+repository speaks - so this zero is UNCONFIRMED, not clean. Each may be a call the indexer
+could not follow, or a local call that happens to share the name; read them:
+srcpy/domains/assistant/repository/chat.py:34 calls .begin_operation(, an RPC of
+assistant_api.QuotaService
+```
+
+**Deliberately not a hop.** Some of those 53 are local calls that merely share a name with
+an RPC — `repository/auth.py:49` calls `quota_repo.get_quota_status(...)`, which is a
+function, not the RPC of the same name. The tool cannot tell the two apart, so it does not
+try: it reports what it saw, where, and hands the judgement to the reader. That is the
+border moved rather than guessed at.
+
+Checked both ways: a symbol whose body contains no RPC-shaped call still gets a clean zero
+with no added note, so the signal does not fire on everything and become noise.
+
+**What this does not close.** The corroboration is a lower bound too — it only knows the
+names in the index's own client artefacts, and only the `.Name(` shape. A service reached
+through a hand-written transport, a queue, or a differently-spelled wrapper is still
+invisible, and the envelope still says so. The change is that "invisible" no longer prints
+as "absent".

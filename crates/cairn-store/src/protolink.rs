@@ -1010,6 +1010,41 @@ impl Store {
     }
 }
 
+impl Store {
+    /// Every RPC method name a generated client in this index exposes, with its service.
+    ///
+    /// For corroborating a *negative*. When `rpc_targets` resolves nothing, the question
+    /// "did I look, or is there nothing here" cannot be answered from the graph — the
+    /// graph is precisely what failed. It can be answered from the text: if the body
+    /// spells a name that is an RPC of a service this repository speaks, there is
+    /// something to read, whatever the edges say.
+    ///
+    /// Measured on the target repo: 375 hand-written production functions contain a call
+    /// whose name matches a known RPC, and 53 of them get `0 targets`. Some of those 53
+    /// are local calls that merely share a name — which is exactly why this returns
+    /// evidence rather than a verdict.
+    pub fn rpc_name_set(&self) -> Result<Vec<(String, String)>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT DISTINCT rn.s, ps.pkg || '.' || ps.name
+              FROM service_links l
+              JOIN proto_services ps ON ps.id = l.service_id AND l.role = 1
+              JOIN symbols art ON art.id = l.via_symbol AND art.kind = 1
+              JOIN symbols rpc ON rpc.def_file_id = art.def_file_id AND rpc.id <> art.id
+                              AND rpc.container_leaf_id = art.name_id
+              JOIN strings rn ON rn.id = rpc.name_id
+             WHERE length(rn.s) > 4
+            "#,
+        )?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+}
+
 fn same_rpc(a: &str, b: &str) -> bool {
     let norm = |s: &str| -> String {
         s.chars()

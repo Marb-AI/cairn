@@ -1733,14 +1733,30 @@ fn run() -> Result<u8> {
                 }
             }
             let found = !links.is_empty();
-            emit(cairn_fmt::cross_language(
+            let mut env = cairn_fmt::cross_language(
                 &sym,
                 &services,
                 &links,
                 outgoing,
                 via.as_ref(),
                 &mut budget,
-            ));
+            );
+            // A zero from the graph is the one answer the graph cannot vouch for: it is
+            // the mechanism that failed. So corroborate it against the text before
+            // printing it as a finding — a call on an unresolved receiver
+            // (`a.client.RaiseAlert(...)`) emits no edge, and this command's whole promise
+            // is the direction that call goes.
+            //
+            // Evidence, never a verdict. A name that matches an RPC may be a local call
+            // that happens to share it, and the tool cannot tell — so it says what it saw
+            // and where, and leaves the judgement to whoever is reading.
+            if outgoing && !found {
+                let root = repo_for(&db);
+                if let Some(sites) = unresolved_rpc_calls(&store, &sym, root.as_deref())? {
+                    env = env.unknown(sites);
+                }
+            }
+            emit(env);
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
@@ -2232,6 +2248,73 @@ fn make_source(detail: Detail, repo: Option<PathBuf>) -> Result<Option<Source>> 
 /// The cost of this, stated: a command that works today can start printing a list
 /// tomorrow because somebody added a second symbol of that name. That is honest, but it
 /// is a change the caller did not make, and it is the reason handles still exist.
+/// The repository an index describes: `<repo>/.cairn/index.sqlite`, so two levels up.
+fn repo_for(db: &Path) -> Option<PathBuf> {
+    db.parent()
+        .and_then(|d| d.parent())
+        .map(|p| p.to_path_buf())
+}
+
+/// Names in a symbol's body that are RPCs of a service this repository speaks, when the
+/// graph resolved no outgoing hop at all.
+///
+/// The corroboration of a negative. `reaches --outgoing` returning nothing is either "this
+/// code calls no service" or "the indexer could not follow the call" — and the graph cannot
+/// distinguish them, because the graph is what came up empty. The text can: a body that
+/// spells `RaiseAlert` where `RaiseAlert` is an RPC of a known service has something in it
+/// worth reading, whatever the edges say.
+///
+/// Measured on the target repository: 375 hand-written production functions contain a call
+/// whose name matches a known RPC and 53 of them get `0 targets`. Some of those 53 are local
+/// calls that merely share a name — so this reports the sites and says so, rather than
+/// inventing hops the index cannot support.
+fn unresolved_rpc_calls(
+    store: &Store,
+    sym: &cairn_store::SymbolRow,
+    root: Option<&Path>,
+) -> Result<Option<String>> {
+    let (Some(root), Some(def), Some(end)) = (root, sym.def.as_ref(), sym.def_end_line) else {
+        return Ok(None);
+    };
+    let Ok(text) = std::fs::read_to_string(root.join(&def.path)) else {
+        return Ok(None);
+    };
+    let names = store.rpc_name_set()?;
+    let mut hits: Vec<String> = Vec::new();
+    for (i, line) in text.lines().enumerate() {
+        let n = i as i64;
+        if n < def.line || n > end {
+            continue;
+        }
+        for (rpc, service) in &names {
+            // `.Name(` — a call through something, which is exactly the shape whose
+            // receiver the indexer failed to resolve. A bare mention is not enough.
+            if line.contains(&format!(".{rpc}(")) {
+                hits.push(format!(
+                    "{}:{} calls .{rpc}(, an RPC of {service}",
+                    def.path,
+                    n + 1
+                ));
+                break;
+            }
+        }
+        if hits.len() >= 6 {
+            break;
+        }
+    }
+    if hits.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(format!(
+        "the graph resolved no hop, but the body spells {} name(s) that are RPCs of \
+         services this repository speaks - so this zero is UNCONFIRMED, not clean. Each \
+         may be a call the indexer could not follow, or a local call that happens to \
+         share the name; read them: {}",
+        hits.len(),
+        hits.join("; ")
+    )))
+}
+
 /// What resolving a `for` subject produced.
 enum Subject {
     Symbol(i64),
