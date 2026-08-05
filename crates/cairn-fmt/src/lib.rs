@@ -2595,13 +2595,13 @@ mod tests {
         let sym = cairn_store::SymbolRow {
             id: 1,
             handle: "abc".into(),
-            name: "GetSharedObject".into(),
-            container: Some("shareService#".into()),
+            name: "GetReading".into(),
+            container: Some("stationGateway#".into()),
             module: None,
             kind: cairn_store::SymbolKind::Method,
             lang: cairn_store::Lang::Go,
             def: Some(cairn_store::Occurrence {
-                path: "srcgo/share.go".into(),
+                path: "srcgo/gateway/station.go".into(),
                 line: 32,
                 col_start: 0,
                 col_end: 0,
@@ -2614,15 +2614,15 @@ mod tests {
             ref_count: 0,
         };
         let target = cairn_store::RpcCaller {
-            pkg: "assistant_api".into(),
-            service: "ShareService".into(),
-            rpc: "GetSharedObject".into(),
+            pkg: "station_core".into(),
+            service: "StationService".into(),
+            rpc: "GetReading".into(),
             symbol: sym.clone(),
         };
         let mut b = Budget::unlimited();
         let out = rpc_targets(&sym, std::slice::from_ref(&target), &[], true, &mut b).render();
         assert!(
-            out.contains("srcgo/share.go:33"),
+            out.contains("srcgo/gateway/station.go:33"),
             "the 0-based SCIP line reached the page: {out}"
         );
     }

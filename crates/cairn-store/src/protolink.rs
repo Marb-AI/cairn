@@ -254,18 +254,20 @@ impl Store {
                    -- The artefact must actually be *referenced* on the field's own line.
                    --
                    -- Matching the embedded field to the artefact by name alone bound a
-                   -- struct to every package that spells the interface the same way, and
-                   -- both `assistant_api` and `assistant_fe` declare
-                   -- `EstateServiceServer`. So all nineteen Go proxy handlers - which
-                   -- embed the `_fe` interface and are *clients* of the `_api` service -
-                   -- were recorded as serving the very service they call. That inverts
-                   -- the direction of a whole tier, and `reaches` then reported callers
-                   -- across a boundary for two symbols inside one process.
+                   -- struct to every package that spells the interface the same way. Two
+                   -- proto packages routinely do: a gateway tier serves the outward
+                   -- service and calls the inward one, and the generator gives both the
+                   -- same `<Svc>ServiceServer`. Every such gateway was then recorded as
+                   -- serving the very service it is a client of, which inverts the
+                   -- direction of a whole tier - and `reaches` reported callers across a
+                   -- boundary for two symbols inside one process.
                    --
                    -- The occurrence carries the resolved symbol, so it tells the two
-                   -- apart where the name cannot. Measured on the target repo: 119 embed
-                   -- links to 100, all 19 dropped being this collision, and no type left
-                   -- without a binding - the failure that would be worse than the bug.
+                   -- apart where the name cannot. Measured on a repository with this
+                   -- shape: 119 embed links to 100, every one dropped being that
+                   -- collision, and no type left without a binding - which would have
+                   -- been worse than the bug, since a silent zero from `reaches` reads
+                   -- as a service nothing calls.
                    JOIN occurrences o ON o.symbol_id = art.id
                                      AND o.file_id = field.def_file_id
                                      AND o.line = field.def_line
@@ -692,13 +694,14 @@ impl Store {
         // What has to be excluded is the caller's own file, not the caller's own language.
         //
         // This used to drop every same-language row, because a name collision in
-        // `link_services` bound each Go proxy to both packages of a same-named service and
-        // the join then returned the caller and its siblings alongside the real targets.
-        // Dropping by language hid that — and hid, with it, **every Python service calling
-        // another Python service**. The CLI commands that reach `dataplatform-grpc` over
-        // `dataplatform_api.EstateProviderService` are exactly that shape: the incoming
-        // direction listed nine of them, the outgoing direction answered `0 targets` for
-        // each, and a silent zero is indistinguishable from a service nothing calls.
+        // `link_services` bound a gateway type to both packages of a same-named service
+        // and the join then returned the caller and its siblings alongside the real
+        // targets. Dropping by language hid that — and hid, with it, **every service that
+        // calls another service written in the same language**, which is the common case
+        // in any single-language deployment. Measured on a mixed Python/Go repository: the
+        // incoming direction listed nine callers of one handler, the outgoing direction
+        // answered `0 targets` for each of them, and a silent zero is indistinguishable
+        // from a service nothing calls.
         //
         // With the collision fixed at its root, the file is the honest exclusion: a
         // "target" defined beside the caller is the handler this code *is*, or its
@@ -972,9 +975,14 @@ mod tests {
         classify(name)
     }
 
-    /// A Go struct embedding `<pkg_a>.EstateServiceServer`, with `<pkg_b>` declaring an
-    /// interface of exactly the same name. The shape of the whole proxy tier in the
-    /// target repository.
+    /// A Go struct embedding one package's server interface, where a second package
+    /// declares an interface of exactly the same name.
+    ///
+    /// The shape is a proxy tier: an edge service that *serves* the outward-facing
+    /// service and *calls* the inward-facing one, both generated from a `.proto` that
+    /// spells the service identically in two packages. Nothing about it is specific to
+    /// any repository — it follows from protobuf's package split plus Go's embedding,
+    /// and any codebase with a gateway in front of an internal API has it.
     #[test]
     fn embedding_one_packages_server_does_not_serve_another_packages_namesake() {
         let mut store = Store::open_in_memory().unwrap();
@@ -1008,23 +1016,24 @@ mod tests {
                 c.last_insert_rowid()
             };
 
-        // The two generated interfaces, same name, different proto packages.
-        let fe = file("srcgo/schema/assistant_fe/service_estate_grpc.pb.go", 1);
-        let api = file("srcgo/schema/assistant_api/service_estate_grpc.pb.go", 1);
-        let art_fe = add("EstateServiceServer", 1, fe, 10, None, 1);
-        add("EstateServiceServer", 1, api, 10, None, 2);
+        // The two generated interfaces: same name, different proto packages.
+        let edge = file("srcgo/schema/station_edge/service_station_grpc.pb.go", 1);
+        let core = file("srcgo/schema/station_core/service_station_grpc.pb.go", 1);
+        let art_edge = add("StationServiceServer", 1, edge, 10, None, 1);
+        add("StationServiceServer", 1, core, 10, None, 2);
 
-        // The hand-written proxy: `type estateService struct { assistant_fe.EstateServiceServer }`
-        let hand = file("srcgo/domains/assistant/grpc/resttransform/estate.go", 0);
-        let owner = sid("`x/resttransform`/estateService#");
-        add("estateService", 1, hand, 15, None, 3);
-        add("EstateServiceServer", 2, hand, 16, Some(owner), 4);
-        // Only the `_fe` interface is referenced on the embedding line. This occurrence is
+        // The hand-written gateway:
+        //   type stationGateway struct { station_edge.StationServiceServer }
+        let hand = file("srcgo/gateway/station.go", 0);
+        let owner = sid("`x/gateway`/stationGateway#");
+        add("stationGateway", 1, hand, 15, None, 3);
+        add("StationServiceServer", 2, hand, 16, Some(owner), 4);
+        // Only the edge interface is referenced on the embedding line. That occurrence is
         // the entire difference between the two packages, and matching by name ignored it.
         c.execute(
             "INSERT INTO occurrences(file_id, symbol_id, line, col_start, col_end, role)
              VALUES (?1, ?2, 16, 1, 2, 8)",
-            params![hand, art_fe],
+            params![hand, art_edge],
         )
         .unwrap();
 
@@ -1036,7 +1045,7 @@ mod tests {
                    JOIN proto_services ps ON ps.id = l.service_id
                    JOIN symbols s ON s.id = l.symbol_id
                    JOIN strings n ON n.id = s.name_id
-                  WHERE l.role = 0 AND n.s = 'estateService'",
+                  WHERE l.role = 0 AND n.s = 'stationGateway'",
             )
             .unwrap()
             .query_map([], |r| r.get(0))
@@ -1045,10 +1054,11 @@ mod tests {
             .collect();
         assert_eq!(
             served,
-            vec!["assistant_fe".to_string()],
-            "the struct embeds only the _fe interface; binding it to the _api service of \
-             the same name makes the proxy a server of the service it is a client of, and \
-             `reaches` then reports callers across a boundary for two symbols in one process"
+            vec!["station_edge".to_string()],
+            "the struct embeds only the edge interface; binding it to the core service of \
+             the same name makes the gateway a server of the service it is a client of, \
+             and `reaches` then reports callers across a boundary for two symbols in one \
+             process"
         );
     }
 
