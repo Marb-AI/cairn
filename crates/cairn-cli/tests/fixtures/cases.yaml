@@ -376,3 +376,14 @@
   args: [status]
   contains: ["suppressed:", "unknown:", "stale:"]
   max_seconds: 15
+
+# ── both ways of answering the outgoing question look the same ───────────────────────
+# `reaches --outgoing` had two modes wearing one name: call edges named handler symbols,
+# a client binding named services, and nothing in the output said which you had got. An
+# agent could not compare them and the stress harness could only report the difference.
+# Now the rows are identical in shape and the claim differs, which is what was actually
+# different all along.
+- name: the outgoing direction says whether it saw a call or only a client binding
+  args: [reaches, AlertService, --outgoing]
+  contains: ["across gRPC"]
+  max_seconds: 10

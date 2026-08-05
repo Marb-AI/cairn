@@ -1711,10 +1711,20 @@ fn run() -> Result<u8> {
             // The outgoing direction, answered from real call edges rather than from the
             // client-artefact binding. Without this it reported zero for every function
             // that *uses* a generated client, which is every function anyone asks about.
+            // One shape for both ways of answering the outgoing question. They used to be
+            // different commands wearing one name — call edges named handler symbols, the
+            // client binding named services — and nothing in the output said which you
+            // had. Now the rows are the same and the *claim* differs, which is the part
+            // that was actually different all along.
             if outgoing {
                 let precise = store.rpc_targets(symbol_id)?;
                 if !precise.is_empty() {
-                    emit(cairn_fmt::rpc_targets(&sym, &precise, &mut budget));
+                    emit(cairn_fmt::rpc_targets(&sym, &precise, &[], true, &mut budget));
+                    return Ok(exit::FOUND);
+                }
+                let (bound, unchecked) = store.rpc_targets_by_binding(symbol_id)?;
+                if !bound.is_empty() {
+                    emit(cairn_fmt::rpc_targets(&sym, &bound, &unchecked, false, &mut budget));
                     return Ok(exit::FOUND);
                 }
             }

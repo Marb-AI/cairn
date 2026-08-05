@@ -117,11 +117,11 @@ def handles_in(text):
 # Findings already diagnosed and written up, so a run that reports only these is a clean
 # run. Keyed by check *and* symbol: the same class on a different symbol is new and still
 # surfaces. Suppressing a whole check would hide the regression this file exists to catch.
-KNOWN = {
-    ("reaches is not symmetric", "npw"):
-        "`--outgoing` has two modes - the precise one names handler symbols, the "
-        "convention fallback names services - so their outputs cannot be compared by "
-        "shape. Inconsistency of form, not of fact. See RESULTS.md.",
+KNOWN: dict = {
+    # Emptied once `--outgoing` was unified: both ways of answering it now emit the same
+    # rows and differ in the claim they print, so the symmetry check applies to both. A
+    # finding reappearing here is a regression, which is the point of not leaving it
+    # allowlisted after the fix.
 }
 
 

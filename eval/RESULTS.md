@@ -954,3 +954,43 @@ the regression it exists to catch.
 have surfaced** — one answer that reordered itself between invocations, one that omitted
 the envelope the guide tells readers to trust. Four false findings, all from invariants
 written stronger than the contract, all corrected in place with the reason.
+
+### `reaches --outgoing` unified — 2026-08-05
+
+The one finding the harness kept reporting. The command had two ways of answering and they
+did not look alike: from real call edges it named handler symbols, from a client binding it
+named services. Nothing in the output said which you had, so the two could not be compared
+— by an agent or by the harness, which could only report the difference and never check it.
+
+Both now emit the same rows. What differs is the claim, said in the header and the line
+under it:
+
+```
+[3yv4] shareService.GetSharedObject — calls 3 handler(s) across gRPC   [L1, convention]
+  … each row is the handler that serves an RPC this code was seen to call
+
+[mk6] registerGoAgent — can reach 65 handler(s) across gRPC  [L1, convention, by client binding]
+  … this code holds a generated client for these services … what it *can* reach, not what
+    it was seen to reach
+```
+
+**One mistake made and caught on the way, of the kind this repository keeps making.** The
+binding form initially inner-joined the generated client to filter handler members down to
+real RPCs — 65 rows became 61, which looked like an improvement. It was not: services whose
+client link carries no `via_symbol` were dropped **whole**, one service vanishing rather
+than one helper row. The harness caught it immediately, because the symmetry check stopped
+passing for a symbol it had passed for before. Now a LEFT JOIN, so a service with no client
+artefact keeps its rows and the envelope names it:
+
+```
+unknown: 8 service(s) have no generated client in this index to list their RPCs
+         (assistant_api.AgentAdvisoryService, …), so every member of their handler is
+         shown - private helpers included.
+```
+
+That is the trade taken deliberately: an unfiltered row that says it is unfiltered beats a
+filtered list that quietly lost a service.
+
+**The harness now reports no contradictions on a 24-symbol sample with an empty allowlist**,
+which is the first time it has. The allowlist was emptied rather than left with the entry in
+it, so the finding coming back would be a failure rather than a known.

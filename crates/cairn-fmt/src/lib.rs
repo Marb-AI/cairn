@@ -1392,20 +1392,35 @@ pub fn usage(
 pub fn rpc_targets(
     sym: &SymbolRow,
     targets: &[cairn_store::RpcCaller],
+    // Services with no generated client in the index to name their RPCs. Their rows are
+    // unfiltered, so the envelope has to say which they are.
+    unchecked: &[String],
+    // True when the rows come from real call edges, false when they come from a client
+    // binding. Same rows either way — the strength is said, not left to the shape.
+    from_call_sites: bool,
     budget: &mut Budget,
 ) -> Envelope {
     let mut body = String::new();
     let _ = writeln!(
         body,
-        "[{}] {} — calls {} handler(s) across gRPC        [L1, convention]",
+        "[{}] {} — {} {} handler(s) across gRPC        [L1, {}]",
         sym.handle,
         sym.qualified(),
-        targets.len()
+        if from_call_sites { "calls" } else { "can reach" },
+        targets.len(),
+        if from_call_sites { "convention" } else { "convention, by client binding" }
     );
     let _ = writeln!(
         body,
-        "  where this lands, in the other language. Each row is the handler that serves \
-         the RPC this code calls"
+        "  {}",
+        if from_call_sites {
+            "where this lands, in the other language. Each row is the handler that serves \
+             an RPC this code was seen to call"
+        } else {
+            "this code holds a generated client for these services; each row is a handler \
+             they serve. No call site was resolved, so a row here is what it *can* reach, \
+             not what it was seen to reach"
+        }
     );
     let mut shown = 0usize;
     for t in targets {
@@ -1435,6 +1450,15 @@ pub fn rpc_targets(
     let mut env = Envelope::new(body).rows(shown);
     if shown < targets.len() {
         env = env.suppressed(budget.cut_note(targets.len() - shown, "targets"));
+    }
+    if !unchecked.is_empty() {
+        env = env.unknown(format!(
+            "{} service(s) have no generated client in this index to list their RPCs \
+             ({}), so every member of their handler is shown - private helpers included. \
+             Rows for the other services are filtered to real RPCs",
+            unchecked.len(),
+            unchecked.join(", ")
+        ));
     }
     env.unknown(
         "the handler is matched to the RPC by the generator's naming convention \

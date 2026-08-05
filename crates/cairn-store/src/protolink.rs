@@ -697,6 +697,122 @@ impl Store {
         }
         Ok(out)
     }
+
+    /// The same answer as `rpc_targets`, for a symbol that *holds* a generated client
+    /// rather than calling one.
+    ///
+    /// The two used to be different commands wearing one name: the call-edge form named
+    /// handler symbols, the binding form named services, and nothing in the output said
+    /// which you had got. An agent could not compare them, and the stress harness could
+    /// only report the difference, never check it.
+    ///
+    /// So this returns the same rows: the handlers that serve the services this symbol is
+    /// registered as a client of. The claim is weaker — it says this code holds a client
+    /// for that service, not that a call was seen — and the caller labels it as such
+    /// rather than the shape doing it silently.
+    pub fn rpc_targets_by_binding(
+        &self,
+        symbol_id: i64,
+    ) -> Result<(Vec<RpcCaller>, Vec<String>)> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT DISTINCT ps.pkg, ps.name, hm_name.s, rpc_name.s, hm.id
+              FROM service_links mine
+              JOIN proto_services ps ON ps.id = mine.service_id
+              -- The server side of the same service, and its members.
+              JOIN service_links theirs
+                ON theirs.service_id = ps.id AND theirs.role = 0
+              JOIN symbols handler ON handler.id = theirs.symbol_id AND handler.kind = 1
+              JOIN symbols hm ON hm.def_file_id = handler.def_file_id
+                             AND hm.container_leaf_id = handler.name_id
+                             AND hm.id <> handler.id
+              JOIN strings hm_name ON hm_name.id = hm.name_id
+              JOIN files hf ON hf.id = hm.def_file_id AND hf.generated = 0
+              -- The generated client for the same service, and *its* members: the RPC
+              -- names. Without them every member of the handler class came back, private
+              -- helpers included - 65 rows where the service has a dozen RPCs.
+              --
+              -- LEFT, not inner. As an inner join it dropped every service whose client
+              -- link carries no `via_symbol`, silently and entirely: one whole service
+              -- vanished from the answer rather than one helper row. Absent names mean
+              -- "cannot tell which members are RPCs here", and the row survives with that
+              -- said, because dropping what cannot be checked is the failure this
+              -- codebase keeps finding in itself.
+              LEFT JOIN service_links client
+                ON client.service_id = ps.id AND client.role = 1
+                AND client.via_symbol IS NOT NULL
+              LEFT JOIN symbols art ON art.id = client.via_symbol AND art.kind = 1
+              LEFT JOIN symbols rpc ON rpc.def_file_id = art.def_file_id
+                              AND rpc.id <> art.id
+                              AND rpc.container_leaf_id = art.name_id
+              LEFT JOIN strings rpc_name ON rpc_name.id = rpc.name_id
+             WHERE mine.symbol_id = ?1 AND mine.role = 1
+            "#,
+        )?;
+        let rows = stmt.query_map(params![symbol_id], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
+                r.get::<_, i64>(4)?,
+            ))
+        })?;
+        let me = self.symbol(symbol_id)?;
+        // Which (service, member) pairs a client artefact vouched for, and which services
+        // had no artefact to ask. Collected first because the rows arrive interleaved.
+        let mut raw = Vec::new();
+        let mut vouched: std::collections::HashSet<(String, i64)> = Default::default();
+        let mut unnamed: std::collections::HashSet<String> = Default::default();
+        for row in rows {
+            let (pkg, service, handler_method, rpc, id) = row?;
+            let key = format!("{pkg}.{service}");
+            match &rpc {
+                Some(r) if same_rpc(r, &handler_method) => {
+                    vouched.insert((key.clone(), id));
+                }
+                Some(_) => {}
+                None => {
+                    unnamed.insert(key.clone());
+                }
+            }
+            raw.push((pkg, service, handler_method, id, key));
+        }
+        let mut out = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        for (pkg, service, handler_method, id, key) in raw {
+            if id == symbol_id {
+                continue;
+            }
+            // Keep a member when the client artefact named it as an RPC, or when there was
+            // no artefact to name anything for that service.
+            let keep = vouched.contains(&(key.clone(), id)) || unnamed.contains(&key);
+            if !keep || !seen.insert(id) {
+                continue;
+            }
+            let Some(symbol) = self.symbol(id)? else {
+                continue;
+            };
+            // Same filter as the precise form: this command answers "in the other
+            // language", so a row in the caller's own is not the answer.
+            if me.as_ref().is_some_and(|m| m.lang == symbol.lang) {
+                continue;
+            }
+            out.push(RpcCaller {
+                pkg,
+                service,
+                rpc: handler_method,
+                symbol,
+            });
+        }
+        out.sort_by(|a, b| (&a.pkg, &a.service, &a.rpc).cmp(&(&b.pkg, &b.service, &b.rpc)));
+        // Services whose members could not be checked against an RPC list. Returned rather
+        // than swallowed: their rows may include private helpers, and a row that might not
+        // be an entry point has to say so instead of sitting in the list looking like one.
+        let mut unchecked: Vec<String> = unnamed.into_iter().collect();
+        unchecked.sort();
+        Ok((out, unchecked))
+    }
 }
 
 fn same_rpc(a: &str, b: &str) -> bool {
