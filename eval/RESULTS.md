@@ -994,3 +994,30 @@ filtered list that quietly lost a service.
 **The harness now reports no contradictions on a 24-symbol sample with an empty allowlist**,
 which is the first time it has. The allowlist was emptied rather than left with the entry in
 it, so the finding coming back would be a failure rather than a known.
+
+### The harness runs in CI — 2026-08-05
+
+Over the fixture corpus, the same one `tests/corpus.rs` and `tests/sweep.rs` fall back to,
+so the check really runs on a runner rather than only on a workstation with a private
+checkout. The image already carries python3; the step builds the index the way a user would
+— `cairn index`, then ask it questions — and takes seconds.
+
+Both paths were verified against the `ci` service rather than assumed: a deliberately
+injected finding exits 1 and fails the job, and the unmodified harness exits 0. A check that
+cannot fail is decoration.
+
+**The fixture found one thing the private corpus had not**, and it turned out to be the
+checker again: `graph --aspect callers` looked nondeterministic because the `stale:` line
+changes between two identical invocations — the watcher starts itself on first use, so the
+first call says "not tracked yet" and a later one gives a real verdict. That is the envelope
+working, not the answer moving. The determinism check now compares answers without their
+staleness line, and says why.
+
+One check was also narrowed rather than left to misfire: `verify` against `status` only runs
+when the index sits at `<repo>/.cairn/index.sqlite`, because the watcher derives the
+repository as the database's grandparent and a fixture index in a temp directory has it
+watching the wrong tree. A disagreement there would have been a fact about the harness.
+
+Running total for the shell harness: **two real defects, six false findings**, every false
+one from a check written stronger than the contract it enforces. Both real ones were
+invisible to `cargo test` and to sixty agent runs.

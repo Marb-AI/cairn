@@ -22,15 +22,17 @@ the contract, which is the failure mode of the whole idea. If a check cannot cit
 sentence it enforces, it does not belong here.
 
 Usage: stress.py <db> <repo> [sample-size]
+Environment: CAIRN_BIN overrides the binary, which CI needs because the release build
+lands in the container's target directory rather than beside this file.
 """
 
-import json
+import os
 import random
 import sqlite3
 import subprocess
 import sys
 
-BIN = "/home/workspaces/cairn/bin/cairn-bin"
+BIN = os.environ.get("CAIRN_BIN", "/home/workspaces/cairn/bin/cairn-bin")
 
 
 def run(db, *args):
@@ -244,14 +246,25 @@ def check_usage_within_refs(db, handle, f):
             return
 
 
+def without_stale(text):
+    """The answer without its `stale:` line.
+
+    That line is allowed to change between two identical invocations and it is right that
+    it does: the watcher starts itself on first use, so the first call reports "not tracked
+    yet" and a later one reports a real verdict. Comparing whole outputs called that
+    nondeterminism twice on the fixture corpus. The *answer* must be stable; the freshness
+    of the index underneath it is exactly what is not."""
+    return "\n".join(l for l in text.splitlines() if not l.startswith("stale:"))
+
+
 def check_determinism(db, handle, f):
-    """The same question twice must give the same bytes. A listing that reorders itself
+    """The same question twice must give the same answer. A listing that reorders itself
     cannot be diffed, and every claim in this repository's results rests on being able to
     re-run a command and compare."""
     for cmd in (["usage", handle], ["affects", handle], ["graph", handle, "--aspect", "callers"]):
         _, a, _ = run(db, *cmd)
         _, b, _ = run(db, *cmd)
-        if a != b:
+        if without_stale(a) != without_stale(b):
             f.note(
                 "answer is not deterministic",
                 handle,
@@ -413,7 +426,14 @@ def check_staleness_agrees(db, repo, f):
     """`verify --repo` is the one-off comparison of tree against index; `status` reports the
     watcher's view of the same thing. When verify finds nothing changed, status must not
     claim modified files — the daemon reporting a clean tree as dirty is a defect already
-    fixed once here, and it is worth a standing check."""
+    fixed once here, and it is worth a standing check.
+
+    Only when the index sits where the convention puts it. The watcher derives the
+    repository as the grandparent of the database, so an index in a temp directory — which
+    is how the fixture corpus is indexed — has it watching the wrong tree, and the
+    disagreement then says something about the harness rather than about cairn."""
+    if db.replace("\\", "/").split("/")[-2:-1] != [".cairn"]:
+        return
     vc, vout, _ = run(db, "verify", "--repo", repo)
     sc, sout, _ = run(db, "status")
     if vc not in (0, 1) or sc not in (0, 1):
