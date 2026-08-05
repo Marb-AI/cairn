@@ -1695,3 +1695,34 @@ to catch checks that do not run caught one written this afternoon.
 
 **Running total: six real defects, seven false findings**, and the harness is now 16 checks —
 16 of 16 exercised on the real corpus, 15 on the fixture.
+
+### `symbol` announced a truncated list and denied truncating it
+
+Found while diagnosing s02 — the one scenario where cairn measured **worse** than grep
+(1.43) and which had never been diagnosed. The first command an arm runs there is
+`symbol Client`, and it answers:
+
+```
+15 matches for "Client" (--limit reached, there may be more)
+suppressed: none
+```
+
+The header says the list is a first page; the envelope says nothing was left out. That is
+the exact contradiction this design exists to prevent, in the command that starts the most
+crowded question in the scenario set.
+
+The cause is that the two cuts are different. A *budget* cut happens in the formatter,
+which reports it; a `--limit` cut happens in the query, so the rows arrive already
+truncated, `shown == rows.len()`, and the branch that reports a cut cannot fire. Fixed: the
+envelope now names the `--limit` cut too.
+
+**And the check written for exactly this class could not see it.** `tests/sweep.rs` asserts
+that no answer reports a cut while claiming `suppressed: none` — by looking for the strings
+`beyond --limit`, `beyond the` and `more references`. `symbol` says
+`--limit reached, there may be more`, which is none of them. A list of phrasings maintained
+by hand drifts behind the output it describes; both spellings are now in it.
+
+That is two defects from one look: **seven real in the tool, and the second in the harness
+itself.** It is also the first concrete lead on s02, whose cost has always been attributed
+to "the name floods" — the flood is real, and the tool was telling the arm the flood was
+the whole answer.

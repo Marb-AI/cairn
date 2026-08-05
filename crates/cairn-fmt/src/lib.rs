@@ -224,6 +224,18 @@ pub fn symbols(
     if shown < rows.len() {
         env = env.suppressed(budget.cut_note(rows.len() - shown, "matches"));
     }
+    // The `--limit` cut, as opposed to the budget cut above. `rows` arrives already
+    // truncated, so `shown == rows.len()` and the branch above cannot fire — the header
+    // said "there may be more" while the envelope said `suppressed: none`, which is the
+    // one contradiction this whole design exists to prevent, in the command an agent runs
+    // first on the most crowded name in the repository.
+    if !complete {
+        env = env.suppressed(
+            "more matches beyond --limit; raise it, or narrow the query - a first page \
+             that does not say so is indistinguishable from the whole answer"
+                .to_string(),
+        );
+    }
 
     // A miss, or a set of hits that are all generated, most often means the caller is
     // asking about code this index does not cover. Saying what *is* covered turns a

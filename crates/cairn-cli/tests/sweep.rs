@@ -32,6 +32,17 @@ use std::time::Instant;
 const SAMPLE: usize = 40;
 const CEILING_SECS: u64 = 10;
 
+/// How many symbols this run sweeps. 40 keeps CI honest without making it slow; a hunt
+/// wants hundreds, and editing a constant to get them is how a wide run becomes something
+/// nobody does. `CAIRN_SWEEP_SAMPLE=400 cargo test --test sweep` is the hunt.
+fn sample_size() -> usize {
+    std::env::var("CAIRN_SWEEP_SAMPLE")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(SAMPLE)
+}
+
 /// The repository the corpus index describes. `/repo` inside the build container, a
 /// sibling checkout on a host.
 fn indexed_repo(root: &Path) -> PathBuf {
@@ -109,7 +120,7 @@ fn every_command_holds_its_contract_across_the_index() {
     // same index: a failure is reproducible and a fix can be verified. Forced odd because
     // symbols arrive grouped by file, and an even stride can land on the same position
     // within each of them for a whole run.
-    let stride = ((all.len() / SAMPLE).max(1) | 1).max(1);
+    let stride = ((all.len() / sample_size()).max(1) | 1).max(1);
     let handles: Vec<String> = all.iter().cloned().step_by(stride).collect();
     assert!(
         handles.len() >= 20,
@@ -192,9 +203,16 @@ fn every_command_holds_its_contract_across_the_index() {
                 }
                 // The shape three separate bugs took today: cutting the list and
                 // simultaneously claiming nothing was cut.
+                // Every phrasing the binary uses to say it left something out. This list
+                // drifting behind the output is not hypothetical: `symbol` announced
+                // "--limit reached, there may be more" next to `suppressed: none` for
+                // months, and the check written for exactly that class could not see it
+                // because it only knew three other spellings.
                 let cut = stdout.contains("beyond --limit")
                     || stdout.contains("beyond the")
-                    || stdout.contains("more references");
+                    || stdout.contains("more references")
+                    || stdout.contains("--limit reached")
+                    || stdout.contains("there may be more");
                 if cut && stdout.contains("suppressed: none") {
                     say("reports a cut and `suppressed: none` at once".to_string());
                 }
