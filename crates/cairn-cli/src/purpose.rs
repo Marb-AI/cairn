@@ -278,13 +278,19 @@ pub fn understand(store: &Store, symbol_id: i64, budget: &mut Budget) -> Result<
             // reader sent to the handler for a call the handler delegates is sent to the
             // wrong file.
             let caller = match &hop.via {
+                // The via symbol carries its handle, because this row is not reproducible
+                // from the command the block cites — `reaches <root> --outgoing` does not
+                // walk local callees, so only `reaches <via> --outgoing` produces it. The
+                // stress harness caught the block citing a command that would not return
+                // two of its own rows, which is rule one of this whole entry point.
                 Some(v) => format!(
-                    "{} via {}",
+                    "{} via [{}] {}",
                     if hop.depth == 1 {
                         sym.qualified()
                     } else {
                         hop.from.qualified()
                     },
+                    v.handle,
                     v.qualified()
                 ),
                 None if hop.depth == 1 => sym.qualified(),
@@ -307,10 +313,17 @@ pub fn understand(store: &Store, symbol_id: i64, budget: &mut Budget) -> Result<
                 rows += 1;
             }
         }
+        let via_rows = chain.hops.iter().any(|h| h.via.is_some());
         let _ = writeln!(
             body,
-            "  (from `cairn reaches {} --outgoing`, once per hop)\n",
-            sym.handle
+            "  (from `cairn reaches {} --outgoing`, once per hop{})\n",
+            sym.handle,
+            if via_rows {
+                "; a row marked `via [h]` comes from `cairn reaches h --outgoing`, since \
+                 the hop is made by something this code calls rather than by this code"
+            } else {
+                ""
+            }
         );
         if chain.hops.iter().any(|h| !h.exact) {
             unknown.push(format!(

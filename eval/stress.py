@@ -735,10 +735,34 @@ def check_understand_matches_its_own_citation(db, handle, f):
     rc, rout, _ = run(db, "reaches", handle, "--outgoing")
     if uc not in (0, 1) or rc not in (0, 1):
         return
-    first = {h for depth, h in chain_hops(uout) if depth == 1}
+    # A row reached through something this code calls is not produced by
+    # `reaches <root> --outgoing` and does not claim to be: it prints `via [h]` and the
+    # block cites `reaches h --outgoing` for it. Checking those against the root was this
+    # check being stronger than the contract - but only after the contract was corrected,
+    # because for a while the block really did cite a command that would not return them.
+    first, via = set(), set()
+    for line in uout.splitlines():
+        if " -> [" not in line or (len(line) - len(line.lstrip(" "))) // 2 != 1:
+            continue
+        target = line.split(" -> [", 1)[1].split("]", 1)[0]
+        if " via [" in line:
+            via.add((line.split(" via [", 1)[1].split("]", 1)[0], target))
+        else:
+            first.add(target)
     cited = handles_in(rout) - {handle}
-    if first or cited:
+    if first or cited or via:
         f.ran("for understand matches its citation")
+    for source, target in sorted(via):
+        vc, vout, _ = run(db, "reaches", source, "--outgoing")
+        if vc in (0, 1) and target not in handles_in(vout):
+            f.note(
+                "a `via` row is not produced by the command it cites",
+                handle,
+                f"[{target}] is printed as reached via [{source}], but "
+                f"`reaches {source} --outgoing` does not name it",
+                f"cairn for understand {handle}; cairn reaches {source} --outgoing",
+            )
+            return
     if first != cited:
         f.note(
             "for understand disagrees with the command it cites",
