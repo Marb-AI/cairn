@@ -1551,3 +1551,35 @@ and asserts the dirty set catches up, one asserts a `.py` outside every root is 
 **Running total for the shell harness: five real defects, seven false findings.** This is
 the first that the harness found in the course of ordinary work rather than in a run aimed
 at finding something — which is the argument for standing checks over audits.
+
+### s01 re-measured on the fixed binary — 2026-08-05
+
+Three cairn runs, same question, same arm file. **The grep arm was not re-run**: the
+question is unchanged and the two fixes since round six (`--context auto`, and the
+`for change` line number) are cairn-side only, so its [6, 7, 7] carries over. Borrowing it
+is stated rather than silent, which is the whole reason `score.py` refuses to do it for a
+question that changed.
+
+| | round six | rerun | |
+|---|---|---|---|
+| cairn | [3, 5, 6] med **5** | [4, 4, 4] med **4** | |
+| grep | [6, 7, 7] med **7** | (reused) | |
+| ratio | **0.71** | **0.57** | rule needs ≤0.50 |
+
+**s01 still fails the rule**, which is what was predicted before the runs — one turn was
+recoverable and one turn was not enough. Answer quality is unchanged and equal to grep's:
+all three runs named the ambiguity, said which of the seven symbols they answered for, and
+listed that symbol's sites including the hop through the `db_async` binding.
+
+**The spread collapsed from 3 to 0.** Round six's runs ranged 3–6; these are 4, 4, 4. That
+is the more interesting number, because it says the variance *was* the defects rather than
+the question: the wasted `--repo` round trip appeared in two runs of three, and the runs
+that opened files to check the off-by-one line were the long ones. Fixing both removed the
+median turn **and** the disagreement between runs.
+
+**What it means for the scenario.** s01 is now a tight, reproducible 4 against 7 with equal
+answers. Under the acceptance rule that is a loss, and three rounds of evidence say the
+remaining four turns are not obviously removable: one call to `for change`, one to inspect
+the other candidates, and two file reads to quote the lines. The honest conclusion is that
+**this question is one a competent grep agent answers well**, and the tool's case does not
+rest on it — it rests on 3, 4 and 6, where a name search has nothing to offer.
