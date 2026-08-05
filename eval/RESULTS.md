@@ -1726,3 +1726,32 @@ That is two defects from one look: **seven real in the tool, and the second in t
 itself.** It is also the first concrete lead on s02, whose cost has always been attributed
 to "the name floods" — the flood is real, and the tool was telling the arm the flood was
 the whole answer.
+
+### s02, the one scenario cairn lost outright, re-measured — 2026-08-05
+
+Round five measured s02 at **1.43**: cairn 10 round trips against grep's 7, on an equal
+answer. That is the only place in the record where the tool was worse than the baseline, and
+it had never been diagnosed — the cost was attributed to "the name floods" and left there.
+
+Diagnosing it produced the `symbol` defect above: the first command an arm runs there
+returned 15 matches, said "there may be more", and declared `suppressed: none`. Re-measured
+after that fix, with the question unchanged so round one's grep numbers stand:
+
+| | round five | now |
+|---|---|---|
+| cairn | [9, 10, 11] med **10** | [5, 5, 6] med **5** |
+| grep | [6, 7, 9] med **7** | (unchanged) |
+| ratio | **1.43** | **0.71** |
+
+**Every cairn run now beats the grep median**, where before every cairn run lost to it.
+
+Two honest qualifications. First, **three runs cannot resolve s02** — this file's own
+bootstrap says it needs seven for a ±1 median, and that has not changed. What three runs
+can support is the *direction*: a factor of two is far outside the ±1 band those seven runs
+were needed to see. Second, the fix is not the whole cause. Round five's traces show none of
+its three runs invoked `for change` at all; these all do, on the first or second turn. Some
+of the gain is the tool telling the truth about its own truncation, and some is the arms
+using the assembled answer that already existed.
+
+At 0.71 it still fails the acceptance rule, like s01. But it is no longer a loss, and the
+claim "cairn is worse than grep somewhere" no longer has an instance.
