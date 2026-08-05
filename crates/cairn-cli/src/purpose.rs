@@ -148,7 +148,12 @@ pub fn change(
             node.symbol.qualified()
         );
         for r in &through {
-            if budget.push(&mut body, &format!("  {}:{}", r.path, r.line)) {
+            // `location()`, not `path:line`. The second time this exact mistake shipped:
+            // SCIP counts lines from 0, every other row on the page counts from 1, and a
+            // renderer that formats the pair by hand skips the conversion. Two measured
+            // agent runs caught it here by opening the file and reporting the discrepancy
+            // in their answers — the arm doing the tool's checking for it.
+            if budget.push(&mut body, &format!("  {}", r.location())) {
                 rows += 1;
             }
         }
@@ -243,9 +248,15 @@ pub fn understand(store: &Store, symbol_id: i64, budget: &mut Budget) -> Result<
         );
     } else {
         let depth = chain.hops.iter().map(|h| h.depth).max().unwrap_or(0);
+        // Not "followed to the end" any more. Round six: three arms found a fourth hop the
+        // walk missed, because the Go proxy delegates to a transformer that makes the call.
+        // The walk now follows two local levels at each hop, which recovers that shape —
+        // but "to the end" is a claim about a codebase, not about a bound, and the walk
+        // still has bounds. Saying what it followed is the honest form of the same line.
         let _ = writeln!(
             body,
-            "[{}] {} — where this lands, {} hop(s) across services, followed to the end",
+            "[{}] {} — where this lands, {} hop(s) across services, following each hop's \
+             own calls two levels deep",
             sym.handle,
             sym.qualified(),
             depth
@@ -263,14 +274,26 @@ pub fn understand(store: &Store, symbol_id: i64, budget: &mut Budget) -> Result<
             } else {
                 ""
             };
+            // Name the function that made the call, not the one that owns the hop. A
+            // reader sent to the handler for a call the handler delegates is sent to the
+            // wrong file.
+            let caller = match &hop.via {
+                Some(v) => format!(
+                    "{} via {}",
+                    if hop.depth == 1 {
+                        sym.qualified()
+                    } else {
+                        hop.from.qualified()
+                    },
+                    v.qualified()
+                ),
+                None if hop.depth == 1 => sym.qualified(),
+                None => hop.from.qualified(),
+            };
             let line = format!(
                 "{}{} -> [{}] {}  {}  {}  [{}.{}.{}]{}",
                 "  ".repeat(hop.depth),
-                if hop.depth == 1 {
-                    sym.qualified()
-                } else {
-                    hop.from.qualified()
-                },
+                caller,
                 hop.to.symbol.handle,
                 hop.to.symbol.qualified(),
                 hop.to.symbol.lang.tag(),
@@ -315,6 +338,20 @@ pub fn understand(store: &Store, symbol_id: i64, budget: &mut Budget) -> Result<
             "the handler serving each RPC is matched by the generator's naming convention \
              (`GetFolder` <-> `get_folder`), so a hop is exact where the convention holds \
              and blind to a service reached by a hand-written transport or a queue"
+                .to_string(),
+        );
+        // The gap round six found, stated rather than left for a reader to trip over.
+        // Measured on the target repository: `shareService.GetSharedObject` calls
+        // `ft.RpcToRest(...)` on a local variable, scip-go resolves no call edge for it,
+        // and the hop that function makes is therefore invisible to any walk over this
+        // index - including this one. Three agent runs found it by reading the file. A
+        // bound that is printed can be widened; an unresolved edge cannot, so the only
+        // honest thing is to say the list is a floor.
+        unknown.push(
+            "this list is a floor, not a ceiling. A hop made by a method called on a local \
+             variable resolves to no call edge, so a handler that delegates to a helper it \
+             constructs - `t := NewThing(); t.Method()` - hides whatever that helper \
+             reaches. Read the hop's own file where the chain matters"
                 .to_string(),
         );
     }

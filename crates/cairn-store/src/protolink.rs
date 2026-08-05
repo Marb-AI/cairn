@@ -851,6 +851,14 @@ impl Store {
     }
 }
 
+/// How many in-language callees of a hop are asked whether *they* cross a boundary.
+///
+/// Every one costs an `rpc_targets` query, and the walk asks at two local levels, so this
+/// is the number that decides whether a chain answers in milliseconds or in seconds. Four
+/// is enough for the delegation shape it exists to catch (a handler calling one or two
+/// helpers) and cheap enough that a wide handler does not blow the latency ceiling.
+const LOCAL_FANOUT: usize = 4;
+
 /// One service hop: where it leaves from, where it lands, and how strong the claim is.
 #[derive(Debug, Clone)]
 pub struct ChainHop {
@@ -867,6 +875,11 @@ pub struct ChainHop {
     /// This target was already reached by an earlier route, so it is shown and not walked
     /// again. Without the flag a reader takes a silently truncated branch for a leaf.
     pub already_reached: bool,
+    /// The in-language function that actually made the call, when the hop was not made by
+    /// `from` itself. A Go handler that delegates to a transformer which then calls
+    /// another service reaches it *through* that transformer, and a chain that prints the
+    /// handler as the caller is telling the reader to look in the wrong file.
+    pub via: Option<SymbolRow>,
 }
 
 /// A chain of service hops, with everything the walk did not do said out loud.
@@ -914,14 +927,44 @@ impl Store {
                     continue;
                 };
                 let mut exact = true;
-                let mut targets = self.rpc_targets(from_id)?;
+                let mut targets: Vec<(Option<SymbolRow>, RpcCaller)> = self
+                    .rpc_targets(from_id)?
+                    .into_iter()
+                    .map(|t| (None, t))
+                    .collect();
                 if targets.is_empty() && depth == 1 {
                     let (bound, unchecked) = self.rpc_targets_by_binding(from_id)?;
-                    targets = bound;
+                    targets = bound.into_iter().map(|t| (None, t)).collect();
                     exact = false;
                     chain.unchecked = unchecked;
                 }
-                for to in targets {
+                // Hops made by something this symbol calls in its own language.
+                //
+                // Round six found this missing, three arms independently: the Go proxy
+                // serving `GetSharedObject` does not call the next service itself — it
+                // builds a folder transformer, and *that* calls `ListEstates`. The walk
+                // followed RPC edges only, so it stopped one hop short while printing
+                // "followed to the end". Two local levels, narrow fan-out: the shape being
+                // recovered is "handler delegates to a helper that makes the call", which
+                // is one or two calls deep, and every extra level multiplies the queries.
+                for node in self
+                    .walk(
+                        from_id,
+                        crate::EdgeKind::Calls,
+                        crate::Direction::Out,
+                        2,
+                        LOCAL_FANOUT,
+                        true,
+                    )?
+                    .nodes
+                    .iter()
+                    .filter(|n| n.symbol.id != from_id)
+                {
+                    for t in self.rpc_targets(node.symbol.id)? {
+                        targets.push((Some(node.symbol.clone()), t));
+                    }
+                }
+                for (via, to) in targets {
                     if chain.hops.len() >= max_hops {
                         chain.cut_by_breadth += 1;
                         continue;
@@ -936,6 +979,7 @@ impl Store {
                         depth,
                         exact,
                         already_reached,
+                        via,
                     });
                 }
             }

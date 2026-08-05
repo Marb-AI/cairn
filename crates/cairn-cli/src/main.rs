@@ -1243,7 +1243,18 @@ fn run() -> Result<u8> {
             let mut source = match (ctx, repo) {
                 (cairn_fmt::SiteContext::None, _) => None,
                 (_, Some(root)) => Some(Source::new(root)),
-                (_, None) => anyhow::bail!("--context prints source, so it needs --repo <dir>"),
+                // Fall back to the repository the index was found in rather than failing.
+                //
+                // This used to bail. Measured in round six: 2 of 3 arms ran `refs <h>
+                // --context auto`, got the instruction instead of an answer, and re-ran it
+                // with `--repo .` — a whole round trip spent supplying a value the binary
+                // had already computed, since `<repo>/.cairn/index.sqlite` is how it found
+                // the index in the first place. Same shape as round four's second cause: a
+                // failure that could have been an answer.
+                (_, None) => db
+                    .parent()
+                    .and_then(|d| d.parent())
+                    .map(|root| Source::new(root.to_path_buf())),
             };
             emit(
                 cairn_fmt::references_with_context(

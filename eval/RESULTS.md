@@ -1347,3 +1347,146 @@ magnitude under anything a round trip costs.
 stands. `rust-toolchain.toml` says `channel = "stable"` rather than a version, so a
 rebuilt image picks up a newer rustfmt and the tree drifts without a commit. Both sites are
 formatted in this change; pinning the channel is a separate decision and is not made here.
+
+
+---
+
+## Round six: the three reworded questions, measured — 2026-08-05
+
+18 runs, 3 per arm per scenario, both arms re-run because all three questions changed.
+Pre-registered in `SCENARIOS.md`; the predictions there were written before any run and are
+reproduced below unedited.
+
+| # | cairn | grep | ratio | I predicted | verdict |
+|---|---|---|---|---|---|
+| s01 | [3, 5, 6] med **5** | [6, 7, 7] med **7** | **0.71** | cairn 2, grep 5–7 | **fails the rule** |
+| s04 | [11, 13, 13] med **13** | [20, 27, 32] med **27** | **0.48** | cairn 4, grep 7–10 | passes, marginally |
+| s09 | [2, 3, 3] med **3** | [4, 4, 6] med **4** | **0.75** | cairn 2, grep 1–2 | passes on quality |
+
+**Five of six arm predictions missed.** Only s09's cairn figure (2 predicted, 3 measured)
+was close. s04 was wrong by a factor of three on one arm and nearly four on the other.
+
+### Grading against the reworded keys
+
+- **s01 — equal answers, rule failed.** All six runs, both arms, spotted that seven symbols
+  share the name and said which one they were answering for, which is exactly what the new
+  key demands. Equal quality at 0.71 fails the rule's ≤0.5.
+- **s04 — equal answers, rule met at 0.48.** Both arms traced all four hops and both found a
+  real defect in the target repository (below). Grep added the absence of a panic-recovery
+  interceptor and the stale proto HTTP annotation; cairn added nothing grep lacked. Calling
+  these equal is the honest reading, and 0.48 then passes.
+- **s09 — cairn better, and cheaper.** Every cairn run stated that the symbol is absent from
+  the index and that the file changed since indexing, then answered from the working tree.
+  The grep runs answered correctly but inferred newness from code shape (no `db_async`
+  wrapper) rather than from the tool telling them. Better answer at 3 against 4 meets the
+  rule's "no more than baseline".
+
+### What the rewording actually did, including to me
+
+**s01 got harder for both arms, which was the point.** Grep went 4/4/5 on the old wording to
+6/7/7 on the new one: naming the file really had been doing the work. But cairn's own
+number rose too — 2 in round five to 5 here — and the ambiguity fix that round five credited
+with the win is now doing its job against a question that no longer hands the answer over.
+
+**s04 moved into the open-ended class, and I did not see it coming.** "Follow it as far as
+it goes" invites depth without bounding it. Both arms spent 16–33 tool calls, read Go
+transform code, and returned answers well past the key. `RESULTS.md` already contained the
+warning — *"the expensive ones are expensive because they are open questions an agent can
+answer at several depths, and no number of runs changes that"* — and I reworded s04 into
+that class and then predicted a single number for it. **The old 7 and the new 13 are not
+comparable in either direction**, and s04 may now need the 7–13 run treatment scenarios 2
+and 5 need.
+
+**No total is quoted.** Three scenarios, all freshly reworded, two of them arguably
+open-ended. The sum of medians is 21 against 38; it is in this file for completeness and it
+is not a headline.
+
+### Measurement caveat, stated because it is close to the line
+
+Turn reconstruction groups tool calls separated by less than 1.0 s. Five runs recorded a
+widest within-turn gap of 0.77–0.93 s under three-way parallelism. Nothing crossed the
+threshold, but the margin is thin enough that a busier machine would start splitting turns
+and inflating counts. Either the runs need to be serialised or the gap needs to come from
+the data rather than from a constant.
+
+### The runs found a real bug in the target repository
+
+Independently, in all six s04 runs: `srcgo/domains/assistant/grpc/resttransform/share.go:78`
+constructs `transform.NewFolderTransformer(s.app, nil)`, and
+`transform/folder.go:91` dereferences that principal with a plain field access
+(`f.principal.UserId`). Fetching a shared folder containing at least one estate is a nil
+pointer dereference; an empty folder escapes via the early return at `folder.go:76`. The
+grep arm added that the rest-transform server installs only Sentry interceptors and no
+recovery interceptor, so this takes the process down rather than returning 500, and that
+there is no Go test covering `GetSharedObject` at all.
+
+That is not a cairn result — both arms found it. It is reported here because it is the most
+valuable thing the round produced and it belongs to the backend, not to this tool.
+
+### Three defects in cairn, found by the round, fixed after it
+
+Deliberately not fixed mid-round: changing the instrument between runs is what makes
+results incomparable.
+
+1. **A second off-by-one.** `purpose.rs:151` hand-formats `r.line` in `for change`'s binding
+   block, printing `handlers/quota.py:42` where the call is on 43. Two s01 arms caught it by
+   opening the file. The invariant added this morning did not cover it — it compares
+   *definition* lines for `for understand`/`reaches`/`expand`, and this is a *reference*
+   line in `for change`.
+2. **`--context auto` costs a round trip.** `refs <h> --context auto` without `--repo` exits
+   with an instruction instead of an answer, and the arm re-runs it with `--repo .`. That
+   happened in 2 of 3 s01 cairn runs and is most of the gap between the 3-turn run and the
+   5- and 6-turn ones. The binary already resolved the index from the repository root; the
+   flag asks the caller for a value it has just computed.
+3. **`for understand` over-claims "followed to the end".** It follows RPC hops but not the
+   in-language calls *between* them, so a chain of the shape RPC → local call → RPC stops
+   early while printing that it reached the end. For `get_shared_object` the Go proxy locally
+   calls `FolderTransformer.loadEstates`, which makes a fourth hop to
+   `EstateServiceHandler.list_estates`. All three s04 cairn arms found it by reading code;
+   one wrote *"treat the hop list as a floor, not a ceiling."* This is the command built
+   earlier the same day, and the sentence is as much the defect as the walk is.
+
+### Rig defects found before the round could start
+
+- **`/usr/local/bin/cairn` is a 0.1.1 install with no `for` subcommand.** Bare `cairn`
+  resolves to it. Round five's logs were checked for the retry signature and do not have it,
+  so those numbers stand — but an arm invoking bare `cairn` in a session without
+  `eval/armbin` on PATH would silently measure a nine-day-old binary, and for commands
+  present in both versions it would not even error. The arms now use the absolute path.
+- **`score.py` would have borrowed round-one grep medians** for exactly these three
+  scenarios — numbers measured against the old wording. It now refuses and says so.
+
+### The three fixes, and the one that did not work
+
+Applied after the round closed, on the build the round measured.
+
+**1 and 2 worked.** `for change` now prints `handlers/quota.py:43`, the line the call is
+actually on, and `refs <h> --context auto` answers from the repository it resolved the index
+from instead of spending a round trip asking for it. The location invariant was widened to
+cover `for change` as well — leaving it out is precisely how the second instance of that
+defect shipped, since the check covered *definition* rows in three commands and the command
+that got it wrong printed a *reference* row in a fourth.
+
+**3 did not.** The walk now follows two local levels at each hop, and across a sample of 28
+chain starts that recovered **1 hop in 41** — real, and cheap (0.07 s to 0.09 s). It does
+**not** recover the hop the arms found. The reason is not a bound:
+
+```
+$ cairn graph 3yv4 --aspect calls --depth 2 | grep -c RpcToRest
+0
+```
+
+`shareService.GetSharedObject` calls `ft.RpcToRest(...)` on a local variable, and scip-go
+resolves no call edge for it. The hop is invisible to *any* walk over this index, at any
+fan-out. It is the receiver-resolution class the tool already documents for Python
+attributes, showing up in Go.
+
+So the part of the fix that addresses the finding is the part that changes what is claimed:
+the header no longer says "followed to the end", it says what it followed, and the envelope
+now states the gap outright — *"this list is a floor, not a ceiling… a handler that
+delegates to a helper it constructs hides whatever that helper reaches."* A printed bound
+can be widened by whoever reads it; an unresolved edge cannot, and the only honest move is
+to say so where the answer is.
+
+That is the round's most useful lesson about this tool: **three independent agents found a
+gap by reading a file, and the fix for it was not code but a sentence.**

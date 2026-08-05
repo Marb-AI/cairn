@@ -766,8 +766,13 @@ def check_printed_line_is_where_the_definition_is(db, handle, f):
     """
     truth = {}
     c = sqlite3.connect(db)
+    # `for change` is in this list because leaving it out is how the second instance of
+    # this defect shipped: the check covered definition rows in three commands, and the
+    # one that got it wrong printed a *reference* row in a fourth. Two agent runs caught
+    # it by opening the file, which is the job this check exists to do without them.
     for cmd in (
         ["for", "understand", handle],
+        ["for", "change", handle],
         ["reaches", handle, "--outgoing"],
         ["expand", handle],
     ):
