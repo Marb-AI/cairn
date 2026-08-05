@@ -41,10 +41,26 @@ impl Daemon {
         Daemon {
             repo: repo.to_path_buf(),
             socket: socket.to_path_buf(),
-            tracker: Arc::new(DirtyTracker::new(repo, indexed)),
+            tracker: {
+                let t = DirtyTracker::new(repo, indexed);
+                // The same roots the language-server pool gets: what the indexers were
+                // pointed at is exactly what the `created` set may report on.
+                t.set_roots(roots.iter().map(|(_, r)| r.clone()).collect());
+                Arc::new(t)
+            },
             started: Instant::now(),
             pool: Arc::new(std::sync::Mutex::new(Pool::new(repo, roots, container))),
         }
+    }
+
+    /// Where the index lives and how to re-read it, so a rebuild is noticed.
+    ///
+    /// Separate from `new` because the daemon must start and watch even when the store
+    /// cannot be reopened later: a watcher that reports file changes is worth having on
+    /// its own, and that is the same reasoning the container start-up already follows.
+    pub fn watch_index(self, db: &Path, reload: crate::watch::ReloadIndexed) -> Daemon {
+        self.tracker.watch_index(db, reload);
+        self
     }
 
     /// Serve until shutdown. Blocks.
@@ -132,6 +148,11 @@ impl Daemon {
 
     /// Answer one request. Returns true when it was a shutdown.
     fn respond(&self, writer: &mut UnixStream, line: &str) -> Result<bool> {
+        // A caller asking what has changed is the moment the answer has to account for a
+        // rebuilt index. Nothing else can notice: `.cairn` is in the watcher's ignore
+        // list, so no file-system event ever arrives for the index itself. One `stat`
+        // when the index has not moved, which is the common case.
+        self.tracker.refresh_if_reindexed();
         let (response, shutdown) = match serde_json::from_str::<Request>(line) {
             Ok(Request::Dirty) => (Response::Dirty(self.tracker.snapshot()), false),
             Ok(Request::Status) => (

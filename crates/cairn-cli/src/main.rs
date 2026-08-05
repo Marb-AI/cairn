@@ -1958,7 +1958,20 @@ fn run() -> Result<u8> {
             };
             let container = container.as_deref().map(|n| (n, docker::MOUNT));
 
-            cairn_daemon::Daemon::new(&repo, &socket, indexed, &roots, container).run()?;
+            // The reload closure, rather than a dependency: the daemon watches files and
+            // has no business opening a database, so it asks for the snapshot instead.
+            let db_for_reload = db.clone();
+            cairn_daemon::Daemon::new(&repo, &socket, indexed, &roots, container)
+                .watch_index(
+                    &db,
+                    Box::new(move || {
+                        cairn_store::Store::open(&db_for_reload)
+                            .ok()?
+                            .file_hashes()
+                            .ok()
+                    }),
+                )
+                .run()?;
             // The container is deliberately left running. It costs a sleeping process and
             // a mount, and tearing it down on every daemon exit raced the next daemon
             // starting one — which is how a restart ended up with no live overlay at all.

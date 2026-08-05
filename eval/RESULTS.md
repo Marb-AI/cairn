@@ -1511,3 +1511,43 @@ reported it in this round; a re-run against the patched corpus will not, and tha
 change in the corpus rather than a regression in either arm. `repos/backend` has no `.git`,
 so the change lives only in this working copy — the applicable patch is kept outside the
 repository, since a private backend's source does not belong in this one.
+
+---
+
+## The daemon defect the standing check finally caught — 2026-08-05
+
+`check_staleness_agrees` was added this morning and passed every run. It fired for the
+first time on a real disagreement, produced by ordinary work rather than by a probe: after
+patching two Go files in the corpus and reindexing, `verify --repo` reported `stale: none`
+while `status` reported `2 modified`.
+
+**Cause: the daemon's index snapshot was read once at start-up and compared against for
+ever.** `DirtyTracker` holds `indexed: HashMap<path, hash>` from the moment it started, and
+`.cairn` is in `IGNORED_DIRS`, so no file-system event ever arrives when the index is
+rebuilt. Edit a file and the daemon is right; reindex and it goes on being wrong until
+someone restarts it.
+
+The fix gives the tracker the index path and a closure that re-reads the snapshot, checked
+on each request — one `stat` when nothing has moved. Only the files already believed dirty
+are re-checked afterwards, because a rebuild records what is on disk and can therefore only
+ever *clean* a file. The closure exists so that `cairn-daemon` does not gain a dependency on
+`cairn-store`: a file watcher has no business opening a database.
+
+### And a second, louder half of the same fault
+
+With `modified` fixed, `status` still reported **17 created** against `verify`'s `none`.
+Those files are real — `.py` and `.go` under `tools/` and `infra/` — but no SCIP run has
+ever been pointed at them: the recorded roots are `srcpy` and `srcgo`. The `created` set
+filtered by *extension* and not by *whether an indexer could ever have read the path*.
+
+This is the same false-loudness the extension filter itself was added for, one level in.
+The `created` set is now filtered by the recorded roots as well, falling back to
+extension-only when an index records none so an older index degrades to the previous
+behaviour rather than to silence. Both commands now say `stale: none` on a clean tree.
+
+Two tests pin it, each verified to fail without its fix: one reindexes under the tracker
+and asserts the dirty set catches up, one asserts a `.py` outside every root is not news.
+
+**Running total for the shell harness: five real defects, seven false findings.** This is
+the first that the harness found in the course of ordinary work rather than in a run aimed
+at finding something — which is the argument for standing checks over audits.

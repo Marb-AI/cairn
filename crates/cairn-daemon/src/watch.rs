@@ -43,12 +43,27 @@ pub struct DirtyTracker {
     inner: Arc<Mutex<State>>,
 }
 
+/// Re-reads path -> content hash from the store. Supplied by the caller because the
+/// daemon deliberately does not depend on `cairn-store`: the watcher is a file-system
+/// concern and pulling a database driver into it to answer one question would invert the
+/// layering for the sake of one call.
+pub type ReloadIndexed = Box<dyn Fn() -> Option<HashMap<String, [u8; 16]>> + Send>;
+
 struct State {
     repo: PathBuf,
     /// Path -> content hash recorded at index time.
     indexed: HashMap<String, [u8; 16]>,
     dirty: DirtySet,
     scheduler: Scheduler,
+    /// The index file and when it was last seen, so a rebuild underneath the daemon can
+    /// be noticed. `.cairn` is in `IGNORED_DIRS`, so no file-system event ever arrives
+    /// for it — this is the only signal there is.
+    index_db: Option<PathBuf>,
+    index_stamp: Option<std::time::SystemTime>,
+    reload: Option<ReloadIndexed>,
+    /// Directories the indexers were actually pointed at, e.g. `srcpy`, `srcgo`. Empty
+    /// when the index recorded none, in which case the extension filter stands alone.
+    roots: Vec<String>,
 }
 
 impl DirtyTracker {
@@ -63,8 +78,90 @@ impl DirtyTracker {
                     ..Default::default()
                 },
                 scheduler: Scheduler::new(),
+                index_db: None,
+                index_stamp: None,
+                reload: None,
+                roots: Vec::new(),
             })),
         }
+    }
+
+    /// The directories the indexers were pointed at.
+    ///
+    /// Without them the `created` set reports every `.py` and `.go` outside those
+    /// directories as new — 17 of them on the target repository, under `tools/` and
+    /// `infra/`, none of which any indexer was ever going to read. That is the same
+    /// false-loudness the extension filter was added for, one level in: `verify --repo`
+    /// called the tree clean while `status` advertised seventeen files of debt.
+    pub fn set_roots(&self, roots: Vec<String>) {
+        self.inner.lock().unwrap().roots = roots;
+    }
+
+    /// Tell the tracker where the index lives and how to re-read it.
+    ///
+    /// Without this the snapshot taken at start-up is compared against forever. Measured:
+    /// two files were edited, `cairn index` was run, and `status` went on reporting them
+    /// as modified while `verify --repo` — which reads the store directly — reported a
+    /// clean tree. The stress harness caught the disagreement; the daemon simply had no
+    /// way to learn that the thing it compares against had been replaced.
+    pub fn watch_index(&self, db: &Path, reload: ReloadIndexed) {
+        let mut st = self.inner.lock().unwrap();
+        st.index_stamp = stamp_of(db);
+        st.index_db = Some(db.to_path_buf());
+        st.reload = Some(reload);
+    }
+
+    /// Re-read the index snapshot if the index has been rebuilt, and drop from the dirty
+    /// set anything the rebuild made current. Returns true when something changed.
+    ///
+    /// Only the files already believed dirty are re-checked, not the whole tree: a
+    /// rebuild can only ever *clean* a file, since it records what is on disk. That keeps
+    /// this cheap enough to run on a status request, which is where it has to run — a
+    /// caller asking what is stale is exactly the moment the answer must account for a
+    /// reindex.
+    pub fn refresh_if_reindexed(&self) -> bool {
+        let (db, seen) = {
+            let st = self.inner.lock().unwrap();
+            match &st.index_db {
+                Some(db) => (db.clone(), st.index_stamp),
+                None => return false,
+            }
+        };
+        let now = stamp_of(&db);
+        if now.is_none() || now == seen {
+            return false;
+        }
+        let fresh = {
+            let st = self.inner.lock().unwrap();
+            match &st.reload {
+                Some(f) => f(),
+                None => None,
+            }
+        };
+        let Some(fresh) = fresh else {
+            // Record the stamp anyway: a store that cannot be read now will not read any
+            // better on the next status request, and retrying it on every one turns a
+            // broken index into a busy loop.
+            self.inner.lock().unwrap().index_stamp = now;
+            return false;
+        };
+        let stale: Vec<String> = {
+            let mut st = self.inner.lock().unwrap();
+            st.indexed = fresh;
+            st.index_stamp = now;
+            let d = &st.dirty;
+            d.modified
+                .iter()
+                .chain(&d.created)
+                .chain(&d.removed)
+                .cloned()
+                .collect()
+        };
+        let mut changed = false;
+        for rel in stale {
+            changed |= self.recheck(&rel);
+        }
+        changed
     }
 
     pub fn snapshot(&self) -> DirtySet {
@@ -102,9 +199,9 @@ impl DirtyTracker {
     /// Full comparison of the working tree against the index. Run once at start so the
     /// set is correct before any event arrives, and marked `complete` when done.
     pub fn initial_scan(&self) {
-        let (repo, indexed) = {
+        let (repo, indexed, roots) = {
             let st = self.inner.lock().unwrap();
-            (st.repo.clone(), st.indexed.clone())
+            (st.repo.clone(), st.indexed.clone(), st.roots.clone())
         };
         let mut modified = Vec::new();
         let mut removed = Vec::new();
@@ -123,7 +220,7 @@ impl DirtyTracker {
         // the last build stayed invisible until something happened to touch it again —
         // `stale:` would say nothing while a whole new module sat there unindexed.
         let mut created = Vec::new();
-        walk_new(&repo, &repo, &indexed, &mut created);
+        walk_new(&repo, &repo, &indexed, &roots, &mut created);
 
         modified.sort();
         removed.sort();
@@ -160,7 +257,7 @@ impl DirtyTracker {
             (Some(_), None) => st.dirty.removed.push(rel.to_string()),
             // Same filter as the initial scan, for the same reason: a live event for a
             // file the index could never have held is not news about the index.
-            (None, Some(_)) if is_indexable(rel) => st.dirty.created.push(rel.to_string()),
+            (None, Some(_)) if covered(rel, &st.roots) => st.dirty.created.push(rel.to_string()),
             (None, Some(_)) => {}
             (None, None) => {}
         }
@@ -252,7 +349,13 @@ fn relativise(root: &Path, p: &Path) -> Option<String> {
 ///
 /// Bounded by the same ignore rules the watcher uses, so a `node_modules` does not turn a
 /// startup scan into a minute of walking.
-fn walk_new(root: &Path, dir: &Path, indexed: &HashMap<String, [u8; 16]>, out: &mut Vec<String>) {
+fn walk_new(
+    root: &Path,
+    dir: &Path,
+    indexed: &HashMap<String, [u8; 16]>,
+    roots: &[String],
+    out: &mut Vec<String>,
+) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -266,8 +369,8 @@ fn walk_new(root: &Path, dir: &Path, indexed: &HashMap<String, [u8; 16]>, out: &
             continue;
         }
         if path.is_dir() {
-            walk_new(root, &path, indexed, out);
-        } else if is_indexable(&rel) && !indexed.contains_key(&rel) {
+            walk_new(root, &path, indexed, roots, out);
+        } else if covered(&rel, roots) && !indexed.contains_key(&rel) {
             out.push(rel);
         }
     }
@@ -295,6 +398,31 @@ pub fn is_indexable(rel: &str) -> bool {
         .is_some_and(|e| INDEXABLE_EXTENSIONS.contains(&e))
 }
 
+/// Could the index have held this path at all: right extension, and inside a directory
+/// an indexer was actually pointed at.
+///
+/// The extension test alone was not enough. `tools/eval/run_eval.py` is Python, and no
+/// SCIP run has ever looked at it, so calling it "created" is the same false alarm as
+/// calling a markdown file created — just harder to spot, because the extension is right.
+/// With no roots recorded the extension test stands alone, so an older index degrades to
+/// the previous behaviour rather than to silence.
+fn covered(rel: &str, roots: &[String]) -> bool {
+    if !is_indexable(rel) {
+        return false;
+    }
+    if roots.is_empty() {
+        return true;
+    }
+    roots
+        .iter()
+        .any(|r| rel == r.as_str() || rel.starts_with(&format!("{r}/")))
+}
+
+/// Last-modified time of the index, or `None` if it cannot be read.
+fn stamp_of(db: &Path) -> Option<std::time::SystemTime> {
+    std::fs::metadata(db).ok()?.modified().ok()
+}
+
 pub fn is_ignored(rel: &str) -> bool {
     rel.split('/').any(|seg| IGNORED_DIRS.contains(&seg))
 }
@@ -312,6 +440,81 @@ mod tests {
         assert!(!is_ignored("srcpy/domains/orders/x.py"));
         // A path merely containing the word is not a match.
         assert!(!is_ignored("srcpy/targeting/x.py"));
+    }
+
+    #[test]
+    fn a_python_file_no_indexer_was_pointed_at_is_not_news() {
+        // Measured on the target repository: 17 `.py` and `.go` files under `tools/` and
+        // `infra/` were reported as `created` for ever, because the extension was right
+        // and nothing checked whether an indexer had ever been aimed there. `verify
+        // --repo` called the same tree clean. A staleness number nobody can act on is the
+        // one people learn to skip past.
+        let roots = vec!["srcpy".to_string(), "srcgo".to_string()];
+        assert!(covered("srcpy/domains/orders/x.py", &roots));
+        assert!(covered("srcgo/cmd/main.go", &roots));
+        assert!(!covered("tools/eval/run_eval.py", &roots));
+        assert!(!covered("infra/sentinel/main.go", &roots));
+        // A directory whose name merely starts the same way is not inside it.
+        assert!(!covered("srcpython/x.py", &roots));
+        // Still not indexable whatever the roots say.
+        assert!(!covered("srcpy/README.md", &roots));
+        // No roots recorded: the extension test stands alone, as it did before.
+        assert!(covered("tools/eval/run_eval.py", &[]));
+    }
+
+    #[test]
+    fn reindexing_under_the_daemon_clears_what_it_made_current() {
+        // The defect this pins: `indexed` was read once at start-up and compared against
+        // forever, so after an edit *and a reindex* `status` still reported the file as
+        // modified while `verify --repo` — which reads the store — reported a clean tree.
+        // Two commands, one fact, disagreeing; the stress harness caught it in the wild.
+        let dir = std::env::temp_dir().join(format!("cairn-reindex-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let file = dir.join("a.py");
+        let db = dir.join("index.sqlite");
+        std::fs::write(&file, "original\n").unwrap();
+        std::fs::write(&db, b"v1").unwrap();
+
+        let t = DirtyTracker::new(
+            &dir,
+            HashMap::from([("a.py".to_string(), hash16(b"original\n"))]),
+        );
+        t.initial_scan();
+
+        // Someone edits the file: correctly dirty.
+        std::fs::write(&file, "changed\n").unwrap();
+        t.recheck("a.py");
+        assert_eq!(t.snapshot().modified, vec!["a.py".to_string()]);
+
+        // Then reindexes. The store now records the new content; the index file's
+        // timestamp is the only signal that reaches the daemon, because `.cairn` is
+        // ignored by the watcher.
+        t.watch_index(
+            &db,
+            Box::new(|| Some(HashMap::from([("a.py".to_string(), hash16(b"changed\n"))]))),
+        );
+        std::fs::write(&db, b"v2").unwrap();
+        filetime_bump(&db);
+
+        assert!(t.refresh_if_reindexed(), "a rebuilt index is news");
+        assert!(
+            t.snapshot().modified.is_empty(),
+            "the file matches the index that was just built, so nothing is stale: {:?}",
+            t.snapshot().modified
+        );
+        // And it does not re-fire on every request once it has caught up.
+        assert!(!t.refresh_if_reindexed(), "an unchanged index is not news");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Push a file's mtime forward so the change is visible whatever the clock's
+    /// resolution. Two writes inside one filesystem tick are indistinguishable otherwise,
+    /// and that is a flaky test rather than a real one.
+    fn filetime_bump(p: &Path) {
+        let later = std::time::SystemTime::now() + Duration::from_secs(2);
+        let f = std::fs::OpenOptions::new().write(true).open(p).unwrap();
+        f.set_times(std::fs::FileTimes::new().set_modified(later))
+            .unwrap();
     }
 
     #[test]
