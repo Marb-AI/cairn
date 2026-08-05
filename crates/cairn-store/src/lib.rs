@@ -44,8 +44,11 @@ pub use deploy::{
 pub use docs::{Document, DocumentRow, Hit, Section, SectionRow};
 pub use graph::{Direction, PathHop, Walk, WalkNode};
 pub use llmverify::{Check, Standing, Verdict};
-pub use protolink::{CrossLink, RpcCaller, ServiceRole};
+pub use protolink::{Chain, ChainHop, CrossLink, RpcCaller, ServiceRole};
 pub use query::{Occurrence, SymbolRow};
+// `SymbolRow::kind` is public and its type was not reachable from this crate, so anything
+// downstream that wanted to build one had to depend on `cairn-scip` for a single name.
+pub use cairn_scip::SymbolKind;
 pub use rules::Rules;
 pub use survey::{OutlineEntry, Unreached, UnreachedSymbol};
 pub use verify::Report;

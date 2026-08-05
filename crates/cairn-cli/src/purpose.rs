@@ -74,7 +74,6 @@ pub fn looks_like_text(subject: &str) -> bool {
                 .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit()))
 }
 
-
 /// `for change`: what a modification to this symbol reaches, assembled.
 ///
 /// Four blocks, and each one is here because a measured run asked for it separately after
@@ -196,6 +195,242 @@ pub fn change(
     }
     for note in radius.suppressed.into_iter().chain(sites.suppressed) {
         env = env.suppressed(note);
+    }
+    Ok((env, rows > 0))
+}
+
+/// `for understand`: what this calls, and where the chain lands.
+///
+/// The mirror of `change`. That one answers inwards — who breaks — and this one answers
+/// outwards, which is the question a reader following a request through a system actually
+/// has. Splitting them that way is not a taxonomy: it is the split the two measured
+/// scenarios fall on, and neither block set is useful for the other's question.
+///
+/// The gap it closes is specific and was mis-diagnosed once. For the endpoint
+/// `get_shared_object`, the first hop is *not* unresolved:
+///
+/// * `graph --aspect calls` shows `AppClients.share` and `ApplicationEnvironment.clients`
+///   — the attribute plumbing — and not the RPC call, because its outward filter drops
+///   generated code (deliberately, and for a good reason: protobuf message types crowded
+///   out the real callees).
+/// * `reaches --outgoing` has the hop exactly.
+///
+/// So the tool held the answer and the agent had to already know which of two commands
+/// hides it. Both blocks are here, in that order, with the chain followed to its end
+/// rather than one hop per round trip.
+pub fn understand(store: &Store, symbol_id: i64, budget: &mut Budget) -> Result<(Envelope, bool)> {
+    use std::fmt::Write;
+    let sym = store
+        .symbol(symbol_id)?
+        .ok_or_else(|| anyhow::anyhow!("handle resolved to a missing symbol"))?;
+
+    let mut body = String::new();
+    let mut rows = 0usize;
+    let mut unknown: Vec<String> = Vec::new();
+
+    // 1. The chain. Depth 4 and 40 hops: the deepest chain in the corpus this was built
+    //    against is 2 and terminates, so the caps exist to bound a codebase that nests
+    //    deeper rather than to trim this one. Both are printed when they bite.
+    let chain = store.rpc_chain(symbol_id, 4, 40)?;
+    if chain.hops.is_empty() {
+        let _ = writeln!(
+            body,
+            "[{}] {} calls nothing across a service boundary  (from `cairn reaches {} \
+             --outgoing`)",
+            sym.handle,
+            sym.qualified(),
+            sym.handle
+        );
+    } else {
+        let depth = chain.hops.iter().map(|h| h.depth).max().unwrap_or(0);
+        let _ = writeln!(
+            body,
+            "[{}] {} — where this lands, {} hop(s) across services, followed to the end",
+            sym.handle,
+            sym.qualified(),
+            depth
+        );
+        for hop in &chain.hops {
+            let where_ = hop
+                .to
+                .symbol
+                .def
+                .as_ref()
+                .map(|d| d.location())
+                .unwrap_or_else(|| "?".to_string());
+            let note = if hop.already_reached {
+                "  (reached above; not followed twice)"
+            } else {
+                ""
+            };
+            let line = format!(
+                "{}{} -> [{}] {}  {}  {}  [{}.{}.{}]{}",
+                "  ".repeat(hop.depth),
+                if hop.depth == 1 {
+                    sym.qualified()
+                } else {
+                    hop.from.qualified()
+                },
+                hop.to.symbol.handle,
+                hop.to.symbol.qualified(),
+                hop.to.symbol.lang.tag(),
+                where_,
+                hop.to.pkg,
+                hop.to.service,
+                hop.to.rpc,
+                note
+            );
+            if budget.push(&mut body, &line) {
+                rows += 1;
+            }
+        }
+        let _ = writeln!(
+            body,
+            "  (from `cairn reaches {} --outgoing`, once per hop)\n",
+            sym.handle
+        );
+        if chain.hops.iter().any(|h| !h.exact) {
+            unknown.push(format!(
+                "the first hop is from a client binding, not from a call that was seen: \
+                 [{}] holds a generated client for that service. `cairn refs {}` is where \
+                 the call sites are, if there are any",
+                sym.handle, sym.handle
+            ));
+        }
+        if !chain.not_followed.is_empty() {
+            unknown.push(format!(
+                "the walk stopped at 4 hops with {} symbol(s) still to ask - {}. Whether \
+                 the chain continues past them was not checked; `cairn reaches <handle> \
+                 --outgoing` on each is the next step",
+                chain.not_followed.len(),
+                chain
+                    .not_followed
+                    .iter()
+                    .map(|s| format!("[{}]", s.handle))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
+        unknown.push(
+            "the handler serving each RPC is matched by the generator's naming convention \
+             (`GetFolder` <-> `get_folder`), so a hop is exact where the convention holds \
+             and blind to a service reached by a hand-written transport or a queue"
+                .to_string(),
+        );
+    }
+
+    // 2. The local calls: the same rows `graph --aspect calls` gives at depth 1. Kept in
+    //    the same answer because the chain says which process the work moves to and this
+    //    says what it does before it goes — and reading one without the other is two
+    //    round trips for one question.
+    let calls = store.walk(
+        symbol_id,
+        cairn_store::EdgeKind::Calls,
+        cairn_store::Direction::Out,
+        1,
+        20,
+        false,
+    )?;
+    let local: Vec<_> = calls
+        .nodes
+        .iter()
+        .filter(|n| n.symbol.id != symbol_id)
+        .collect();
+    if local.is_empty() {
+        let _ = writeln!(
+            body,
+            "calls nothing this index can follow in its own language  (from `cairn graph \
+             {} --aspect calls`)",
+            sym.handle
+        );
+    } else {
+        let _ = writeln!(body, "calls, in its own language:");
+        for node in &local {
+            let at = node
+                .symbol
+                .def
+                .as_ref()
+                .map(|d| d.location())
+                .unwrap_or_else(|| "?".to_string());
+            if budget.push(
+                &mut body,
+                &format!(
+                    "  [{}] {}  {}",
+                    node.symbol.handle,
+                    node.symbol.qualified(),
+                    at
+                ),
+            ) {
+                rows += 1;
+            }
+        }
+        let _ = writeln!(
+            body,
+            "  (from `cairn graph {} --aspect calls`)\n",
+            sym.handle
+        );
+    }
+    if calls.truncated > 0 {
+        unknown.push(format!(
+            "{} more callee(s) than the 20 listed; `cairn graph {} --aspect calls` takes a \
+             wider fanout",
+            calls.truncated, sym.handle
+        ));
+    }
+
+    // 3. Which processes this runs in. One line, and it is the frame the two blocks above
+    //    are read against: "where does this land" means little without "land from where".
+    let (services, via) = store.services_running_attributed(symbol_id, 12)?;
+    if services.is_empty() {
+        let _ = writeln!(
+            body,
+            "no deployed service is known to run this  (from `cairn runs {}`)",
+            sym.handle
+        );
+    } else {
+        let _ = writeln!(
+            body,
+            "runs in: {}  (from `cairn runs {}`)",
+            services.join(", "),
+            sym.handle
+        );
+        // How the service was attributed is part of the claim, not a footnote. A route
+        // handler reached only because its module is imported is a weaker statement than
+        // one on a call path, and the two look identical on the line above.
+        match &via {
+            cairn_store::Attribution::ViaFile => unknown.push(
+                "the service was attributed through the file this code sits in rather \
+                 than through a call path, so it says the module is loaded there, not \
+                 that this is reached from the entrypoint"
+                    .to_string(),
+            ),
+            cairn_store::Attribution::ViaType(t) => unknown.push(format!(
+                "nothing calls this statically; the service was attributed through its \
+                 enclosing type [{}] {}, which is the shape of a method reached from a \
+                 dispatch table",
+                t.handle,
+                t.qualified()
+            )),
+            cairn_store::Attribution::Direct => {}
+        }
+    }
+
+    let mut env = Envelope::new(body).rows(rows);
+    for note in unknown {
+        env = env.unknown(note);
+    }
+    if chain.cut_by_breadth > 0 {
+        env = env.suppressed(format!(
+            "{} hop(s) beyond the 40 printed",
+            chain.cut_by_breadth
+        ));
+    }
+    if !chain.unchecked.is_empty() {
+        env = env.suppressed(format!(
+            "no generated client in the index names the RPCs of {}, so rows for it are \
+             unfiltered and may include private helpers",
+            chain.unchecked.join(", ")
+        ));
     }
     Ok((env, rows > 0))
 }

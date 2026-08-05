@@ -118,43 +118,51 @@ fn every_command_holds_its_contract_across_the_index() {
         all.len()
     );
 
-    // Every read command that takes a handle. `affects` and `runs` are the expensive ones
-    // and are included deliberately: they are where the latency regressions happened.
-    let commands: &[&[&str]] = &[
-        &["refs"],
-        &["usage"],
-        &["expand"],
-        &["graph", "--aspect", "callers"],
-        &["graph", "--aspect", "calls"],
-        &["graph", "--aspect", "tests"],
-        &["reaches"],
-        &["reaches", "--outgoing"],
-        &["runs"],
-        &["affects"],
-        &["weaklinks"],
-        &["links"],
+    // Every read command that takes a handle, as (before the handle, after it). `affects`
+    // and `runs` are the expensive ones and are included deliberately: they are where the
+    // latency regressions happened.
+    //
+    // The pair replaces a flat list that always put the handle straight after the command
+    // word. That shape could not express `for understand <h>`, so the assembled answers —
+    // the ones the guide sends agents to first — were the only commands in the binary the
+    // contract sweep never ran.
+    let commands: &[(&[&str], &[&str])] = &[
+        (&["refs"], &[]),
+        (&["usage"], &[]),
+        (&["expand"], &[]),
+        (&["graph"], &["--aspect", "callers"]),
+        (&["graph"], &["--aspect", "calls"]),
+        (&["graph"], &["--aspect", "tests"]),
+        (&["reaches"], &[]),
+        (&["reaches"], &["--outgoing"]),
+        (&["runs"], &[]),
+        (&["affects"], &[]),
+        (&["weaklinks"], &[]),
+        (&["links"], &[]),
+        (&["for", "change"], &[]),
+        (&["for", "understand"], &[]),
     ];
 
     let mut failures: Vec<String> = Vec::new();
     let mut checked = 0usize;
 
     for handle in &handles {
-        for cmd in commands {
+        for (head, tail) in commands {
             let started = Instant::now();
             let out = Command::new(&bin)
                 .arg("--db")
                 .arg(&db)
-                .arg(cmd[0])
+                .args(*head)
                 .arg(handle)
-                .args(&cmd[1..])
+                .args(*tail)
                 .output()
-                .unwrap_or_else(|e| panic!("running {} {handle}: {e}", cmd[0]));
+                .unwrap_or_else(|e| panic!("running {} {handle}: {e}", head.join(" ")));
             let elapsed = started.elapsed();
             checked += 1;
 
             let stdout = String::from_utf8_lossy(&out.stdout);
             let stderr = String::from_utf8_lossy(&out.stderr);
-            let label = format!("{} {handle} {}", cmd[0], cmd[1..].join(" "));
+            let label = format!("{} {handle} {}", head.join(" "), tail.join(" "));
             let mut say = |problem: String| {
                 failures.push(format!("  {label}: {problem}"));
             };

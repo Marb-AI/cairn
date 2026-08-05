@@ -8,3 +8,6 @@ runs/
 # prompt assembled from a preamble plus SKILL.md at run time.
 armbin/
 arms/cairn_full.md
+
+# Byte-compiled harness modules, produced whenever stress.py is imported rather than run.
+__pycache__/

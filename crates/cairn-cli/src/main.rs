@@ -18,9 +18,9 @@ use std::time::Instant;
 mod docker;
 mod index;
 mod purpose;
-mod treefind;
 mod skill;
 mod track;
+mod treefind;
 
 mod exit {
     pub const FOUND: u8 = 0;
@@ -129,6 +129,14 @@ enum Aspect {
 enum Purpose {
     /// I am going to modify this symbol. What breaks, and how far does it reach?
     Change,
+    /// I am following this through. What does it call, and where does the chain land?
+    ///
+    /// The outward mirror of `change`. The first hop out of a function that talks to
+    /// another service is invisible to `graph --aspect calls`, which drops generated
+    /// code, and exact in `reaches --outgoing` - so the answer existed and knowing which
+    /// command held it was the agent's problem. Here it is one call, followed to the end
+    /// of the chain rather than one hop per round trip.
+    Understand,
     /// Where is this text - a value, a key, a header, a name - and whose line is it?
     Find,
 }
@@ -562,7 +570,12 @@ fn envelope_tail(store: &Store) {
         .coverage(None)
         .map(|c| {
             c.iter()
-                .filter(|a| !matches!(a.state, cairn_store::State::Indexed | cairn_store::State::Verified))
+                .filter(|a| {
+                    !matches!(
+                        a.state,
+                        cairn_store::State::Indexed | cairn_store::State::Verified
+                    )
+                })
                 .map(|a| a.name.clone())
                 .collect()
         })
@@ -1053,130 +1066,47 @@ fn run() -> Result<u8> {
                     // the working directory instead would answer about whatever subtree
                     // the caller happened to stand in.
                     let root = repo
-                        .or_else(|| db.parent().and_then(|d| d.parent()).map(|p| p.to_path_buf()))
+                        .or_else(|| {
+                            db.parent()
+                                .and_then(|d| d.parent())
+                                .map(|p| p.to_path_buf())
+                        })
                         .unwrap_or_else(|| PathBuf::from("."));
                     let (env, found) = purpose::find(&store, &root, &subj, limit, &mut budget)?;
                     emit(env);
                     Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
                 }
-                Purpose::Change => {
-                    // The spoken redirect. It fires before resolution, so the caller is
-                    // told which purpose fits rather than being handed an empty symbol
-                    // search and left to work it out - which is what cost eight calls in
-                    // the run this exists for.
-                    if purpose::looks_like_text(&subj) {
-                        eprintln!(
-                            "cairn: '{subj}' looks like text rather than a symbol. \
-                             `cairn for change` answers about code that a call graph \
-                             reaches; a value, a key or a header lives in files no \
-                             indexer reads. Try `cairn for find \"{subj}\"` - it \
-                             searches the tree and says whose line each hit is."
-                        );
-                        return Ok(exit::ERROR);
-                    }
-                    // Resolved here rather than through `subject`, which bails on a
-                    // miss — so the redirect below could never run. Measured: three runs
-                    // asked `for change` about a function added seconds earlier, got a
-                    // bare failure, and spent two more turns working out that the index
-                    // was stale. The tree knows. Answer from it in the turn that would
-                    // otherwise have been spent failing.
-                    let resolved = match store.resolve_handle(&subj)? {
-                        Some(id) => Some(id),
-                        None => {
-                            let named = store.symbols_named(&subj)?;
-                            match named.len() {
-                                1 => Some(named[0].id),
-                                0 => None,
-                                _ => {
-                                    // A shared name used to cost a whole round trip: the
-                                    // command listed candidates, exited 2, and the arm
-                                    // re-ran with a handle. In every run of every round.
-                                    // So answer instead — for the most-referenced
-                                    // candidate that is not generated, saying so at the
-                                    // top with the others listed. The choice is visible
-                                    // and one copy-paste from being overridden, which is
-                                    // the difference between this and guessing.
-                                    let plausible = purpose::change_candidates(&store, &subj)?;
-                                    match plausible.split_first() {
-                                        Some((best, rest)) => {
-                                            eprintln!(
-                                                "cairn: '{subj}' names {} symbols. Answering \
-                                                 for [{}] {} ({} references, the most of \
-                                                 any); {} generated definition(s) ignored. \
-                                                 Others: {}",
-                                                named.len(),
-                                                best.handle,
-                                                best.qualified(),
-                                                best.ref_count,
-                                                named.len() - plausible.len(),
-                                                if rest.is_empty() {
-                                                    "none".to_string()
-                                                } else {
-                                                    rest.iter()
-                                                        .map(|s| format!(
-                                                            "[{}] {}",
-                                                            s.handle,
-                                                            s.def
-                                                                .as_ref()
-                                                                .map(|d| d.path.clone())
-                                                                .unwrap_or_default()
-                                                        ))
-                                                        .collect::<Vec<_>>()
-                                                        .join(", ")
-                                                }
-                                            );
-                                            Some(best.id)
-                                        }
-                                        // Every candidate is generated, so there is
-                                        // nothing here anyone would edit.
-                                        None => {
-                                            let coverage = store.coverage_summary()?;
-                                            emit(cairn_fmt::symbols(
-                                                &named, &subj, &coverage, true, &mut budget,
-                                            )
-                                            .unknown(format!(
-                                                "every symbol named '{subj}' is in generated \
-                                                 code, which is not edited by hand. Nothing \
-                                                 here is a change you would make"
-                                            )));
-                                            return Ok(exit::ERROR);
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                // Both symbol purposes take the same road to a symbol - the spoken
+                // redirect, the ranked choice for an ambiguous name, the tree fallback
+                // for something the index does not hold - and every one of those steps
+                // is a measured fix, not a nicety. Sharing them is what stops a second
+                // purpose from silently re-earning the round trips the first one paid to
+                // remove.
+                Purpose::Change | Purpose::Understand => {
+                    let root = repo.clone().or_else(|| {
+                        db.parent()
+                            .and_then(|d| d.parent())
+                            .map(|p| p.to_path_buf())
+                    });
+                    let symbol_id = match resolve_for_purpose(
+                        &store,
+                        purpose,
+                        &subj,
+                        root.as_deref(),
+                        limit,
+                        &mut budget,
+                    )? {
+                        Subject::Symbol(id) => id,
+                        Subject::Answered(code) => return Ok(code),
                     };
-                    let Some(symbol_id) = resolved else {
-                        let root = repo
-                            .or_else(|| {
-                                db.parent().and_then(|d| d.parent()).map(|p| p.to_path_buf())
-                            })
-                            .unwrap_or_else(|| PathBuf::from("."));
-                        let (env, found) = purpose::find(&store, &root, &subj, limit, &mut budget)?;
-                        if found {
-                            eprintln!(
-                                "cairn: no symbol '{subj}' in the index, so the graph \
-                                 cannot answer about it - but the working tree contains \
-                                 the text. `for find` ran instead; if this is code you \
-                                 just wrote, that is why."
-                            );
-                            emit(env);
-                            return Ok(exit::FOUND);
+                    let (env, found) = match purpose {
+                        // The repository root, so the call sites can carry their source —
+                        // the block the arm asked for with a second `refs` every time.
+                        Purpose::Change => {
+                            purpose::change(&store, root.as_deref(), symbol_id, &mut budget)?
                         }
-                        eprintln!(
-                            "cairn: nothing called '{subj}' in the index or the working \
-                             tree. Check the spelling, or `cairn symbol {subj}` for a \
-                             partial-name search."
-                        );
-                        return Ok(exit::ERROR);
+                        _ => purpose::understand(&store, symbol_id, &mut budget)?,
                     };
-                    // The repository root, so the call sites can carry their source —
-                    // the block the arm asked for with a second `refs` every time.
-                    let root = repo
-                        .clone()
-                        .or_else(|| db.parent().and_then(|d| d.parent()).map(|p| p.to_path_buf()));
-                    let (env, found) =
-                        purpose::change(&store, root.as_deref(), symbol_id, &mut budget)?;
                     emit(env);
                     Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
                 }
@@ -1719,12 +1649,24 @@ fn run() -> Result<u8> {
             if outgoing {
                 let precise = store.rpc_targets(symbol_id)?;
                 if !precise.is_empty() {
-                    emit(cairn_fmt::rpc_targets(&sym, &precise, &[], true, &mut budget));
+                    emit(cairn_fmt::rpc_targets(
+                        &sym,
+                        &precise,
+                        &[],
+                        true,
+                        &mut budget,
+                    ));
                     return Ok(exit::FOUND);
                 }
                 let (bound, unchecked) = store.rpc_targets_by_binding(symbol_id)?;
                 if !bound.is_empty() {
-                    emit(cairn_fmt::rpc_targets(&sym, &bound, &unchecked, false, &mut budget));
+                    emit(cairn_fmt::rpc_targets(
+                        &sym,
+                        &bound,
+                        &unchecked,
+                        false,
+                        &mut budget,
+                    ));
                     return Ok(exit::FOUND);
                 }
             }
@@ -2227,6 +2169,146 @@ fn make_source(detail: Detail, repo: Option<PathBuf>) -> Result<Option<Source>> 
 /// The cost of this, stated: a command that works today can start printing a list
 /// tomorrow because somebody added a second symbol of that name. That is honest, but it
 /// is a change the caller did not make, and it is the reason handles still exist.
+/// What resolving a `for` subject produced.
+enum Subject {
+    Symbol(i64),
+    /// The caller was already answered - a redirect spoken, a tree search run, or a
+    /// failure explained - and this is the exit code that answer carries.
+    Answered(u8),
+}
+
+/// The road from a `for` subject to a symbol, shared by every purpose that needs one.
+///
+/// Four measured fixes live here, and the reason they are in one function rather than
+/// copied per purpose is that each was worth a round trip when it was missing:
+///
+/// 1. **The spoken redirect**, before resolution. Asked to change a compose variable, one
+///    run spent eight calls across four symbol commands on a thing no symbol command
+///    answers. Saying so costs nothing and names the purpose that fits.
+/// 2. **Resolution inline** rather than through `subject`, which bails on a miss and so
+///    could never reach the fallback below.
+/// 3. **A ranked choice for an ambiguous name.** Listing candidates and exiting 2 cost a
+///    whole turn in every run of every round; answering for the most-referenced
+///    non-generated candidate, with the choice and the alternatives printed, costs none
+///    and is one copy-paste from being overridden.
+/// 4. **The tree fallback.** Three runs asked about a function written seconds earlier,
+///    got a bare failure, and spent two turns discovering the index was stale. The tree
+///    knows, so it answers in the turn that would have been spent failing.
+fn resolve_for_purpose(
+    store: &Store,
+    purpose: Purpose,
+    subj: &str,
+    root: Option<&Path>,
+    limit: usize,
+    budget: &mut Budget,
+) -> Result<Subject> {
+    let cmd = match purpose {
+        Purpose::Change => "for change",
+        Purpose::Understand => "for understand",
+        Purpose::Find => "for find",
+    };
+    if purpose::looks_like_text(subj) {
+        eprintln!(
+            "cairn: '{subj}' looks like text rather than a symbol. `cairn {cmd}` answers \
+             about code that a call graph reaches; a value, a key or a header lives in \
+             files no indexer reads. Try `cairn for find \"{subj}\"` - it searches the \
+             tree and says whose line each hit is."
+        );
+        return Ok(Subject::Answered(exit::ERROR));
+    }
+    let resolved = match store.resolve_handle(subj)? {
+        Some(id) => Some(id),
+        None => {
+            let named = store.symbols_named(subj)?;
+            match named.len() {
+                1 => Some(named[0].id),
+                0 => None,
+                _ => {
+                    let plausible = purpose::change_candidates(store, subj)?;
+                    match plausible.split_first() {
+                        Some((best, rest)) => {
+                            eprintln!(
+                                "cairn: '{subj}' names {} symbols. Answering for [{}] {} \
+                                 ({} references, the most of any); {} generated \
+                                 definition(s) ignored. Others: {}",
+                                named.len(),
+                                best.handle,
+                                best.qualified(),
+                                best.ref_count,
+                                named.len() - plausible.len(),
+                                if rest.is_empty() {
+                                    "none".to_string()
+                                } else {
+                                    rest.iter()
+                                        .map(|s| {
+                                            format!(
+                                                "[{}] {}",
+                                                s.handle,
+                                                s.def
+                                                    .as_ref()
+                                                    .map(|d| d.path.clone())
+                                                    .unwrap_or_default()
+                                            )
+                                        })
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                }
+                            );
+                            Some(best.id)
+                        }
+                        // Every candidate is generated. For `change` that means nothing
+                        // here is a change anyone would make; for `understand` it means
+                        // the chain would be read off a stub rather than off the code
+                        // that uses it. Different sentence, same dead end.
+                        None => {
+                            let coverage = store.coverage_summary()?;
+                            let why = match purpose {
+                                Purpose::Change => format!(
+                                    "every symbol named '{subj}' is in generated code, \
+                                     which is not edited by hand. Nothing here is a \
+                                     change you would make"
+                                ),
+                                _ => format!(
+                                    "every symbol named '{subj}' is in generated code. \
+                                     Following a chain from a stub says what the \
+                                     generator wired up, not what this codebase does \
+                                     with it - ask about the code that calls it"
+                                ),
+                            };
+                            emit(
+                                cairn_fmt::symbols(&named, subj, &coverage, true, budget)
+                                    .unknown(why),
+                            );
+                            return Ok(Subject::Answered(exit::ERROR));
+                        }
+                    }
+                }
+            }
+        }
+    };
+    if let Some(id) = resolved {
+        return Ok(Subject::Symbol(id));
+    }
+    let root = root
+        .map(|r| r.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."));
+    let (env, found) = purpose::find(store, &root, subj, limit, budget)?;
+    if found {
+        eprintln!(
+            "cairn: no symbol '{subj}' in the index, so the graph cannot answer about it \
+             - but the working tree contains the text. `for find` ran instead; if this is \
+             code you just wrote, that is why."
+        );
+        emit(env);
+        return Ok(Subject::Answered(exit::FOUND));
+    }
+    eprintln!(
+        "cairn: nothing called '{subj}' in the index or the working tree. Check the \
+         spelling, or `cairn symbol {subj}` for a partial-name search."
+    );
+    Ok(Subject::Answered(exit::ERROR))
+}
+
 fn subject(store: &Store, given: &str, cli_budget: Option<usize>) -> Result<Option<i64>> {
     if let Some(id) = store.resolve_handle(given)? {
         return Ok(Some(id));

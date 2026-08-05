@@ -434,3 +434,79 @@ ratio.
 - **Answers getting longer without getting better.** Four blocks in one call is more output
   per turn; if the arms start reading past it or missing what is in it, the assembly is
   cheaper to run and dearer to use.
+
+
+---
+
+# Round six: `for understand`, the chain question — pre-registered 2026-08-05
+
+## The gap this is aimed at, restated because the previous note was wrong
+
+Round five predicted scenario 4 would stay at 9 because "the first hop is still an
+attribute call the index cannot resolve". It went to 7, and the reason it was wrong is
+worth writing down: **the first hop is not unresolved. It is resolved on one surface and
+hidden on another.**
+
+For `get_shared_object` in `srcpy/domains/assistant/api/endpoints.py`:
+
+- `cairn graph fsw --aspect calls` shows `AppClients.share`, `env` and
+  `ApplicationEnvironment.clients` — the attribute chain — and **not** the RPC call. The
+  stub it lands on lives in generated code, which that command suppresses.
+- `cairn reaches fsw --outgoing` shows the hop exactly:
+  `shareService.GetSharedObject` in `srcgo/.../resttransform/share.go:32`.
+
+So the tool holds the answer and the agent has to already know which of two commands is
+the one that does not hide it. That is precisely the failure `for` exists for: the purpose
+("follow this through") is stated reliably, and the mechanism is chosen badly.
+
+Walked by hand, the whole of scenario 4 is **two hops and it terminates**:
+`fsw` → `3yv4` (Go) → `6apf`, `4dm`, `4c7` (Python), all three of which have no outgoing
+targets. The answer is one transitive walk, and the arm currently pays a turn per hop plus
+the turns spent finding out which command to use.
+
+## What is built
+
+`cairn for understand <symbol>` — three blocks, one call, each naming its mechanism:
+
+1. **Where the chain goes**, followed transitively across gRPC hops rather than one hop per
+   call. Depth-capped and cycle-guarded, and the cap is *printed* when it bites.
+2. **What it calls in its own language**, depth 1, generated code excluded — the block
+   `graph --aspect calls` gives, kept so the local reading is in the same answer.
+3. **Which deployed services run it**, one line.
+
+It shares `for change`'s subject resolution: the spoken text redirect, the tree fallback
+for a symbol the index does not hold, and the ranked choice for an ambiguous name.
+
+## Predictions
+
+| # | grep | r5 | predicted | why |
+|---|---|---|---|---|
+| 4 | 10 | 7 | **3** | the chain is one call; the turns left are reading the two files |
+| 3 | 8 | 1 | 1 | already one command, and not a `for` question |
+| 6 | 15 | 1 | 1 | unchanged |
+| 1 | 4 | 2 | 2 | unchanged |
+| 7 | 4 | 3 | 3 | unchanged |
+| 9 | 3 | 1 | 1 | unchanged |
+| 2 | 7 | 10 | **unresolved** | 7 runs needed for ±1; not claimed from 3 |
+| 5 | 14 | 8 | **unresolved** | 13 runs needed for ±1; not claimed from 3 |
+| 8 | 4 | not run | 1 | unchanged, and owed a run |
+| 10 | 5 | not run | 3 | unchanged, and owed a run |
+
+**No total is predicted.** Two of the ten cannot be resolved by three-run medians — that
+is measured, in the bootstrap section of `RESULTS.md` — so a sum over all ten would be a
+number with two unknowns folded silently into it. The claim is about scenario 4 alone.
+
+## What would falsify it
+
+- **Scenario 4 not reaching 4 or better.** Then the chain was never what those turns were
+  spent on, and the diagnosis above is wrong the way round five's was.
+- **The transitive walk naming a handler that is not on the path.** The last hop is matched
+  by the generator's naming convention, so breadth at depth 2 multiplies whatever the
+  convention gets wrong. A wrong row here is worse than a missing one: it is a chain the
+  reader will believe. Rows get graded, not counted.
+- **The walk being slower than the per-hop calls it replaces.** It is *n* queries where
+  `reaches --outgoing` is one. `tests/sweep.rs` holds the latency line; if it fails, the
+  trade has to be stated rather than assumed.
+- **Scenario 1 or 7 regressing.** Neither is an `understand` question. If they move,
+  something changed in the shared resolution path and the attribution is not what this
+  section claims.

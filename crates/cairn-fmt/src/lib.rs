@@ -1406,9 +1406,17 @@ pub fn rpc_targets(
         "[{}] {} — {} {} handler(s) across gRPC        [L1, {}]",
         sym.handle,
         sym.qualified(),
-        if from_call_sites { "calls" } else { "can reach" },
+        if from_call_sites {
+            "calls"
+        } else {
+            "can reach"
+        },
         targets.len(),
-        if from_call_sites { "convention" } else { "convention, by client binding" }
+        if from_call_sites {
+            "convention"
+        } else {
+            "convention, by client binding"
+        }
     );
     let _ = writeln!(
         body,
@@ -1428,7 +1436,11 @@ pub fn rpc_targets(
             .symbol
             .def
             .as_ref()
-            .map(|d| format!("{}:{}", d.path, d.line))
+            // `location()`, not `path:line`. SCIP lines are 0-based and every other
+            // command in this binary prints the 1-based number an editor uses; this one
+            // did not, so `reaches X --outgoing` and `reaches X` named the same
+            // definition one line apart. Found by building `for understand` on top of it.
+            .map(|d| d.location())
             .unwrap_or_default();
         if !budget.push(
             &mut body,
@@ -2278,10 +2290,8 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
         // when one of them is the share endpoint and lives in share.go. A row of this
         // answer is a place to go and look, so a row that names a file the call is not in
         // is worse than an extra row.
-        let mut groups: std::collections::BTreeMap<
-            (String, String, String, String),
-            Vec<String>,
-        > = std::collections::BTreeMap::new();
+        let mut groups: std::collections::BTreeMap<(String, String, String, String), Vec<String>> =
+            std::collections::BTreeMap::new();
         for h in &a.hops {
             let from = if h.from.is_empty() {
                 "(starts nothing)".to_string()
@@ -2569,6 +2579,48 @@ mod tests {
         assert!(out.contains("suppressed: none"));
         assert!(out.contains("unknown: none"));
         assert!(out.contains("stale: none"));
+    }
+
+    #[test]
+    fn a_definition_is_printed_where_an_editor_would_open_it() {
+        // SCIP counts lines from 0 and this binary prints from 1 everywhere else, so a
+        // renderer that formats `path:line` by hand is off by one against every other
+        // command. `reaches X --outgoing` was: it named a handler one line above its own
+        // `func` keyword, while `reaches X` on the same symbol named it correctly. The
+        // two directions of one command disagreed about one fact.
+        let sym = cairn_store::SymbolRow {
+            id: 1,
+            handle: "abc".into(),
+            name: "GetSharedObject".into(),
+            container: Some("shareService#".into()),
+            module: None,
+            kind: cairn_store::SymbolKind::Method,
+            lang: cairn_store::Lang::Go,
+            def: Some(cairn_store::Occurrence {
+                path: "srcgo/share.go".into(),
+                line: 32,
+                col_start: 0,
+                col_end: 0,
+                role: 1,
+                generated: false,
+                gen_via: cairn_store::GeneratedVia::No,
+                enclosing: None,
+            }),
+            def_end_line: None,
+            ref_count: 0,
+        };
+        let target = cairn_store::RpcCaller {
+            pkg: "assistant_api".into(),
+            service: "ShareService".into(),
+            rpc: "GetSharedObject".into(),
+            symbol: sym.clone(),
+        };
+        let mut b = Budget::unlimited();
+        let out = rpc_targets(&sym, std::slice::from_ref(&target), &[], true, &mut b).render();
+        assert!(
+            out.contains("srcgo/share.go:33"),
+            "the 0-based SCIP line reached the page: {out}"
+        );
     }
 
     #[test]

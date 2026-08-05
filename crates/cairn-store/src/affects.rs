@@ -451,7 +451,10 @@ mod tests {
             .execute("DELETE FROM service_links WHERE symbol_id = ?1", [ty])
             .unwrap();
         let handlers = store.rpc_handler_methods().unwrap();
-        assert!(handlers.is_empty(), "nothing is served, so nothing is a handler");
+        assert!(
+            handlers.is_empty(),
+            "nothing is served, so nothing is a handler"
+        );
         assert!(store.own_handler_members(ty, &handlers).unwrap().is_empty());
     }
 

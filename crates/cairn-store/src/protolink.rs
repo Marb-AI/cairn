@@ -26,7 +26,7 @@
 //! engine exists. It is written out longhand for now, in one file, so the boundary
 //! stays visible.
 
-use crate::Store;
+use crate::{Store, SymbolRow};
 use anyhow::Result;
 use rusqlite::params;
 
@@ -246,6 +246,24 @@ impl Store {
                    FROM symbols art
                    JOIN symbols field ON field.name_id = art.name_id AND field.id <> art.id
                    JOIN files ff ON ff.id = field.def_file_id AND ff.generated = 0
+                   -- The artefact must actually be *referenced* on the field's own line.
+                   --
+                   -- Matching the embedded field to the artefact by name alone bound a
+                   -- struct to every package that spells the interface the same way, and
+                   -- both `assistant_api` and `assistant_fe` declare
+                   -- `EstateServiceServer`. So all nineteen Go proxy handlers - which
+                   -- embed the `_fe` interface and are *clients* of the `_api` service -
+                   -- were recorded as serving the very service they call. That inverts
+                   -- the direction of a whole tier, and `reaches` then reported callers
+                   -- across a boundary for two symbols inside one process.
+                   --
+                   -- The occurrence carries the resolved symbol, so it tells the two
+                   -- apart where the name cannot. Measured on the target repo: 119 embed
+                   -- links to 100, all 19 dropped being this collision, and no type left
+                   -- without a binding - the failure that would be worse than the bug.
+                   JOIN occurrences o ON o.symbol_id = art.id
+                                     AND o.file_id = field.def_file_id
+                                     AND o.line = field.def_line
                    JOIN strings c ON c.id = field.container_id
                    JOIN symbols t ON t.def_file_id = field.def_file_id AND t.kind = 1
                    JOIN strings tn ON tn.id = t.name_id
@@ -710,10 +728,7 @@ impl Store {
     /// registered as a client of. The claim is weaker — it says this code holds a client
     /// for that service, not that a call was seen — and the caller labels it as such
     /// rather than the shape doing it silently.
-    pub fn rpc_targets_by_binding(
-        &self,
-        symbol_id: i64,
-    ) -> Result<(Vec<RpcCaller>, Vec<String>)> {
+    pub fn rpc_targets_by_binding(&self, symbol_id: i64) -> Result<(Vec<RpcCaller>, Vec<String>)> {
         let mut stmt = self.conn.prepare(
             r#"
             SELECT DISTINCT ps.pkg, ps.name, hm_name.s, rpc_name.s, hm.id
@@ -815,6 +830,112 @@ impl Store {
     }
 }
 
+/// One service hop: where it leaves from, where it lands, and how strong the claim is.
+#[derive(Debug, Clone)]
+pub struct ChainHop {
+    /// The symbol on the near side of this hop.
+    pub from: SymbolRow,
+    /// Where it lands, and the RPC that carried it.
+    pub to: RpcCaller,
+    /// Hops from the root. The first is 1.
+    pub depth: usize,
+    /// True when the hop came from a call edge that was actually observed, false when it
+    /// came from a client binding — which says this code holds a client for that service,
+    /// not that a call was seen.
+    pub exact: bool,
+    /// This target was already reached by an earlier route, so it is shown and not walked
+    /// again. Without the flag a reader takes a silently truncated branch for a leaf.
+    pub already_reached: bool,
+}
+
+/// A chain of service hops, with everything the walk did not do said out loud.
+#[derive(Debug, Clone, Default)]
+pub struct Chain {
+    pub hops: Vec<ChainHop>,
+    /// Symbols the depth cap stopped the walk at. Stated as "not asked" rather than "cut
+    /// off": whether they would have answered is exactly what was not checked, and
+    /// claiming a branch continues is as wrong as letting the reader assume it ended.
+    pub not_followed: Vec<SymbolRow>,
+    /// Hops dropped because the total cap bit.
+    pub cut_by_breadth: usize,
+    /// Services the binding fallback could not check its rows against.
+    pub unchecked: Vec<String>,
+}
+
+impl Store {
+    /// Follow the outgoing service hops as far as they go, rather than one per call.
+    ///
+    /// `rpc_targets` answers one hop. The chain question — "where does this land" — is
+    /// almost never one hop, and the measured cost of that mismatch is a round trip per
+    /// hop *plus* the turns spent working out which command does not hide the first one:
+    /// `graph --aspect calls` suppresses generated code, so the call into the stub is
+    /// invisible there while `reaches --outgoing` has it exactly.
+    ///
+    /// Two bounds, and both are reported rather than applied quietly:
+    ///
+    /// * **Depth.** Symbols the cap stopped at are returned in `not_followed`, because a
+    ///   branch that stopped and a branch that ended look identical on the page otherwise.
+    /// * **Breadth.** The last hop is matched by the generator's naming convention, so
+    ///   whatever the convention over-matches is multiplied at every level below it.
+    ///
+    /// The binding fallback runs at the root only. Deeper down it would turn one symbol
+    /// that merely *holds* a client into every handler of that service, and a weak claim
+    /// compounded three levels deep is a chain a reader would believe and should not.
+    pub fn rpc_chain(&self, root: i64, max_depth: usize, max_hops: usize) -> Result<Chain> {
+        let mut chain = Chain::default();
+        let mut seen: std::collections::HashSet<i64> = std::collections::HashSet::from([root]);
+        let mut frontier = vec![root];
+
+        for depth in 1..=max_depth {
+            let mut next = Vec::new();
+            for &from_id in &frontier {
+                let Some(from) = self.symbol(from_id)? else {
+                    continue;
+                };
+                let mut exact = true;
+                let mut targets = self.rpc_targets(from_id)?;
+                if targets.is_empty() && depth == 1 {
+                    let (bound, unchecked) = self.rpc_targets_by_binding(from_id)?;
+                    targets = bound;
+                    exact = false;
+                    chain.unchecked = unchecked;
+                }
+                for to in targets {
+                    if chain.hops.len() >= max_hops {
+                        chain.cut_by_breadth += 1;
+                        continue;
+                    }
+                    let already_reached = !seen.insert(to.symbol.id);
+                    if !already_reached {
+                        next.push(to.symbol.id);
+                    }
+                    chain.hops.push(ChainHop {
+                        from: from.clone(),
+                        to,
+                        depth,
+                        exact,
+                        already_reached,
+                    });
+                }
+            }
+            if next.is_empty() {
+                return Ok(chain);
+            }
+            // The symbols still on the frontier when the cap bites are the ones whose own
+            // targets were never asked for.
+            if depth == max_depth {
+                for id in &next {
+                    if let Some(sym) = self.symbol(*id)? {
+                        chain.not_followed.push(sym);
+                    }
+                }
+            }
+            frontier = next;
+        }
+        Ok(chain)
+    }
+}
+
 fn same_rpc(a: &str, b: &str) -> bool {
     let norm = |s: &str| -> String {
         s.chars()
@@ -831,6 +952,86 @@ mod tests {
 
     fn c(name: &str) -> Option<(String, ServiceRole)> {
         classify(name)
+    }
+
+    /// A Go struct embedding `<pkg_a>.EstateServiceServer`, with `<pkg_b>` declaring an
+    /// interface of exactly the same name. The shape of the whole proxy tier in the
+    /// target repository.
+    #[test]
+    fn embedding_one_packages_server_does_not_serve_another_packages_namesake() {
+        let mut store = Store::open_in_memory().unwrap();
+        let c = &store.conn;
+        let sid = |s: &str| -> i64 {
+            c.query_row(
+                "INSERT INTO strings(s) VALUES (?1) ON CONFLICT(s) DO UPDATE SET s = excluded.s
+                 RETURNING id",
+                params![s],
+                |r| r.get(0),
+            )
+            .unwrap()
+        };
+        let file = |path: &str, generated: i64| -> i64 {
+            c.execute(
+                "INSERT INTO files(path_id, lang, generated) VALUES (?1, 2, ?2)",
+                params![sid(path), generated],
+            )
+            .unwrap();
+            c.last_insert_rowid()
+        };
+        let add =
+            |name: &str, kind: i64, f: i64, line: i64, container: Option<i64>, h: u8| -> i64 {
+                c.execute(
+                    "INSERT INTO symbols(hash, name_id, kind, lang, ref_count, def_file_id,
+                                     def_line, container_id, container_leaf_id)
+                 VALUES (?1, ?2, ?3, 2, 0, ?4, ?5, ?6, ?6)",
+                    params![vec![h; 16], sid(name), kind, f, line, container],
+                )
+                .unwrap();
+                c.last_insert_rowid()
+            };
+
+        // The two generated interfaces, same name, different proto packages.
+        let fe = file("srcgo/schema/assistant_fe/service_estate_grpc.pb.go", 1);
+        let api = file("srcgo/schema/assistant_api/service_estate_grpc.pb.go", 1);
+        let art_fe = add("EstateServiceServer", 1, fe, 10, None, 1);
+        add("EstateServiceServer", 1, api, 10, None, 2);
+
+        // The hand-written proxy: `type estateService struct { assistant_fe.EstateServiceServer }`
+        let hand = file("srcgo/domains/assistant/grpc/resttransform/estate.go", 0);
+        let owner = sid("`x/resttransform`/estateService#");
+        add("estateService", 1, hand, 15, None, 3);
+        add("EstateServiceServer", 2, hand, 16, Some(owner), 4);
+        // Only the `_fe` interface is referenced on the embedding line. This occurrence is
+        // the entire difference between the two packages, and matching by name ignored it.
+        c.execute(
+            "INSERT INTO occurrences(file_id, symbol_id, line, col_start, col_end, role)
+             VALUES (?1, ?2, 16, 1, 2, 8)",
+            params![hand, art_fe],
+        )
+        .unwrap();
+
+        store.link_services().unwrap();
+        let served: Vec<String> = store
+            .conn
+            .prepare(
+                "SELECT ps.pkg FROM service_links l
+                   JOIN proto_services ps ON ps.id = l.service_id
+                   JOIN symbols s ON s.id = l.symbol_id
+                   JOIN strings n ON n.id = s.name_id
+                  WHERE l.role = 0 AND n.s = 'estateService'",
+            )
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert_eq!(
+            served,
+            vec!["assistant_fe".to_string()],
+            "the struct embeds only the _fe interface; binding it to the _api service of \
+             the same name makes the proxy a server of the service it is a client of, and \
+             `reaches` then reports callers across a boundary for two symbols in one process"
+        );
     }
 
     #[test]

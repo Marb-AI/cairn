@@ -15,6 +15,11 @@ cairn for change <symbol>    I am going to modify this. What breaks, and how far
                              does it reach? One call: the call sites you would have
                              to edit (tests included) and every deployed service the
                              change touches.
+cairn for understand <symbol>
+                             I am following this through. What does it call, and
+                             where does the chain land? One call: the service hops
+                             followed to the END, not one per hop, plus what it calls
+                             in its own language and which services run it.
 cairn for find "<text>"      Where is this text - a value, a key, a header, a name -
                              and whose line is each hit? Searches the **working tree**,
                              so it covers YAML, .env, proto, SQL, markdown, anything,
@@ -39,8 +44,8 @@ calls and keeps going — a `graph` to see it another way, a `weaklinks` to be s
 In the next, moving this section further down the page cost two scenarios their win, which
 is why it now sits above everything else.
 
-- **One command per question, then answer it.** `for change`, `for find`, `affects`,
-  `unreached`, `reaches`, `outline` and `entrypoints` are already the whole answer.
+- **One command per question, then answer it.** `for change`, `for understand`, `for find`,
+  `affects`, `unreached`, `outline` and `entrypoints` are already the whole answer.
 - **A second query has to be able to change your answer.** If you cannot say what result
   would make you write something different, do not run it.
 - **Confirm only what the envelope calls uncertain.** `[L1, convention]`, `[L1-W,
@@ -56,14 +61,20 @@ is why it now sits above everything else.
 **This is about repetition, not depth.** Measured after the rule was first added: an agent
 asked where a chain lands stopped at the first hop, which is a *worse* answer than before
 the rule existed. A chain question is not answered until the chain ends, and a branching
-handler is not followed until every branch is. `path <a> <b> --detail body` gives the whole
-chain and every hop's source in one call — depth without round trips. What you must not do
-is ask the *same* question a second way.
+handler is not followed until every branch is. Two commands give depth without round trips:
+`for understand <h>` follows service hops to the end, and `path <a> <b> --detail body`
+gives a whole call chain with every hop's source. What you must not do is ask the *same*
+question a second way.
 
 ## Which one to reach for
 
-- **how code connects** — who calls this, what breaks, what production never reaches,
-  which tests cover it, how A gets to B → `for change`, or the mechanisms below
+- **what a change breaks** — call sites to edit, tests, every deployed service it touches
+  → `for change`
+- **where a request goes** — what this calls, which service serves it, where that lands, to
+  the end of the chain → `for understand`. The first hop out to another service is
+  invisible to `graph --aspect calls`, which drops generated code; this is where it is
+- **how code connects otherwise** — what production never reaches, which tests cover it,
+  how A gets to B → the mechanisms below
 - **where any text is** — a value, a key, a header, a port, a literal, in any file type →
   `for find`. Not grep: it carries the attribution grep cannot
 - **the map of a document** → `cairn docs`. Grep gives you a line in a seven-thousand-word
@@ -113,8 +124,8 @@ cairn reaches <h> [--outgoing]   who reaches it ACROSS a gRPC boundary, in the o
                                  language. grep cannot answer this at all: the two
                                  sides share no identifier. Ask it about the handler
                                  CLASS for every RPC it serves with the callers of each,
-                                 or a METHOD for just that one. Chains of services need
-                                 one call per hop
+                                 or a METHOD for just that one. One hop - for the whole
+                                 chain outward use `for understand`
 cairn expand <h> --detail body --repo <dir>
 
 cairn affects <h>                EVERY deployed service a change here touches: in-process,

@@ -62,6 +62,22 @@ def sample(db, n):
                              JOIN files f ON f.id = s.def_file_id AND f.generated = 0
                             WHERE s.lang = 2 AND s.kind = 3 AND s.ref_count > 2
                             ORDER BY h.handle""",
+        # Symbols that actually call across a service boundary. Added after a binary with
+        # a deliberately re-injected defect ran the whole file and reported nothing: the
+        # three strata above select on reference count, and the code that starts a chain
+        # is typically a route handler nothing calls. Every cross-boundary check was
+        # running on symbols that cross no boundary, which is a check that cannot fail.
+        "chain starts": """SELECT DISTINCT h.handle FROM edges e
+                             JOIN symbols rpc ON rpc.id = e.dst_symbol
+                             JOIN symbols art ON art.def_file_id = rpc.def_file_id
+                                             AND art.id <> rpc.id
+                                             AND rpc.container_leaf_id = art.name_id
+                                             AND art.kind = 1
+                             JOIN service_links t ON t.via_symbol = art.id AND t.role = 1
+                             JOIN symbols s ON s.id = e.src_symbol
+                             JOIN files f ON f.id = s.def_file_id AND f.generated = 0
+                             JOIN handles h ON h.symbol_id = s.id
+                            WHERE e.kind = 0 ORDER BY h.handle""",
     }
     rng = random.Random(20260805)
     for label, q in strata.items():
@@ -69,6 +85,28 @@ def sample(db, n):
         take = rows if len(rows) <= n else rng.sample(rows, n)
         picks.extend((label, h) for h in sorted(take))
     return picks
+
+
+def shared_names(db, n):
+    """Names carried by more than one non-generated symbol, deterministically sampled.
+
+    The ambiguity path is the one place `for` decides something on the caller's behalf, so
+    it is the one place two purposes can quietly answer about different code. A name that
+    only ever means one thing exercises none of it."""
+    c = sqlite3.connect(db)
+    rows = [
+        r[0]
+        for r in c.execute(
+            """SELECT n.s FROM symbols s
+                 JOIN strings n ON n.id = s.name_id
+                 JOIN files f ON f.id = s.def_file_id AND f.generated = 0
+                WHERE s.kind = 3
+                GROUP BY n.s HAVING count(DISTINCT s.id) > 1
+                ORDER BY n.s"""
+        )
+    ]
+    rng = random.Random(20260805)
+    return sorted(rows if len(rows) <= n else rng.sample(rows, n))
 
 
 def services_in(text):
@@ -149,9 +187,16 @@ def check_reaches_symmetry(db, handle, f, generated):
     * The return trip may name the type or any of its members. `reaches <type>` answers for
       every RPC the type serves; `--outgoing` answers with the method that serves the one
       RPC being called. A method of the type is the same answer at a finer grain.
+    * **When the answer says it was given for the enclosing type, the family is that
+      type's.** A service binding names the handler, not each of its methods, so asked
+      about one method the incoming direction says so on the page and answers for the
+      whole type. The outgoing direction then comes back with a *sibling* — and for an
+      unexported helper like Go's `websocket.streamAgentChat`, which is no RPC at all,
+      the sibling is the only honest answer there is. Reading the line the tool prints is
+      the difference between checking the contract and inventing a stronger one.
 
-    Between them those two accounted for every hit the first version reported. An invariant
-    that is too strong does not find defects, it manufactures them.
+    Between them those three accounted for every hit this check has ever reported. An
+    invariant that is too strong does not find defects, it manufactures them.
     """
     if handle in generated:
         return
@@ -159,6 +204,11 @@ def check_reaches_symmetry(db, handle, f, generated):
     if code != 0:
         return
     family = members_of(db, handle) | {handle}
+    # `answered for the enclosing type [uv7] websocket: ...`
+    for line in out.splitlines():
+        if line.strip().startswith("answered for the enclosing type ["):
+            owner = line.split("[", 1)[1].split("]", 1)[0]
+            family |= members_of(db, owner) | {owner}
     for caller in handles_in(out) - {handle}:
         c2, out2, _ = run(db, "reaches", caller, "--outgoing")
         if c2 == 0 and handles_in(out2) & family:
@@ -283,6 +333,18 @@ ENVELOPE_COMMANDS = [
 ]
 
 
+def first_handle(db):
+    """Any real symbol, chosen the same way on every run. The envelope check needs a
+    subject that resolves and does not care which one it is."""
+    c = sqlite3.connect(db)
+    row = c.execute(
+        "SELECT h.handle FROM symbols s JOIN handles h ON h.symbol_id = s.id "
+        "JOIN files f ON f.id = s.def_file_id AND f.generated = 0 "
+        "WHERE s.kind = 3 ORDER BY h.handle LIMIT 1"
+    ).fetchone()
+    return row[0] if row else "x"
+
+
 def check_envelope_and_exit_codes(db, repo, f):
     """Contract, from the agent guide: every answer ends with `unknown:` / `suppressed:` /
     `stale:`, and exit codes are 0 found, 1 nothing, 2 bad query, 3 degraded.
@@ -290,7 +352,15 @@ def check_envelope_and_exit_codes(db, repo, f):
     An answer without its envelope is the failure this project exists to prevent — a list
     that looks complete because nothing said otherwise. An exit code outside the contract
     is worse, because the caller acts on it without reading anything."""
-    for cmd in ENVELOPE_COMMANDS + [["for", "find", "Kontomatik", "--repo", repo]]:
+    for cmd in ENVELOPE_COMMANDS + [
+        ["for", "find", "Kontomatik", "--repo", repo],
+        # The assembled answers too, and by handle so they resolve on any corpus. One
+        # command was already found missing two thirds of its own envelope; the ones that
+        # fuse several blocks are where a missing line is least likely to be noticed by
+        # eye, because there is so much else on the page.
+        ["for", "understand", first_handle(db)],
+        ["for", "change", first_handle(db)],
+    ]:
         code, out, err = run(db, *cmd)
         label = "cairn " + " ".join(cmd)
         if code not in (0, 1, 2, 3):
@@ -470,6 +540,182 @@ def check_handles_resolve(db, handle, f):
             return
 
 
+def chain_hops(text):
+    """The hops `for understand` printed, as (depth, handle).
+
+    Depth is the indent: two spaces per hop, which is the only thing on the page that
+    says whether a row is the first hop or the fourth."""
+    out = []
+    for line in text.splitlines():
+        if " -> [" not in line:
+            continue
+        indent = len(line) - len(line.lstrip(" "))
+        handle = line.split(" -> [", 1)[1].split("]", 1)[0]
+        out.append((indent // 2, handle))
+    return out
+
+
+def check_understand_matches_its_own_citation(db, handle, f):
+    """Contract, from the tool's own first rule: "every block names the command that
+    produced it". `for understand` cites `cairn reaches <h> --outgoing`, so its first hop
+    must be that command's answer — not a superset, not a subset.
+
+    This is the check a fused answer needs and a mechanism does not. Every block cairn
+    assembles is a claim that running the named command would give you the same rows, and
+    an assembly that quietly diverges from its citation is worse than one that never cited
+    anything: it tells the reader where to look and then disagrees with what they find.
+    """
+    uc, uout, _ = run(db, "for", "understand", handle)
+    rc, rout, _ = run(db, "reaches", handle, "--outgoing")
+    if uc not in (0, 1) or rc not in (0, 1):
+        return
+    first = {h for depth, h in chain_hops(uout) if depth == 1}
+    cited = handles_in(rout) - {handle}
+    if first != cited:
+        f.note(
+            "for understand disagrees with the command it cites",
+            handle,
+            f"first hop is {sorted(first)}, `reaches --outgoing` says {sorted(cited)}",
+            f"cairn for understand {handle}; cairn reaches {handle} --outgoing",
+        )
+
+
+def check_the_chain_was_followed_to_where_it_says(db, handle, f):
+    """`for understand` claims the chain is "followed to the end". So for every hop it
+    prints, that target's own outgoing targets must appear too — unless the answer said
+    it stopped, which it does in `unknown:` when the depth cap bites.
+
+    A walk that drops a branch silently is the exact failure the transitive form was built
+    to remove: one call that looks complete and is not is worse than four calls that each
+    admit their scope.
+    """
+    code, out, _ = run(db, "for", "understand", handle)
+    if code not in (0, 1):
+        return
+    hops = chain_hops(out)
+    if not hops:
+        return
+    if "the walk stopped at" in out:
+        return
+    printed = {h for _, h in hops}
+    for depth, target in hops:
+        # Only the levels the walk actually continued past; the deepest row's children
+        # are what the cap would have cut, and the guard above covers that case.
+        if depth >= 4:
+            continue
+        tc, tout, _ = run(db, "reaches", target, "--outgoing")
+        if tc != 0:
+            continue
+        missing = (handles_in(tout) - {target, handle}) - printed
+        if missing:
+            f.note(
+                "the chain stops without saying it stopped",
+                handle,
+                f"[{target}] at depth {depth} reaches {sorted(missing)}, which the chain "
+                f"does not print and the envelope does not mention",
+                f"cairn for understand {handle}; cairn reaches {target} --outgoing",
+            )
+            return
+
+
+def check_both_purposes_resolve_the_same_subject(db, name, f):
+    """`for change` and `for understand` share one resolution path — the text redirect, the
+    ranked choice for an ambiguous name, the tree fallback. Contract: the choice is printed
+    with its alternatives, so the caller can override it in one copy-paste.
+
+    That only holds if the two purposes make the *same* choice. Two commands answering
+    about different symbols from the same word, each printing a defensible reason, is the
+    confident-and-wrong failure the whole tool is written against.
+    """
+    cc, _, cerr = run(db, "for", "change", name)
+    uc, _, uerr = run(db, "for", "understand", name)
+    if cc not in (0, 1) or uc not in (0, 1):
+        return
+    pick = lambda err: (
+        err.split("Answering for [", 1)[1].split("]", 1)[0]
+        if "Answering for [" in err
+        else None
+    )
+    a, b = pick(cerr), pick(uerr)
+    if a and b and a != b:
+        f.note(
+            "the two purposes pick different symbols for one name",
+            name,
+            f"`for change` answers for [{a}], `for understand` for [{b}]",
+            f"cairn for change {name}; cairn for understand {name}",
+        )
+
+
+def check_printed_line_is_where_the_definition_is(db, handle, f):
+    """Contract: a printed `path:line` is the 1-based number an editor opens
+    (`Occurrence::location` — "SCIP lines are 0-based"). Every renderer that formats
+    `path:line` by hand instead of calling that helper skips the conversion, and the answer
+    then points one line above the `def` or `func` keyword.
+
+    Compared against the index the renderer was handed, which is the narrowest form of the
+    question: not "is the index right about this symbol" — that is a different check and a
+    different failure — but "did this command print what it was given". `reaches
+    --outgoing` did not, while `reaches` on the same symbol did, so the two directions of
+    one command named one definition a line apart.
+    """
+    truth = {}
+    c = sqlite3.connect(db)
+    for cmd in (
+        ["for", "understand", handle],
+        ["reaches", handle, "--outgoing"],
+        ["expand", handle],
+    ):
+        code, out, _ = run(db, *cmd)
+        if code != 0:
+            continue
+        for line in out.splitlines():
+            stripped = line.strip()
+            if any(stripped.startswith(p) for p in PROSE):
+                continue
+            for h, path, num in printed_locations(line):
+                if h not in truth:
+                    truth[h] = c.execute(
+                        "SELECT p.s, sy.def_line FROM symbols sy "
+                        "JOIN handles hh ON hh.symbol_id = sy.id "
+                        "JOIN files fl ON fl.id = sy.def_file_id "
+                        "JOIN strings p ON p.id = fl.path_id "
+                        "WHERE hh.handle = ?",
+                        (h,),
+                    ).fetchone()
+                row = truth[h]
+                # Only when this row is naming that symbol's own definition. A call site
+                # is a different fact about the same handle and is allowed to differ.
+                if not row or row[0] != path:
+                    continue
+                want = row[1] + 1
+                if num != want:
+                    f.note(
+                        "a printed line is not the line the definition is on",
+                        h,
+                        f"`cairn {' '.join(cmd)}` says {path}:{num}, the index has the "
+                        f"definition at {path}:{want} (SCIP counts from 0, output from 1)",
+                        "cairn " + " ".join(cmd),
+                    )
+                    return
+
+
+def printed_locations(line):
+    """(handle, path, line) for every `path:line` on a line that carries a handle.
+
+    The handle is the last one printed before the location, which is the layout every
+    listing in this tool uses: `[abc] Name  py  path/to/file.py:12`."""
+    out, current = [], None
+    for token in line.replace("(", " ").replace(")", " ").split():
+        if token.startswith("[") and token.endswith("]") and token[1:-1].isalnum():
+            current = token[1:-1]
+        elif ":" in token and "/" in token and current:
+            path, _, num = token.rpartition(":")
+            num = num.split("-")[0]
+            if num.isdigit():
+                out.append((current, path, int(num)))
+    return out
+
+
 def main():
     if len(sys.argv) < 3:
         print(__doc__)
@@ -486,11 +732,16 @@ def main():
         )
     }
     picks = sample(db, n)
-    print(f"{len(picks)} symbols, stratified and seeded\n")
+    shared = shared_names(db, n)
+    print(
+        f"{len(picks)} symbols and {len(shared)} shared names, stratified and seeded\n"
+    )
     # Whole-tool checks, once rather than per symbol.
     check_envelope_and_exit_codes(db, repo, f)
     check_literal_agrees_with_find(db, repo, f)
     check_staleness_agrees(db, repo, f)
+    for name in shared:
+        check_both_purposes_resolve_the_same_subject(db, name, f)
     for i, (label, handle) in enumerate(picks, 1):
         check_reaches_symmetry(db, handle, f, generated)
         check_affects_covers_methods(db, handle, f)
@@ -499,6 +750,9 @@ def main():
         check_budget_admits_what_it_cut(db, handle, f)
         check_runs_agrees_with_affects(db, handle, f)
         check_handles_resolve(db, handle, f)
+        check_understand_matches_its_own_citation(db, handle, f)
+        check_the_chain_was_followed_to_where_it_says(db, handle, f)
+        check_printed_line_is_where_the_definition_is(db, handle, f)
         if i % 10 == 0:
             print(f"  ...{i}/{len(picks)}", flush=True)
 

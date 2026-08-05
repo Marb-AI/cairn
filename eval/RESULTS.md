@@ -1021,3 +1021,162 @@ watching the wrong tree. A disagreement there would have been a fact about the h
 Running total for the shell harness: **two real defects, six false findings**, every false
 one from a check written stronger than the contract it enforces. Both real ones were
 invisible to `cargo test` and to sixty agent runs.
+
+---
+
+## `for understand`, and the defect building it exposed — 2026-08-05
+
+Pre-registered as round six in `SCENARIOS.md`. **No agent runs.** Everything below is
+either a correctness result or a statement about the harness; the round-trip predictions
+for scenario 4 are unmeasured and stay unmeasured until an arm is run.
+
+### The previous note about scenario 4 was wrong, and how it was wrong matters
+
+Round five predicted scenario 4 would stay at 9 because "the first hop is still an
+attribute call the index cannot resolve". It went to 7, and the stated reason was false.
+The first hop is not unresolved. It is **resolved on one surface and hidden on another**:
+
+| command | what it says about `get_shared_object` |
+|---|---|
+| `graph fsw --aspect calls` | `AppClients.share`, `env`, `ApplicationEnvironment.clients` — the attribute plumbing, and no RPC |
+| `reaches fsw --outgoing` | `shareService.GetSharedObject` at `srcgo/.../share.go:33`, exactly |
+
+`graph` drops generated code on outward call edges, deliberately and for a good reason
+(protobuf message types crowded out the real callees, and an agent asked to trace an entry
+point once read 68 rows of which three were calls). The RPC stub is generated, so the hop
+falls in that hole. The tool held the answer and knowing which command held it was the
+agent's problem — which is the exact failure `for` exists to remove.
+
+Walked by hand, the whole chain is two hops and terminates: `fsw` → `3yv4` (Go) → three
+Python handlers, none of which has outgoing targets.
+
+### What was built
+
+`cairn for understand <symbol>`, the outward mirror of `for change`. Three blocks, one
+call, each naming the command behind it: the chain followed transitively to its end, the
+in-language callees, and the services that run it. Both caps on the walk — depth 4, 40
+hops — are *printed* when they bite, because a branch that stopped at a cap and a branch
+that ended look identical on the page.
+
+The subject resolution is now shared with `for change` rather than copied. Four measured
+fixes live in that path (the spoken text redirect, inline resolution, the ranked choice for
+an ambiguous name, the tree fallback for a symbol the index lacks), and a second purpose
+re-earning any of them by hand is how a fix quietly stops applying.
+
+The skill grew **12 069 → 12 856 characters**, +6.5%. Length was itself a variable in round
+three and this is a change in it, stated rather than left for a later round to attribute.
+
+### A real defect, found by building on top of the mechanism
+
+`reaches --outgoing` printed definition lines **0-based** where every other command in the
+binary prints 1-based. SCIP counts from 0 and `Occurrence::location` does the conversion;
+that one renderer formatted `path:line` by hand and skipped it.
+
+So the two directions of one command named the same definition a line apart:
+`reaches 3yv4` said `share.go:33-90`, `reaches fsw --outgoing` said `share.go:32`. Checked
+against the file: `func (s *shareService) GetSharedObject` is on line 33. The `--outgoing`
+direction was wrong.
+
+Invisible to 165 tests and to sixty agent runs, and not the sort of thing anyone verifies
+by eye — an off-by-one in a line number reads as correct right up until you open the file.
+Fixed, pinned by a unit test in `cairn-fmt`, and now covered by a standing harness check.
+
+### The harness had a hole exactly where its newest checks were pointed
+
+The new checks were verified the way the CI step was: build a binary with the defect
+deliberately re-injected, and confirm the run fails. **It did not.** The whole file ran
+against the buggy binary and reported no contradictions.
+
+The cause was the sample, not the checks. All three strata select on reference count
+(`ref_count > 2`) or on being a handler type — and the code that *starts* a service chain
+is typically a route handler that nothing calls. Every cross-boundary check was running on
+symbols that cross no boundary. A check that cannot fail is decoration, and four of them
+had just been written into that position.
+
+A fourth stratum, **chain starts** — symbols with a call edge into a generated client —
+fixes it. With it: injected defect → exit 1 on both corpora, unmodified → exit 0. The
+fixture corpus contributes one such symbol, which is thin but enough for CI to catch it.
+
+### One more false finding, same cause as the six before it
+
+The symmetry check reported that `reaches r5hr` names `[b8]` while `reaches b8 --outgoing`
+does not name `[r5hr]`. It was not a defect. `r5hr` is `websocket.streamAgentChat` — Go,
+lowercase, **unexported, and therefore not an RPC at all**. The incoming direction says so
+on the page (`answered for the enclosing type [uv7] websocket: a service binding names the
+handler, not each of its RPC methods`) and answers for the type; the outgoing direction
+correctly comes back with the sibling that *is* an RPC.
+
+The check simply did not read the sentence the answer printed. It now widens the family to
+the named type's members when that line is present.
+
+### The widened sample then found a third real defect, and it was a large one
+
+The first run of the widened sample — 48 symbols — reported another asymmetry, and this one
+was **not** the check being too strong. `reaches r2yr` named `[ysuf]` as a caller across
+gRPC. Both are Go, both are `FolderTransformer.loadEstates` and `estateService.ListEstates`,
+and `cairn runs` puts both in **one process**, `assistant-proxy`. Nothing can call anything
+across a service boundary inside a single process.
+
+Read from the source: `estateService` is declared
+`type estateService struct { assistant_fe.EstateServiceServer }`. It embeds the `_fe`
+interface and nothing else, and its `ListEstates` takes `*assistant_fe.EstateFilter`. The
+index nevertheless held a `serves` link from it to `assistant_api.EstateService` — the
+service it is a *client* of.
+
+The cause is in `link_services`. The `embedders` query matched the embedded field to the
+generated artefact **by name alone**, and `assistant_api` and `assistant_fe` both declare
+`EstateServiceServer`. This module's own header says the package is part of the key and not
+decoration; that query was the one place it was not.
+
+**It affected all nineteen Go proxy handlers** — `authService`, `folderService`,
+`quotaService`, `shareService`, every one of them — each recorded as serving the internal
+API service it calls. The direction of an entire tier was inverted in the graph.
+
+The fix requires the artefact to be *referenced on the field's own line*, which the
+occurrence table resolves to a specific symbol and therefore a specific package. Measured
+before and after on the target repo:
+
+| | before | after |
+|---|---|---|
+| embed links (artefact, type) | 119 | 100 |
+| serve links in the index | 295 | 276 |
+| call links | 321 | 321 |
+| types left with **no** binding | — | **0** |
+
+All 19 dropped links are that collision, and no handler lost its real binding — which was
+the outcome that would have been worse than the bug, since a silent zero from `reaches` is
+indistinguishable from a service nothing calls. Scenario 3's key answer is unchanged: 10
+callers, nine in `folder.go` plus `shareService.GetSharedObject` in `share.go`, including
+the tenth that a reader assembling it by hand misses.
+
+Pinned by a `link_services` test that fails without the fix (verified by removing the join
+and watching it fail), and the harness that found it now runs clean at 48 symbols.
+
+**Running total for the shell harness: three real defects, seven false findings.** Every
+false one came from a check written stronger than the contract it enforces; the third real
+one was found only because the sample was widened, which is the more useful lesson — the
+checks were not weak, they were pointed at symbols that could not exercise them.
+
+### The contract sweep was not running the commands the guide recommends first
+
+`tests/sweep.rs` runs every read command against a mechanically chosen sample. Its command
+table put the handle immediately after the command word, which cannot express
+`for understand <h>` — so `for change` and `for understand`, the two entry points the skill
+sends an agent to before anything else, were the only commands in the binary it never ran.
+The table is now (before-handle, after-handle) pairs and both are in it. 40 symbols × 14
+commands against the real index: 75 s, no contract violation, no latency ceiling reached.
+
+### Gates
+
+166 tests (was 164), clippy clean on Linux and on the Windows target, sweep clean on both
+the fixture corpus and the real index, harness clean on both at 21 and 48 symbols.
+
+`for understand fsw` is 0.07 s against 0.01 s for the single `reaches --outgoing` it
+follows transitively — *n* queries where the mechanism does one, and still two orders of
+magnitude under anything a round trip costs.
+
+`cargo fmt --check` **failed on HEAD before any change of mine**, at two sites in
+`affects.rs` and `protolink.rs`, which means CI's Format step is red on `main` as it
+stands. `rust-toolchain.toml` says `channel = "stable"` rather than a version, so a
+rebuilt image picks up a newer rustfmt and the tree drifts without a commit. Both sites are
+formatted in this change; pinning the channel is a separate decision and is not made here.
