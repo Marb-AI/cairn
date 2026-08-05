@@ -54,16 +54,26 @@ jobs:
       #
       # The index is built here rather than by the test harness, because this is the same
       # thing a user does: `cairn index`, then ask it questions.
+      #
+      # It goes to `<repo>/.cairn/index.sqlite`, where the convention puts it, and not to
+      # a temp path. One check compares the daemon's view of staleness against `verify`,
+      # and the watcher derives the repository as the database's grandparent — so an index
+      # in /tmp had it watching the wrong tree, the check guarded itself off, and CI ran
+      # one assertion fewer than a workstation while reporting the same clean result. The
+      # harness now prints how many checks reached an assertion; keep that number at the
+      # local one. cairn writes a `.gitignore` into that directory itself.
       - name: Invariants
         run: |
           docker compose run --rm ci sh -c '
             cargo build --release --bin cairn &&
-            /target/release/cairn --db /tmp/fixture.sqlite index \
+            /target/release/cairn \
+              --db crates/cairn-cli/tests/fixtures/corpus/.cairn/index.sqlite index \
               crates/cairn-cli/tests/fixtures/index/go.scip \
               crates/cairn-cli/tests/fixtures/index/py.scip \
               --repo crates/cairn-cli/tests/fixtures/corpus --without-skill &&
             CAIRN_BIN=/target/release/cairn python3 eval/stress.py \
-              /tmp/fixture.sqlite crates/cairn-cli/tests/fixtures/corpus'
+              crates/cairn-cli/tests/fixtures/corpus/.cairn/index.sqlite \
+              crates/cairn-cli/tests/fixtures/corpus'
 
       # The GNU target shares every `cfg(windows)` path and the same windows-sys bindings
       # as the MSVC target the release builds. This is what stops a broken Windows build

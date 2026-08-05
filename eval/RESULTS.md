@@ -1251,6 +1251,50 @@ as "no repository-specific influence on a result", and three places remain where
    number — but *how much* they matter anywhere else is unmeasured, and the roadmap has
    said since the start that generality is a claim about the design and not a measurement.
 
+### The harness now reports which checks actually ran
+
+Two checks turned out not to run, on two consecutive audits, and both times the file
+printed `no contradictions found`. Auditing a third time by hand would find the third one
+eventually; making the run say it is better. Every check now records the moment it commits
+to an assertion, and the summary names any that never got there:
+
+```
+14/15 checks reached an assertion on this corpus
+  never got past their guards here - not a pass, an absence of evidence:
+    - chain followed to where it says
+```
+
+Deliberately not an error. A corpus with no ambiguous names has nothing for that check to
+do, and failing the run would train people to ignore the line.
+
+It immediately paid for itself: **the real index exercises 15 of 15, the fixture only 13**,
+so CI was two assertions weaker than a workstation while reporting the same clean result.
+
+* **`staleness agrees` never ran in CI.** Its guard requires the index at
+  `<repo>/.cairn/index.sqlite`, because the watcher derives the repository as the database's
+  grandparent — and the CI step built the fixture index in `/tmp`. Fixed by building it
+  where the convention puts it, which is also what a user does. CI is now 14 of 15. cairn
+  writes a `.gitignore` into that directory itself, so nothing new is tracked.
+* **`chain followed to where it says` still does not run in CI**, and cannot: the fixture
+  has one symbol that starts a chain and that chain is one hop deep. Closing it means giving
+  the fixture a second service to hop to and regenerating its SCIP — real work on the test
+  corpus, named here rather than left as a silent zero.
+
+### The questions the agent runs are asked, audited
+
+Separately from the tool: five rounds of round-trip numbers rest on ten questions whose
+*wording* had never been examined. `SCENARIOS.md` now carries that audit. The short version:
+**six of the ten name the shape of their own answer**, and scenario 4 — the one this round
+built a command for — tells the arm outright that the chain continues past the first hop, so
+its depth is supplied rather than discovered. Two figures in the protocol were also stale:
+the skill is 12 856 characters, not the 8 850 quoted, and the cairn arm's instructions are
+now **40% longer than the grep arm's** rather than shorter as round three recorded.
+
+None of that invalidates the direction of travel. It does mean the per-scenario numbers
+measure something slightly narrower than the file has been claiming, and rewording a
+question restarts its series — so the audit separates the fixes that cost a history from
+the ones that cost nothing.
+
 ### Gates
 
 166 tests (was 164), clippy clean on Linux and on the Windows target, sweep clean on both

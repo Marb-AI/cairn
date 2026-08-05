@@ -40,8 +40,10 @@ better.**
 - **Grading.** Each answer is compared against the key below and graded
   *same* / *better* / *worse*. The key is fixed here, before the runs, and was built by
   hand from both tools plus reading the code — not from whatever an arm happens to say.
-- **Skill overhead.** The cairn skill is **2 391 tokens** at 3.7 chars/token
-  (`skill/SKILL.md`, 8 850 chars). It is **excluded** from the per-question numbers and
+- **Skill overhead.** The cairn skill was **2 391 tokens** at 3.7 chars/token
+  (`skill/SKILL.md`, 8 850 chars) when this was written; it is 12 856 characters as of
+  2026-08-05, and the audit at the end of this file has the current comparison against the
+  grep arm's instructions. It is **excluded** from the per-question numbers and
   reported once, here and in the result: it is a training asymmetry, not a property of the
   tool, and it is paid once per session rather than once per question.
 - **Stale index.** The index was rebuilt at schema v18 immediately before the runs.
@@ -510,3 +512,72 @@ number with two unknowns folded silently into it. The claim is about scenario 4 
 - **Scenario 1 or 7 regressing.** Neither is an `understand` question. If they move,
   something changed in the shared resolution path and the attribution is not what this
   section claims.
+
+
+---
+
+# The questions themselves, audited — 2026-08-05
+
+Written after five rounds and before any sixth-round agent run, because the wording of a
+question decides what a scenario can possibly measure, and none of this file's wording has
+ever been examined. Nothing below changes a prediction already recorded; it is the list of
+things to fix *before* the next arm is run, and the reason each one matters.
+
+## Two numbers in the protocol above are now wrong
+
+**The stated skill overhead is stale by 45%.** The protocol says `skill/SKILL.md` is 8 850
+characters / 2 391 tokens. It is **12 856** characters today. That figure is the
+justification for excluding the skill from per-question numbers, and it has been quoted
+in one scenario's analysis as a fixed cost.
+
+**The length comparison has reversed.** Round three noted 12 069 characters as "closer to
+the grep arm's 10 002". The grep arm's instructions are 10 002 characters in total
+(1 124 of preamble, 8 878 of guide). The cairn arm's are 1 204 + 12 856 = **14 060**. The
+cairn arm now gets 40% more instruction than the baseline, not less, and that asymmetry is
+unstated and unbudgeted.
+
+## The toolkits are not symmetric either
+
+The grep arm may use `grep`, `rg`, the Grep tool, Read, `find`, `ls`, `sed`, `awk`. The
+cairn arm may use `cairn`, Read, and directory listing — no `sed`, no `awk`, no `find`.
+That asymmetry runs *in the baseline's favour*, so it does not flatter the result, and on
+that ground it can stay. But it should be stated where the protocol is stated, because a
+reader comparing round-trip counts is comparing two differently-equipped agents.
+
+## Six of the ten questions lead the witness
+
+A question that names the shape of its own answer measures how well an arm follows
+instructions, not whether the arm could find the shape.
+
+| # | the leading phrase | what it hands over | neutral form |
+|---|---|---|---|
+| 1 | "In `srcpy/…/quota.py`, I want to add…" | names the file, which **resolves the ambiguity the scenario exists to test** — seven symbols share that name and the question quietly picks one | "I want to add a required argument to `get_quota_status`. Which call sites would I have to update?" |
+| 3 | "Which **Go** code ends up calling the **Python** `FolderServiceHandler`, and **through which RPCs**?" | states that the answer crosses languages over RPCs — exactly the structure `reaches` is built for | "What calls `FolderServiceHandler`?" |
+| 4 | "…what serves it, **and where does that land**?" | states that the chain has more than one hop, so depth is supplied rather than discovered | "The Python endpoint `get_shared_object` — trace what happens when it is called." |
+| 6 | "Which **deployed services** does that touch?" | uses the tool's own vocabulary; the grep arm has to invent the notion of deployment from compose files | "I am changing `FolderServiceHandler`. What else is affected?" |
+| 9 | "*(added before the run)* **I just added** `quota_headroom`" | hands over the diagnosis — that the index may be behind the tree — which is the whole thing being tested | "Is anything calling `quota_headroom` yet?" |
+| 10 | names `04_rank_distance_inversions.sql` | the file the arm is supposed to locate | "Which SQL under `tools/sql/geoplatform/estate_ranking` produces the ranked results, and what does the last stage measure?" |
+
+Scenario 4 is the sharpest case, because it is the one this round built a command for. Its
+prediction of 3 round trips is a prediction about a question that already tells the arm the
+chain continues past the first hop. **Under the neutral form the number would very likely be
+higher for both arms**, and the honest comparison would be a different one.
+
+## One question does not ask what its key grades
+
+Scenario 10's key and its falsifier both turn on the arm reaching a **Go handler**, and the
+question asks only about SQL files. An arm that answers the question exactly, and stops,
+is marked down for missing something it was never asked. Either the question gains a clause
+or the key loses one; they cannot both stand.
+
+## What to do about it, and the cost of doing it
+
+Rewriting a question **invalidates its history**. Scenarios 3, 4 and 6 have five rounds of
+numbers behind them and a reworded question starts a new series — the comparison against
+`grep` survives, since both arms get the same wording, but the round-over-round line does
+not. That is the price of the fix and it is worth paying for 1, 4 and 9, where the leading
+phrase gives away the exact thing being measured.
+
+The cheaper half costs nothing: **state the instruction asymmetry, correct the two stale
+numbers, and reconcile scenario 10's key with its question.** None of those touch a
+question's wording, so none of them break a series.

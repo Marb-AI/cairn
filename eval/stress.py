@@ -166,11 +166,32 @@ KNOWN: dict = {
 
 
 class Findings:
+    """Findings, and — just as important — which checks got far enough to have one.
+
+    Every check here opens with guards: the command has to succeed, the symbol has to have
+    callers, the list has to be long enough to be cut. A check whose guards never open on
+    a given corpus reports nothing, and reporting nothing is indistinguishable from passing.
+    Twice in one day that was the actual state of affairs — four cross-boundary checks
+    running only on symbols that cross no boundary, and an envelope assertion skipping
+    because its search term existed in one repository and not the other. Both times the
+    file printed `no contradictions found`.
+
+    So `reached` is recorded at the point a check commits to an assertion, and the summary
+    names any check that never got there. That turns "this corpus cannot exercise this
+    check" from something you discover by deliberately breaking the binary into something
+    the run says out loud.
+    """
+
     def __init__(self):
         self.rows = []
+        self.reached = {}
 
     def note(self, kind, subject, detail, repro):
         self.rows.append((kind, subject, detail, repro))
+
+    def ran(self, check):
+        """Past the guards, about to compare two answers."""
+        self.reached[check] = self.reached.get(check, 0) + 1
 
 
 def check_reaches_symmetry(db, handle, f, generated):
@@ -210,6 +231,7 @@ def check_reaches_symmetry(db, handle, f, generated):
             owner = line.split("[", 1)[1].split("]", 1)[0]
             family |= members_of(db, owner) | {owner}
     for caller in handles_in(out) - {handle}:
+        f.ran("reaches symmetry")
         c2, out2, _ = run(db, "reaches", caller, "--outgoing")
         if c2 == 0 and handles_in(out2) & family:
             continue
@@ -265,6 +287,8 @@ def check_nothing_reaches_itself_across_a_boundary(db, handle, f):
     # and reading that as a row makes every answer report itself, which is the check
     # failing on its own output rather than on the tool's.
     rows = "\n".join(l for l in out.splitlines() if l.startswith("  "))
+    if rows.strip():
+        f.ran("nothing reaches itself")
     for caller in handles_in(rows) & family:
         f.note(
             "reaches names the subject's own family as a caller across the boundary",
@@ -307,6 +331,7 @@ def check_affects_covers_methods(db, handle, f):
         if mc != 0:
             continue
         part = services_in(mout)
+        f.ran("affects covers its methods")
         missing = part - whole
         if missing:
             f.note(
@@ -332,6 +357,7 @@ def check_usage_within_refs(db, handle, f):
         if l.startswith("     ") and "x  " in l
     }
     for path in ufiles:
+        f.ran("usage within refs")
         if path and path not in rout:
             f.note(
                 "usage names a file refs does not",
@@ -360,6 +386,7 @@ def check_determinism(db, handle, f):
     for cmd in (["usage", handle], ["affects", handle], ["graph", handle, "--aspect", "callers"]):
         _, a, _ = run(db, *cmd)
         _, b, _ = run(db, *cmd)
+        f.ran("determinism")
         if without_stale(a) != without_stale(b):
             f.note(
                 "answer is not deterministic",
@@ -434,6 +461,7 @@ def check_envelope_and_exit_codes(db, repo, f):
             continue
         if code != 0:
             continue
+        f.ran("envelope and exit codes")
         for field in ("suppressed:", "stale:"):
             if field not in out:
                 f.note(
@@ -461,6 +489,7 @@ def check_budget_admits_what_it_cut(db, handle, f):
     if code != 0:
         return
     tight_rows = [l for l in tight.splitlines() if l.startswith("     ") and "x  " in l]
+    f.ran("budget admits what it cut")
     if len(tight_rows) < len(wide_rows) and "suppressed: none" in tight:
         f.note(
             "a cut list says nothing was cut",
@@ -500,6 +529,8 @@ def check_runs_agrees_with_affects(db, handle, f):
                 break
             if not line.strip().startswith("("):
                 in_proc.add(line.split()[0])
+    if runs_set and in_proc:
+        f.ran("runs agrees with affects")
     if runs_set and in_proc and runs_set != in_proc:
         f.note(
             "runs and affects disagree about the same services",
@@ -548,6 +579,8 @@ def check_literal_agrees_with_find(db, repo, f):
                 if "[" in h:
                     got[f"{path}:{num}"] = h.split("[")[1].split("]")[0].strip()
         for where, handle in want.items():
+            if where in got:
+                f.ran("literal agrees with for find")
             if where in got and got[where] != handle:
                 f.note(
                     "literal and for find name different owners for one line",
@@ -574,6 +607,7 @@ def check_staleness_agrees(db, repo, f):
     sc, sout, _ = run(db, "status")
     if vc not in (0, 1) or sc not in (0, 1):
         return
+    f.ran("staleness agrees")
     verify_clean = "stale: none" in vout or "0 files changed" in vout
     status_line = next((l for l in sout.splitlines() if l.startswith("stale:")), "")
     if verify_clean and " modified" in status_line:
@@ -595,6 +629,7 @@ def check_handles_resolve(db, handle, f):
     if code != 0:
         return
     for h in sorted(handles_in(out))[:6]:
+        f.ran("printed handles resolve")
         c2, _, err = run(db, "runs", h)
         if c2 == 2 and "no symbol with handle" in err:
             f.note(
@@ -637,6 +672,8 @@ def check_understand_matches_its_own_citation(db, handle, f):
         return
     first = {h for depth, h in chain_hops(uout) if depth == 1}
     cited = handles_in(rout) - {handle}
+    if first or cited:
+        f.ran("for understand matches its citation")
     if first != cited:
         f.note(
             "for understand disagrees with the command it cites",
@@ -672,6 +709,7 @@ def check_the_chain_was_followed_to_where_it_says(db, handle, f):
         tc, tout, _ = run(db, "reaches", target, "--outgoing")
         if tc != 0:
             continue
+        f.ran("chain followed to where it says")
         missing = (handles_in(tout) - {target, handle}) - printed
         if missing:
             f.note(
@@ -703,6 +741,8 @@ def check_both_purposes_resolve_the_same_subject(db, name, f):
         else None
     )
     a, b = pick(cerr), pick(uerr)
+    if a and b:
+        f.ran("both purposes pick the same symbol")
     if a and b and a != b:
         f.note(
             "the two purposes pick different symbols for one name",
@@ -754,6 +794,7 @@ def check_printed_line_is_where_the_definition_is(db, handle, f):
                 if not row or row[0] != path:
                     continue
                 want = row[1] + 1
+                f.ran("printed line is the definition line")
                 if num != want:
                     f.note(
                         "a printed line is not the line the definition is on",
@@ -780,6 +821,51 @@ def printed_locations(line):
             if num.isdigit():
                 out.append((current, path, int(num)))
     return out
+
+
+# Every check in this file, so one that never opened its guards can be named. Kept as a
+# literal list rather than derived from the functions that ran: a check deleted from the
+# loop by accident would otherwise vanish from the report along with its coverage, which
+# is the same silence this is here to break.
+ALL_CHECKS = [
+    "reaches symmetry",
+    "nothing reaches itself",
+    "affects covers its methods",
+    "usage within refs",
+    "determinism",
+    "envelope and exit codes",
+    "budget admits what it cut",
+    "runs agrees with affects",
+    "literal agrees with for find",
+    "staleness agrees",
+    "printed handles resolve",
+    "for understand matches its citation",
+    "chain followed to where it says",
+    "both purposes pick the same symbol",
+    "printed line is the definition line",
+]
+
+
+def report_coverage(f):
+    """Which checks reached an assertion, and which never got past their guards.
+
+    A silent check is the failure mode of this whole file, and it has happened twice: four
+    cross-boundary checks drawing only symbols that cross no boundary, and an envelope
+    assertion whose search term did not exist in the corpus being checked. Neither showed
+    up as anything other than `no contradictions found`.
+
+    This is deliberately *not* an error. A corpus that genuinely has no ambiguous names has
+    nothing for that check to do, and failing the run would train people to ignore it. It
+    is printed, every time, so the reader knows the difference between "held" and "never
+    asked"."""
+    idle = [c for c in ALL_CHECKS if c not in f.reached]
+    live = len(ALL_CHECKS) - len(idle)
+    print(f"{live}/{len(ALL_CHECKS)} checks reached an assertion on this corpus")
+    if idle:
+        print("  never got past their guards here - not a pass, an absence of evidence:")
+        for c in idle:
+            print(f"    - {c}")
+    print()
 
 
 def main():
@@ -824,6 +910,7 @@ def main():
             print(f"  ...{i}/{len(picks)}", flush=True)
 
     print()
+    report_coverage(f)
     if not f.rows:
         print("no contradictions found")
         return 0
