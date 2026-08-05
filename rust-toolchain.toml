@@ -1,3 +1,14 @@
 [toolchain]
-channel = "stable"
+# Pinned, not `stable`.
+#
+# `stable` moves, and `cargo fmt` moves with it: the tree drifts out of format with no
+# commit touching it, and the next person to run CI sees a red Format step for code they
+# did not write. That happened on 2026-08-05 — two files in a clean checkout failed
+# `cargo fmt --check` before any change had been made, because the image had been rebuilt
+# onto a newer rustfmt.
+#
+# The cost of pinning is that a toolchain bump becomes a commit, which is the point: it is
+# a change to how the code is checked, and it should be visible and revertible like any
+# other. Bump it deliberately, run `cargo fmt` in the same commit.
+channel = "1.97.1"
 components = ["clippy", "rustfmt"]
