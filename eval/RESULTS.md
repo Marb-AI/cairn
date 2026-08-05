@@ -1817,3 +1817,74 @@ The measurement cost is worth recording too. Seven runs to move one scenario fro
 "unresolved" to "0.86", after four runs were thrown away because the logging hook had been
 unregistered as tidying-up minutes before they launched — the same class of self-inflicted
 gap this file keeps finding in the tool, in the procedure instead.
+
+---
+
+## The root cause, named: cairn could not tell "I looked and found nothing" from "I did not look" — 2026-08-05
+
+Asked to treat the tool as an agent's *only* source of context — where a falsehood becomes
+wrong code that nobody can trace back — the right question stopped being "how many defects"
+and became "what shape are they".
+
+Every correctness defect found today is the same shape:
+
+| defect | what it said | what was true |
+|---|---|---|
+| same-language filter | `0 targets` | the hop existed, in the same language |
+| `symbol` truncation | `15 matches`, `suppressed: none` | a first page |
+| daemon stale index | `2 modified` | the tree was clean |
+| `for understand` bound | "followed to the end" | a floor |
+| `LOCAL_FANOUT` 4 | one hop | two |
+| `unreached` on a live enum | `no callers` | ten references |
+| **the weak layer** | **"no string literal anywhere names this symbol"** | **the layer was never built** |
+
+**They are all the same bug: an absence rendered as a finding.** Not one of them returned a
+wrong row. Every one returned a confident *negative* — and a negative is the most dangerous
+thing this tool can say, because a negative is what an agent acts on when it decides a
+rename is safe, a symbol is dead, or a chain has ended.
+
+### The purest instance, and the worst
+
+`cairn weak` derives the weak-link layer. `cairn index` did not run it, and on this
+repository nobody ever had: **45,884 literals recorded, zero edges derived.** From that empty
+table, `weaklinks` reported *"no literal in the repo spells this name"* and `for change`
+printed, for **every symbol in the repository**:
+
+> no string literal anywhere names this symbol, so nothing reaches it by a name resolved at
+> run time
+
+That sentence is the last line an agent reads before concluding a rename is safe. It was a
+claim about the world made from a table nobody had filled in.
+
+Built now: **1,236 candidate links across 455 symbols** — every one of which had been getting
+the clean bill. The symbol that exposed it, `total_dsti_monthly_impact`, has two: its own
+`__all__` entries in `finance/__init__.py:136` and `liability.py:16`. Rename it on the old
+answer and the package's export surface breaks silently, plus a regex in `test_no_drift.py`
+that spells the name in a string.
+
+### The fix, in three parts
+
+1. **`cairn index` derives the layer.** A pass that must be run by hand is a pass that is
+   missing; a missing pass that reports as clean is worse than no pass at all.
+2. **The layer records that it was built** (`weak.candidates` in `meta`), so absence and
+   emptiness are distinguishable at all.
+3. **Every answer that rests on it consults that.** `for change` now prints *"the weak-link
+   layer has NOT been built … UNCHECKED - not clean"*, `weaklinks` adds it to `unknown:`,
+   and — because a caller must be able to tell without reading prose — `weaklinks` exits
+   **3 (degraded)** rather than 1 (nothing found) when the layer is missing.
+
+### What this does not fix, and what comes next
+
+The same distinction has to be made everywhere the tool can return an empty set from a
+partial source. `reaches --outgoing` returning nothing, `graph --aspect calls` on a symbol
+whose receivers do not resolve, `unreached` on a package the indexer skipped — each is an
+absence that currently reads as a finding. The weak layer was the one where the gap was
+total; the others are gaps of degree.
+
+The measured evidence that they are gaps of degree: over 26 names, comparing graph
+references against whole-word text occurrences in `.py`/`.go`, **26 of 26 had text the graph
+did not account for**, by 1 to 17 occurrences. Much of that is comments and homonyms — but
+`__all__` entries and a test regex were in there, and those are the ones that break.
+
+**The general rule this establishes:** a negative may only be printed by a component that
+can prove it looked. Everything else must say it did not.

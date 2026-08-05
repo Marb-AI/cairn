@@ -330,7 +330,31 @@ pub fn derive_weak_links(store: &mut Store, repo_root: &Path) -> Result<WeakStat
         batch.finish(&tx)?;
     }
     tx.commit()?;
+    // Record that the layer exists, so a caller can tell "looked and found nothing" from
+    // "never looked". Without this the two are the same empty result set, and every
+    // command that reports on weak links states the second as if it were the first.
+    store.set_meta(WEAK_BUILT, &stats.candidates.to_string())?;
     Ok(stats)
+}
+
+/// Meta key holding the candidate count from the last weak-link build. Absent means the
+/// layer has never been derived for this index.
+pub const WEAK_BUILT: &str = "weak.candidates";
+
+/// Has the weak-link layer been derived at all?
+///
+/// The distinction this exists for is the whole point of the layer. `cairn index` does not
+/// build it, `cairn weak` does, and on an index where nobody ran the second command
+/// `weaklinks` reported "no literal in the repo spells this name" for **every symbol in the
+/// repository** — 45,884 literals recorded and zero edges derived from them. `for change`
+/// went further and printed "nothing reaches it by a name resolved at run time", which is a
+/// claim about the world made from a table nobody had filled in.
+///
+/// An agent renaming a function on that basis breaks `__all__`, a dispatch table or a test
+/// regex, and finds out at run time. Absence of evidence has to read differently from
+/// evidence of absence.
+pub fn is_built(store: &Store) -> bool {
+    store.get_meta(WEAK_BUILT).ok().flatten().is_some()
 }
 
 /// Extract string literals with their 0-based line numbers.

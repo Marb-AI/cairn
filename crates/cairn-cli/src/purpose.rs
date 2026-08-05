@@ -172,7 +172,24 @@ pub fn change(
     //    it is clean, which is the common case and the whole point: the arm ran
     //    `weaklinks` to be told nothing.
     let weak = store.weak_sites(symbol_id, 10)?;
-    if weak.is_empty() {
+    if !cairn_store::weak::is_built(store) {
+        // The layer has never been derived for this index, so an empty result says
+        // nothing at all. Printing the clean-bill sentence here was the single most
+        // dangerous thing this command did: it is the sentence an agent reads before
+        // deciding a rename is safe, it was printed for every symbol in the repository,
+        // and it rested on a table nobody had filled in.
+        let _ = writeln!(
+            body,
+            "the weak-link layer has NOT been built for this index, so whether a string \
+             literal names this symbol is UNCHECKED - not clean. Run `cairn weak --repo \
+             <dir>` and ask again before trusting a rename"
+        );
+        unknown.push(
+            "dynamic references were not checked: the weak-link layer is missing, which is \
+             not the same as finding nothing"
+                .to_string(),
+        );
+    } else if weak.is_empty() {
         let _ = writeln!(
             body,
             "no string literal anywhere names this symbol, so nothing reaches it by a \

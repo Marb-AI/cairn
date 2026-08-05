@@ -1003,6 +1003,26 @@ fn run() -> Result<u8> {
                 "services: {} gRPC services, {} serve links, {} call links",
                 links.services, links.serves, links.calls
             );
+            // Derive the weak layer here rather than leaving it to a command nobody runs.
+            //
+            // It was a separate `cairn weak`, and on this repository it had never been
+            // run: 45,884 literals recorded, zero edges derived. Every `weaklinks` answer
+            // said "no literal in the repo spells this name" and every `for change` said
+            // "nothing reaches it by a name resolved at run time" — for every symbol,
+            // from an empty table. A layer that has to be built by hand is a layer that
+            // is missing, and a missing layer that reports as clean is worse than no
+            // layer at all.
+            if let Some(root) = repo.as_deref() {
+                match cairn_store::weak::derive_weak_links(&mut store, root) {
+                    Ok(w) => println!(
+                        "weak:     {} candidate links from {} literals in {} files",
+                        w.candidates, w.literals_seen, w.files_scanned
+                    ),
+                    // Not fatal: the index is useful without it, and the commands that
+                    // depend on it now say so rather than reporting a clean bill.
+                    Err(e) => eprintln!("cairn: weak-link layer not built: {e:#}"),
+                }
+            }
             if let Some(root) = repo.as_deref() {
                 let topo = cairn_store::deploy::parse_compose(
                     root,
@@ -1836,9 +1856,28 @@ fn run() -> Result<u8> {
             let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
             let sites = store.weak_sites(symbol_id, limit)?;
             let found = !sites.is_empty();
-            let env = cairn_fmt::weak_links(&sym, &sites, &mut budget);
+            let mut env = cairn_fmt::weak_links(&sym, &sites, &mut budget);
+            // An unbuilt layer is not an empty one. Reported here rather than left to the
+            // shape of the answer, and as `unknown:` because that is the field a caller is
+            // told to read for exactly this.
+            if !cairn_store::weak::is_built(&store) {
+                env = env.unknown(
+                    "the weak-link layer has NOT been derived for this index, so this \
+                     answer is UNCHECKED rather than empty. `cairn weak --repo <dir>` \
+                     builds it; until then no conclusion about dynamic references \
+                     follows from this command",
+                );
+            }
             emit(env);
-            Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+            // Degraded, not "nothing found": the caller has to be able to tell the two
+            // apart from the exit code alone, without reading the envelope.
+            Ok(if found {
+                exit::FOUND
+            } else if cairn_store::weak::is_built(&store) {
+                exit::NOT_FOUND
+            } else {
+                exit::DEGRADED
+            })
         }
 
         Cmd::Verify { repo, flag_stale } => {
