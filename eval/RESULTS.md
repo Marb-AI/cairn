@@ -775,3 +775,79 @@ without reaching the Go handler, which remains the one place a grep answer is be
 - **Elaboration is still the largest single cost** in the runs that lose. Scenario 4 run 1
   had the answer at turn 3 and stopped at turn 9. Three rounds of skill edits have moved
   this and not solved it.
+
+---
+
+## Round five: the last two causes — 2026-08-05, **incomplete**
+
+Both remaining causes were in scenario 1: an ambiguous name cost a whole round trip, and
+`for change` returned call sites without source, without the hop through the module-level
+`a = wrap(f)` binding, and without the dynamic-dispatch check. Both fixed. `for change` now
+answers for the most-referenced non-generated candidate, printing that choice and the
+alternatives, and returns four blocks instead of one.
+
+**The round did not finish.** The session's subagent limit (200) was reached with scenarios
+8 and 10 unrun and scenario 9 at two runs of three. What is below is what was measured; no
+total for all ten is stated, because two of the ten were not measured and this file does not
+carry numbers that were not.
+
+| # | grep | r4 | **r5** | predicted | ratio |
+|---|---|---|---|---|---|
+| 6 | 15 | 1 | **1** (1,1,1) | 1 | **0.07** |
+| 3 | 8 | 1 | **1** (1,1,1) | 1 | **0.12** |
+| 1 | 4 | 6 | **2** (2,2,4) | **2** | **0.50** |
+| 5 | 14 | 3 | 8 (7,8,11) | 3 | 0.57 |
+| 4 | 10 | 9 | **7** (6,7,11) | 9 | 0.70 |
+| 7 | 4 | 3 | 3 (2,3,3) | 3 | 0.75 |
+| 2 | 7 | 5 | 10 (9,10,11) | 4-5 | 1.43 |
+| 9 | 3 | 1 | 1 (1,1 — two runs) | 1 | 0.33 |
+| 8 | 4 | 1 | **not run** | 1 | — |
+| 10 | 5 | 3 | **not run** | 3 | — |
+
+### The fix worked exactly where it was aimed
+
+**Scenario 1: 6 → 2, the predicted number.** It was the only scenario cairn still lost, and
+it is now 0.50. One call carries what five turns used to assemble: the sites with their
+source, the wrapper hop to `handlers/quota.py`, the deployed radius, and one line saying no
+string literal names the symbol. The ambiguity is resolved in the same call, with the choice
+and the alternatives printed.
+
+**The ranked choice was right in all three runs** — every one answered about the repository
+function the question named, none about the handler or the endpoint. That was the sharper
+falsifier (buying round trips with correctness) and it did not fire.
+
+**Scenario 4 also improved, 9 → 7**, which was predicted to stay at 9.
+
+### Two scenarios moved the wrong way, and neither is attributable to the fix
+
+**Scenario 2 doubled: 5 → 10.** It shares the ambiguous-name path, so the fix was the
+suspect. The traces say otherwise: **not one of the three runs invoked `for change`.** They
+used `symbol`, `usage`, `refs`, `graph`, `reaches` — and then traced the write path up
+through handlers, endpoints and a backoffice check. Its history across five rounds is
+9, 9, 6, 5, 10.
+
+**Scenario 5 went 3 → 8**, also with nothing aimed at it. Its history: 5, 8, 7, 3, 8.
+
+Both were predicted "unchanged", and the pre-registration said that predicting unchanged is
+a claim rather than a hedge. The claim failed twice. **The honest reading is that these two
+scenarios have a spread wider than three-run medians can resolve**, and that several
+per-scenario numbers in the four preceding rounds — in both directions — were draws from
+that spread rather than effects of anything built.
+
+### What this leaves standing, and what it undercuts
+
+**Standing:** the three scenarios that have been 1 or 1-ish in every round since the tool
+gained the command for them (6, 3), the literal and stale-file cases (7, 9), and now
+scenario 1 at 2 against 4. Those are tight — no run-to-run range wider than two — and they
+are where the acceptance rule is met.
+
+**Undercut:** any reading of the round-by-round totals as a clean progression. The totals
+0.97 → 0.80 → 0.65 → 0.57 → 0.45 were computed from medians of three, and two scenarios have
+now demonstrably swung by a factor of two or three with no cause. The direction of travel is
+real — scenario 8 went 17 → 1 and stayed, scenario 9 went 9 → 1 and stayed — but the second
+decimal place of any total in this file is not.
+
+**What the next round has to do before it measures anything else** is establish how many
+runs scenarios 2 and 5 actually need. Five rounds of three-run medians have produced two
+scenarios whose numbers cannot be trusted, and no amount of further tool work fixes a
+measurement that cannot tell an effect from a draw.

@@ -1058,17 +1058,60 @@ fn run() -> Result<u8> {
                                 1 => Some(named[0].id),
                                 0 => None,
                                 _ => {
-                                    let coverage = store.coverage_summary()?;
-                                    emit(cairn_fmt::symbols(
-                                        &named, &subj, &coverage, true, &mut budget,
-                                    )
-                                    .unknown(format!(
-                                        "'{subj}' names {} symbols, so this cannot tell \
-                                         which you mean. Run it again with one of the \
-                                         handles above",
-                                        named.len()
-                                    )));
-                                    return Ok(exit::ERROR);
+                                    // A shared name used to cost a whole round trip: the
+                                    // command listed candidates, exited 2, and the arm
+                                    // re-ran with a handle. In every run of every round.
+                                    // So answer instead — for the most-referenced
+                                    // candidate that is not generated, saying so at the
+                                    // top with the others listed. The choice is visible
+                                    // and one copy-paste from being overridden, which is
+                                    // the difference between this and guessing.
+                                    let plausible = purpose::change_candidates(&store, &subj)?;
+                                    match plausible.split_first() {
+                                        Some((best, rest)) => {
+                                            eprintln!(
+                                                "cairn: '{subj}' names {} symbols. Answering \
+                                                 for [{}] {} ({} references, the most of \
+                                                 any); {} generated definition(s) ignored. \
+                                                 Others: {}",
+                                                named.len(),
+                                                best.handle,
+                                                best.qualified(),
+                                                best.ref_count,
+                                                named.len() - plausible.len(),
+                                                if rest.is_empty() {
+                                                    "none".to_string()
+                                                } else {
+                                                    rest.iter()
+                                                        .map(|s| format!(
+                                                            "[{}] {}",
+                                                            s.handle,
+                                                            s.def
+                                                                .as_ref()
+                                                                .map(|d| d.path.clone())
+                                                                .unwrap_or_default()
+                                                        ))
+                                                        .collect::<Vec<_>>()
+                                                        .join(", ")
+                                                }
+                                            );
+                                            Some(best.id)
+                                        }
+                                        // Every candidate is generated, so there is
+                                        // nothing here anyone would edit.
+                                        None => {
+                                            let coverage = store.coverage_summary()?;
+                                            emit(cairn_fmt::symbols(
+                                                &named, &subj, &coverage, true, &mut budget,
+                                            )
+                                            .unknown(format!(
+                                                "every symbol named '{subj}' is in generated \
+                                                 code, which is not edited by hand. Nothing \
+                                                 here is a change you would make"
+                                            )));
+                                            return Ok(exit::ERROR);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1097,7 +1140,13 @@ fn run() -> Result<u8> {
                         );
                         return Ok(exit::ERROR);
                     };
-                    let (env, found) = purpose::change(&store, symbol_id, &mut budget)?;
+                    // The repository root, so the call sites can carry their source —
+                    // the block the arm asked for with a second `refs` every time.
+                    let root = repo
+                        .clone()
+                        .or_else(|| db.parent().and_then(|d| d.parent()).map(|p| p.to_path_buf()));
+                    let (env, found) =
+                        purpose::change(&store, root.as_deref(), symbol_id, &mut budget)?;
                     emit(env);
                     Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
                 }

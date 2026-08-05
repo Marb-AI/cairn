@@ -379,3 +379,58 @@ the next round's work.
 - **A new latency regression.** The first form of `rpc_targets` took 11.8 s and the sweep
   caught it; the rewritten form is 17 ms. If the sweep fails again, the fix is not free and
   the trade has to be stated rather than assumed.
+
+
+---
+
+# Round five: the last two causes — pre-registered 2026-08-05
+
+Both live in scenario 1, the only scenario still lost, and both were left out of round four
+on purpose so that round's result could be attributed. Fixed now:
+
+**Cause 4 — a shared name cost a whole round trip.** `for change get_quota_status` listed
+seven candidates and exited 2; the arm re-ran with `for change wes`. Identical in every run
+of every round. It now answers for the most-referenced candidate that is not generated,
+prints that choice and the alternatives on stderr, and drops generated definitions as a
+judgement the *intent* licenses — nobody hand-edits a protobuf stub, so it cannot be what
+"I am going to modify this" means. For this name that removes four of seven candidates and
+the remaining ranking is 5 / 2 / 0 references, which picks the repository function.
+
+**Cause 5 — `for change` was under-assembled.** Round three's trace, identical in all three
+runs: `for change`, then `refs` for source at the sites, then `refs` again on the async
+wrapper, then `weaklinks`. Those are not four questions. It now returns call sites *with
+their source*, follows the module-level `a = wrap(f)` binding one hop to the callers that
+actually break, gives the deployed radius, and states the dynamic-dispatch check in one
+line instead of leaving it to be asked.
+
+## Predictions
+
+| # | grep | r4 | predicted | why |
+|---|---|---|---|---|
+| 1 | 4 | 6 | **2** | one call now carries what the five turns assembled |
+| 2 | 7 | 5 | 4-5 | shares the ambiguity path (`Client` names many); may gain a turn |
+| 9 | 3 | 1 | 1 | unchanged |
+| 8 | 4 | 1 | 1 | unchanged |
+| 6 | 15 | 1 | 1 | unchanged |
+| 3 | 8 | 1 | 1 | unchanged |
+| 5 | 14 | 3 | 3 | unchanged |
+| 10 | 5 | 3 | 3 | unchanged |
+| 7 | 4 | 3 | 3 | unchanged |
+| 4 | 10 | 9 | 9 | the first hop is still an attribute call the index cannot resolve |
+| | **74** | 33 | **~28** | ratio ~0.38 |
+
+Predicting "unchanged" for six scenarios is a claim, not a hedge: round four predicted the
+same for scenario 5 and it moved from 7 to 3. If several move again, the spread is larger
+than four rounds of three-run medians can see, and that is the finding rather than any
+ratio.
+
+## What would falsify it
+
+- **Scenario 1 not reaching 3 or better.** Then the five turns were not the four missing
+  blocks, and the assembly theory is wrong for the one scenario built to test it.
+- **The ranked choice being wrong on any run.** `for change` now picks. If an arm answers
+  about the handler or the endpoint when the question named the repository file, the
+  ambiguity fix has bought round trips with correctness, which fails at any price.
+- **Answers getting longer without getting better.** Four blocks in one call is more output
+  per turn; if the arms start reading past it or missing what is in it, the assembly is
+  cheaper to run and dearer to use.

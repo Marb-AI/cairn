@@ -77,25 +77,55 @@ pub fn looks_like_text(subject: &str) -> bool {
 
 /// `for change`: what a modification to this symbol reaches, assembled.
 ///
-/// Two blocks, because the measurement showed the agent needs both and asks for them
-/// separately: the deployed radius (`affects`, which is already intent-shaped and was the
-/// one-round-trip win of the whole eval) and the call sites it would have to edit
-/// (`graph --aspect callers`, which unlike `usage` does not drop test files). Both are
-/// labelled with the command behind them.
+/// Four blocks, and each one is here because a measured run asked for it separately after
+/// the first version answered. The arm's trace was identical in all three runs of round
+/// three: `for change` gave callers and services, then `refs` for the source at those
+/// sites, then `refs` again on the async wrapper, then `weaklinks` to rule out dynamic
+/// dispatch. Those are not four questions. They are one question the answer was missing
+/// three quarters of.
 pub fn change(
     store: &Store,
+    repo: Option<&Path>,
     symbol_id: i64,
     budget: &mut Budget,
 ) -> Result<(Envelope, bool)> {
+    use std::fmt::Write;
     let sym = store
         .symbol(symbol_id)?
         .ok_or_else(|| anyhow::anyhow!("handle resolved to a missing symbol"))?;
 
-    let affected = store.affects(symbol_id, 12, 40)?;
-    let radius = cairn_fmt::affects(&sym, &affected, budget);
+    let mut body = String::new();
+    let mut unknown: Vec<String> = Vec::new();
+    let mut rows = 0usize;
 
-    // Depth 1: the sites that would fail to compile. Deeper is a different question and
-    // asking it here would bury the answer under a transitive closure nobody edits.
+    // 1. The sites to edit, with the source at each. `refs` rather than the call graph:
+    //    a signature change is edited at occurrences, and reading them is what the arm
+    //    did next every single time.
+    let (refs, suppressed_generated, total) = store.references(symbol_id, false, 40)?;
+    let ctx = cairn_fmt::SiteContext::auto(None, refs.len());
+    let mut source = repo.map(|r| cairn_fmt::Source::new(r.to_path_buf()));
+    let sites = cairn_fmt::references_with_context(
+        &sym,
+        &refs,
+        suppressed_generated,
+        total,
+        source.as_mut(),
+        ctx,
+        budget,
+    );
+    let _ = writeln!(body, "{}", sites.body.trim_end());
+    let _ = writeln!(
+        body,
+        "  (from `cairn refs {} --context auto`)\n",
+        sym.handle
+    );
+    rows += sites.rows.unwrap_or(0);
+    unknown.extend(sites.unknown);
+
+    // 2. The hop the arm always had to make by hand. A repository function is reached
+    //    through `af = db_async(f)`, a module-level binding: it shows up as a caller, and
+    //    its own callers are the ones that actually break. Followed one step, which is
+    //    where this codebase's wrappers stop.
     let callers = store.walk(
         symbol_id,
         cairn_store::EdgeKind::Calls,
@@ -104,43 +134,91 @@ pub fn change(
         40,
         false,
     )?;
-    let title = format!(
-        "callers of [{}] {}   depth=1   [L1, exact]",
-        sym.handle,
-        sym.qualified()
-    );
-    let sites = cairn_fmt::walk(
-        &callers,
-        &title,
-        cairn_fmt::View::List,
-        cairn_fmt::Detail::Skeleton,
-        None,
-        budget,
-    );
+    for node in callers.nodes.iter().filter(|n| n.symbol.id != symbol_id) {
+        if !matches!(node.symbol.kind, cairn_scip::SymbolKind::Term) {
+            continue;
+        }
+        let (through, _, _) = store.references(node.symbol.id, false, 12)?;
+        if through.is_empty() {
+            continue;
+        }
+        let _ = writeln!(
+            body,
+            "reached through the binding [{}] {} — these break too:",
+            node.symbol.handle,
+            node.symbol.qualified()
+        );
+        for r in &through {
+            if budget.push(&mut body, &format!("  {}:{}", r.path, r.line)) {
+                rows += 1;
+            }
+        }
+        let _ = writeln!(body, "  (from `cairn refs {}`)\n", node.symbol.handle);
+    }
 
-    let mut body = String::new();
-    use std::fmt::Write;
-    let _ = writeln!(body, "{}", sites.body.trim_end());
-    let _ = writeln!(
-        body,
-        "  (from `cairn graph {} --aspect callers --depth 1`)\n",
-        sym.handle
-    );
+    // 3. The deployed radius.
+    let affected = store.affects(symbol_id, 12, 40)?;
+    let radius = cairn_fmt::affects(&sym, &affected, budget);
     let _ = writeln!(body, "{}", radius.body.trim_end());
-    let _ = writeln!(body, "  (from `cairn affects {}`)", sym.handle);
+    let _ = writeln!(body, "  (from `cairn affects {}`)\n", sym.handle);
+    rows += radius.rows.unwrap_or(0);
+    unknown.extend(radius.unknown);
 
-    let rows = sites.rows.unwrap_or(0) + radius.rows.unwrap_or(0);
+    // 4. The dynamic-dispatch check, stated rather than left to be asked. One line when
+    //    it is clean, which is the common case and the whole point: the arm ran
+    //    `weaklinks` to be told nothing.
+    let weak = store.weak_sites(symbol_id, 10)?;
+    if weak.is_empty() {
+        let _ = writeln!(
+            body,
+            "no string literal anywhere names this symbol, so nothing reaches it by a \
+             name resolved at run time  (from `cairn weaklinks {}`)",
+            sym.handle
+        );
+    } else {
+        let _ = writeln!(
+            body,
+            "{} string literal(s) name this symbol — candidates for dynamic dispatch, \
+             check them before trusting the list above  (`cairn weaklinks {}`)",
+            weak.len(),
+            sym.handle
+        );
+        for (site, score) in weak.iter().take(6) {
+            if budget.push(&mut body, &format!("  {site}  ({score:.2})")) {
+                rows += 1;
+            }
+        }
+    }
+
     let mut env = Envelope::new(body).rows(rows);
-    // Merged rather than summarised: each block's caveats belong to that block, and a
-    // fused envelope that flattened them would lose the per-row provenance that made
-    // agents read these lines at all.
-    for note in radius.unknown.into_iter().chain(sites.unknown) {
+    for note in unknown {
         env = env.unknown(note);
     }
     for note in radius.suppressed.into_iter().chain(sites.suppressed) {
         env = env.suppressed(note);
     }
     Ok((env, rows > 0))
+}
+
+/// The candidates a `change` question can plausibly mean.
+///
+/// Generated definitions are dropped, and that is a judgement the *intent* licenses rather
+/// than a guess about which symbol: nobody hand-edits a protobuf stub, so it cannot be
+/// what "I am going to modify this" refers to. For `get_quota_status` that removes four of
+/// seven candidates in one honest step.
+pub fn change_candidates(store: &Store, name: &str) -> Result<Vec<cairn_store::SymbolRow>> {
+    let mut out = Vec::new();
+    for s in store.symbols_named(name)? {
+        if s.def.as_ref().is_some_and(|d| d.generated) {
+            continue;
+        }
+        out.push(s);
+    }
+    // Most-referenced first. A real signal, not a tie-break invented for the occasion —
+    // and the choice it makes is printed with the alternatives, so a reader who disagrees
+    // pays one copy-paste rather than one round trip.
+    out.sort_by_key(|s| std::cmp::Reverse(s.ref_count));
+    Ok(out)
 }
 
 #[cfg(test)]
