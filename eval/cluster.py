@@ -2,9 +2,15 @@
 """Reconstruct round trips from a run's tool-call log.
 
 A round trip is one inference, not one tool call. Calls issued together in one turn are
-dispatched at once and arrive milliseconds apart; calls in separate turns are separated
-by an inference, which is seconds. So turns are gaps, and the threshold sits in the empty
-band between the two - measured at 1.8-2.6 s between turns against sub-100 ms within one.
+dispatched at once and arrive close together; calls in separate turns are separated by an
+inference. So turns are gaps, and the threshold sits in the empty band between the two.
+
+Where that band is has moved, which is why the threshold is now computed rather than
+written down. It was "1.8-2.6 s between turns against sub-100 ms within one" when this
+file was first written and the runs were serial. Under three-way parallelism a batched
+dispatch stretches: pooled over 44 runs the within-turn band reaches **1.03 s** and the
+next gap of any kind is **1.93 s**. `turn_threshold` finds that band in whatever data it
+is given and reports it, so the number is never older than the runs it is applied to.
 
 Reported per run: turns (the metric), calls (what was spent), and the largest
 within-turn gap, so a run where the threshold was doing real work is visible rather than
