@@ -549,6 +549,36 @@ fn report(argv: &[String], code: u8, elapsed: std::time::Duration) {
 /// point: the session log is read to ask why an agent ran the same query four times, and
 /// that question is only answerable if the row count and the "I left something out" flag
 /// in the log are the ones that were in front of it when it decided to ask again.
+/// The two envelope lines `status` was missing.
+///
+/// Every other answer ends with `unknown:` / `suppressed:` / `stale:`, and the agent guide
+/// tells the reader that is where the honesty lives. `status` printed only `stale:` — and
+/// it is the command the guide says to run first, so it was the one answer where a reader
+/// who had learned to check `unknown:` found nothing there. Its sibling report `verify`
+/// prints all three. Found by the stress harness comparing the two.
+fn envelope_tail(store: &Store) {
+    println!("suppressed: none");
+    let partial: Vec<String> = store
+        .coverage(None)
+        .map(|c| {
+            c.iter()
+                .filter(|a| !matches!(a.state, cairn_store::State::Indexed | cairn_store::State::Verified))
+                .map(|a| a.name.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+    if partial.is_empty() {
+        println!("unknown: none");
+    } else {
+        println!(
+            "unknown: {} mechanism(s) did not complete ({}), so answers resting on them \
+             are incomplete and will not say so",
+            partial.len(),
+            partial.join(", ")
+        );
+    }
+}
+
 fn emit(env: cairn_fmt::Envelope) {
     track::observe(env.rows, env.truncated());
     print!("{}", env.render());
@@ -2054,6 +2084,7 @@ fn run() -> Result<u8> {
                     // be read and most of what it says is still true. `status` returning
                     // 3 for the same condition made it the one command that called a
                     // readable index unreadable.
+                    envelope_tail(&store);
                     Ok(exit::FOUND)
                 }
                 None => {
@@ -2072,6 +2103,7 @@ fn run() -> Result<u8> {
                     // creates and then grades itself on. Measured in the session logs: two
                     // agents got exit 3 here, and the guide tells them 3 means they are in
                     // the wrong directory. Both ignored it and queried on, correctly.
+                    envelope_tail(&store);
                     Ok(exit::FOUND)
                 }
             }

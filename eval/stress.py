@@ -16,6 +16,11 @@ Symbols are chosen by a rule, not by hand: a deterministic stratified sample fro
 index, so a later run covers the same ground and a new failure is a change rather than a
 different draw.
 
+Every check states the contract it rests on. That is not decoration: the first version of
+this file reported three classes of finding and two were the invariant being stronger than
+the contract, which is the failure mode of the whole idea. If a check cannot cite the
+sentence it enforces, it does not belong here.
+
 Usage: stress.py <db> <repo> [sample-size]
 """
 
@@ -89,14 +94,35 @@ def services_in(text):
     return {s for s in out if s and s != "?"}
 
 
+# Lines that explain the answer rather than being it. A handle inside one of these is
+# prose — `answered for the enclosing type [qsu]` names the subject, not a caller — and
+# reading it as a result row is how this file reported an asymmetry that was a sentence.
+PROSE = ("answered for the", "via:", "every RPC this", "this RPC only", "where this lands")
+
+
 def handles_in(text):
-    """Handles a listing printed, as `[abc]`."""
+    """Handles a listing printed as result rows, as `[abc]`. Prose lines excluded."""
     out = set()
-    for part in text.split("["):
-        end = part.find("]")
-        if 0 < end <= 6 and part[:end].isalnum():
-            out.add(part[:end])
+    for line in text.splitlines():
+        stripped = line.strip()
+        if any(stripped.startswith(p) for p in PROSE):
+            continue
+        for part in line.split("["):
+            end = part.find("]")
+            if 0 < end <= 6 and part[:end].isalnum():
+                out.add(part[:end])
     return out
+
+
+# Findings already diagnosed and written up, so a run that reports only these is a clean
+# run. Keyed by check *and* symbol: the same class on a different symbol is new and still
+# surfaces. Suppressing a whole check would hide the regression this file exists to catch.
+KNOWN = {
+    ("reaches is not symmetric", "npw"):
+        "`--outgoing` has two modes - the precise one names handler symbols, the "
+        "convention fallback names services - so their outputs cannot be compared by "
+        "shape. Inconsistency of form, not of fact. See RESULTS.md.",
+}
 
 
 class Findings:
@@ -235,6 +261,195 @@ def check_determinism(db, handle, f):
             return
 
 
+ENVELOPE_COMMANDS = [
+    ["status"],
+    ["topology"],
+    ["entrypoints"],
+    ["docs"],
+    ["verify"],
+]
+
+
+def check_envelope_and_exit_codes(db, repo, f):
+    """Contract, from the agent guide: every answer ends with `unknown:` / `suppressed:` /
+    `stale:`, and exit codes are 0 found, 1 nothing, 2 bad query, 3 degraded.
+
+    An answer without its envelope is the failure this project exists to prevent — a list
+    that looks complete because nothing said otherwise. An exit code outside the contract
+    is worse, because the caller acts on it without reading anything."""
+    for cmd in ENVELOPE_COMMANDS + [["for", "find", "Kontomatik", "--repo", repo]]:
+        code, out, err = run(db, *cmd)
+        label = "cairn " + " ".join(cmd)
+        if code not in (0, 1, 2, 3):
+            f.note("exit code outside the contract", label, f"exit {code}", label)
+            continue
+        if code != 0:
+            continue
+        for field in ("suppressed:", "stale:"):
+            if field not in out:
+                f.note(
+                    "answer without its envelope",
+                    label,
+                    f"exit 0 and no `{field}` line",
+                    label,
+                )
+                break
+
+
+def check_budget_admits_what_it_cut(db, handle, f):
+    """Contract: `--budget <tokens>` "is a ceiling: the tool fills it with the highest-ranked
+    rows and reports what it dropped".
+
+    So a budget small enough to cut must produce a non-empty `suppressed:`. Silent
+    truncation is the exact shape of three defects already in RESULTS.md."""
+    wide_code, wide, _ = run(db, "usage", handle, "--include-tests")
+    if wide_code != 0:
+        return
+    wide_rows = [l for l in wide.splitlines() if l.startswith("     ") and "x  " in l]
+    if len(wide_rows) < 3:
+        return
+    code, tight, _ = run(db, "--budget", "60", "usage", handle, "--include-tests")
+    if code != 0:
+        return
+    tight_rows = [l for l in tight.splitlines() if l.startswith("     ") and "x  " in l]
+    if len(tight_rows) < len(wide_rows) and "suppressed: none" in tight:
+        f.note(
+            "a cut list says nothing was cut",
+            handle,
+            f"{len(wide_rows)} files at full budget, {len(tight_rows)} at 60, "
+            f"and `suppressed: none`",
+            f"cairn --budget 60 usage {handle} --include-tests",
+        )
+
+
+def check_runs_agrees_with_affects(db, handle, f):
+    """Both answer "which deployed services run this code" — `runs` alone, `affects` as the
+    in-process half of a wider answer. Two commands, one fact, so they must not disagree.
+
+    Compared as sets and only when both are confident: `affects` marks a service `~` when
+    it was attributed through the file rather than a call path, and `runs` labels the same
+    case in its header, so a difference there is a difference of confidence, not of fact."""
+    rc, rout, _ = run(db, "runs", handle)
+    ac, aout, _ = run(db, "affects", handle)
+    if rc != 0 or ac != 0:
+        return
+    if "via the file" in rout or " ~ " in aout:
+        return
+    runs_set = {
+        l.strip().split()[0]
+        for l in rout.splitlines()
+        if l.startswith("  ") and l.strip() and not l.strip().startswith("(")
+    }
+    in_proc = set()
+    seen_header = False
+    for line in aout.splitlines():
+        if line.startswith("in-process"):
+            seen_header = True
+            continue
+        if seen_header:
+            if not line.startswith("  ") or not line.strip():
+                break
+            if not line.strip().startswith("("):
+                in_proc.add(line.split()[0])
+    if runs_set and in_proc and runs_set != in_proc:
+        f.note(
+            "runs and affects disagree about the same services",
+            handle,
+            f"runs says {sorted(runs_set)}, affects in-process says {sorted(in_proc)}",
+            f"cairn runs {handle}; cairn affects {handle}",
+        )
+
+
+def check_literal_agrees_with_find(db, repo, f):
+    """`literal` and `for find` both answer "whose line is this" for the same line. They
+    reach it by different routes — one from indexed literals, one from a tree search plus
+    an attribution lookup — so agreement is a real cross-check, and it is the one that
+    would have caught the off-by-one where the enclosing *class* answered for a method."""
+    c = sqlite3.connect(db)
+    texts = [
+        r[0]
+        for r in c.execute(
+            "SELECT DISTINCT text FROM literals "
+            "WHERE length(text) BETWEEN 8 AND 40 "
+            "AND instr(text, char(10)) = 0 AND enclosing IS NOT NULL "
+            "ORDER BY text LIMIT 200"
+        )
+    ][::17][:8]
+    for text in texts:
+        lc, lout, _ = run(db, "literal", text, "--context", "none")
+        fc, fout, _ = run(db, "for", "find", text, "--repo", repo)
+        if lc != 0 or fc != 0:
+            continue
+        # literal: "  path:line  in Owner.name [handle]"
+        want = {}
+        for line in lout.splitlines():
+            if " in " not in line or not line.startswith("  "):
+                continue
+            where, _, owner = line.strip().partition("  in ")
+            if ":" in where and "[" in owner:
+                want[where] = owner.split("[")[1].rstrip("] ").strip()
+        # for find: file header, then "  <line> > text  <- in name [handle]"
+        got, path = {}, None
+        for line in fout.splitlines():
+            if line and not line.startswith(" ") and "/" in line:
+                path = line.split()[0]
+            elif " > " in line and "<- in " in line and path:
+                num = line.strip().split(">")[0].strip()
+                h = line.split("<- in ")[1]
+                if "[" in h:
+                    got[f"{path}:{num}"] = h.split("[")[1].split("]")[0].strip()
+        for where, handle in want.items():
+            if where in got and got[where] != handle:
+                f.note(
+                    "literal and for find name different owners for one line",
+                    text[:30],
+                    f"{where}: literal says [{handle}], for find says [{got[where]}]",
+                    f'cairn literal "{text}"; cairn for find "{text}"',
+                )
+                return
+
+
+def check_staleness_agrees(db, repo, f):
+    """`verify --repo` is the one-off comparison of tree against index; `status` reports the
+    watcher's view of the same thing. When verify finds nothing changed, status must not
+    claim modified files — the daemon reporting a clean tree as dirty is a defect already
+    fixed once here, and it is worth a standing check."""
+    vc, vout, _ = run(db, "verify", "--repo", repo)
+    sc, sout, _ = run(db, "status")
+    if vc not in (0, 1) or sc not in (0, 1):
+        return
+    verify_clean = "stale: none" in vout or "0 files changed" in vout
+    status_line = next((l for l in sout.splitlines() if l.startswith("stale:")), "")
+    if verify_clean and " modified" in status_line:
+        n = status_line.split(" modified")[0].split()[-1]
+        if n.isdigit() and int(n) > 0:
+            f.note(
+                "status calls a tree dirty that verify calls clean",
+                "(tree)",
+                f"verify: no changed files; status: {status_line.strip()}",
+                f"cairn verify --repo {repo}; cairn status",
+            )
+
+
+def check_handles_resolve(db, handle, f):
+    """A handle printed by one command must be accepted by another. Handles are the
+    shortest unique prefix of a hash, so a collision or a truncation bug shows up here and
+    nowhere else — as `no symbol with handle`, on a handle the tool itself just printed."""
+    code, out, _ = run(db, "graph", handle, "--aspect", "callers")
+    if code != 0:
+        return
+    for h in sorted(handles_in(out))[:6]:
+        c2, _, err = run(db, "runs", h)
+        if c2 == 2 and "no symbol with handle" in err:
+            f.note(
+                "a printed handle does not resolve",
+                handle,
+                f"[{h}] was printed by `graph` and rejected by `runs`",
+                f"cairn graph {handle} --aspect callers; cairn runs {h}",
+            )
+            return
+
+
 def main():
     if len(sys.argv) < 3:
         print(__doc__)
@@ -252,11 +467,18 @@ def main():
     }
     picks = sample(db, n)
     print(f"{len(picks)} symbols, stratified and seeded\n")
+    # Whole-tool checks, once rather than per symbol.
+    check_envelope_and_exit_codes(db, repo, f)
+    check_literal_agrees_with_find(db, repo, f)
+    check_staleness_agrees(db, repo, f)
     for i, (label, handle) in enumerate(picks, 1):
         check_reaches_symmetry(db, handle, f, generated)
         check_affects_covers_methods(db, handle, f)
         check_usage_within_refs(db, handle, f)
         check_determinism(db, handle, f)
+        check_budget_admits_what_it_cut(db, handle, f)
+        check_runs_agrees_with_affects(db, handle, f)
+        check_handles_resolve(db, handle, f)
         if i % 10 == 0:
             print(f"  ...{i}/{len(picks)}", flush=True)
 
@@ -264,16 +486,23 @@ def main():
     if not f.rows:
         print("no contradictions found")
         return 0
+    fresh = [r for r in f.rows if (r[0], r[1]) not in KNOWN]
+    old = [r for r in f.rows if (r[0], r[1]) in KNOWN]
+    for kind, subject, _, _ in old:
+        print(f"  known: {kind} on [{subject}] — {KNOWN[(kind, subject)]}\n")
+    if not fresh:
+        print("no new contradictions")
+        return 0
     seen = set()
-    print(f"{len(f.rows)} contradiction(s):\n")
-    for kind, subject, detail, repro in f.rows:
+    print(f"{len(fresh)} new contradiction(s):\n")
+    for kind, subject, detail, repro in fresh:
         if kind in seen:
             continue
         seen.add(kind)
         print(f"  {kind}")
         print(f"    on [{subject}]: {detail}")
         print(f"    repro: {repro}")
-        print(f"    ({sum(1 for r in f.rows if r[0] == kind)} symbols show this)\n")
+        print(f"    ({sum(1 for r in fresh if r[0] == kind)} symbol(s) show this)\n")
     return 1
 
 

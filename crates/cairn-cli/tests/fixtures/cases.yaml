@@ -366,3 +366,13 @@
   exit: 2
   contains: ["looks like text rather than a symbol", "for find"]
   max_seconds: 5
+
+# ── the envelope is not optional on the command the guide says to run first ───────────
+# `status` printed only `stale:`, while its sibling report `verify` printed all three.
+# The guide tells the reader the envelope is where the honesty lives, so the one answer
+# that omitted two thirds of it was the worst possible one to omit them from. Found by
+# eval/stress.py comparing the two commands, not by anyone reading the output.
+- name: status carries the whole envelope, like every other answer
+  args: [status]
+  contains: ["suppressed:", "unknown:", "stale:"]
+  max_seconds: 15

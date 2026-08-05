@@ -918,3 +918,39 @@ ones were both the invariant being stronger than the contract. That is the cost 
 approach and it is still cheap: an afternoon of agent runs costs more than every stress run
 this file will ever need, and the defect it found — an answer that reorders itself between
 invocations — is one that would have quietly undermined every diff-based claim here.
+
+### The harness, extended — 2026-08-05
+
+Six more invariants, each citing the sentence it enforces, because the first version's two
+false findings were both the check being stronger than the contract:
+
+| check | contract it rests on |
+|---|---|
+| envelope and exit codes | "Answers end with `unknown:` / `suppressed:` / `stale:`"; exit 0/1/2/3 |
+| a cut list admits it | "`--budget` is a ceiling … and reports what it dropped" |
+| `runs` agrees with `affects` in-process | two commands, one fact: which services run this |
+| `literal` agrees with `for find` | both answer "whose line is this", by different routes |
+| `verify` agrees with `status` on staleness | one-off check against watcher view of the same tree |
+| a printed handle resolves | handles are a shortest-unique prefix; a collision shows up nowhere else |
+
+**Second real defect found: `status` was missing two thirds of its own envelope.** It
+printed `stale:` and nothing else, while its sibling report `verify` printed all three
+lines. It is the command the agent guide says to run first, so it was the one answer where
+a reader who had learned to check `unknown:` found nothing there — and it does have unknown
+content, the partial coverage mechanisms, which it was printing only as prose. Now emitted
+under the standard labels, with a fixture case pinning it.
+
+Two more checker corrections, same lesson as before: handles were being read out of
+explanatory prose (`answered for the enclosing type [qsu]` names the subject, not a
+caller), and the literal query named a column the schema does not have.
+
+The one finding that survives is the `--outgoing` two-modes inconsistency described above.
+It is in a `KNOWN` list keyed by check *and* symbol, so a clean run says "no new
+contradictions" while the same class on a different symbol still surfaces. A harness that
+reports the same thing every run stops being read; one that suppresses a whole check hides
+the regression it exists to catch.
+
+**Running total for the shell harness: two real defects, both of a kind no agent run would
+have surfaced** — one answer that reordered itself between invocations, one that omitted
+the envelope the guide tells readers to trust. Four false findings, all from invariants
+written stronger than the contract, all corrected in place with the reason.
