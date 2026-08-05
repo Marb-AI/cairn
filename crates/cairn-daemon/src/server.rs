@@ -10,18 +10,28 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::ipc::{UnixListener, UnixStream};
 use crate::lsp::Pool;
 use crate::watch::DirtyTracker;
 use crate::{DaemonStatus, Request, Response};
 
+/// How long a daemon goes unasked before it stops.
+///
+/// Long enough to survive a person thinking, short enough that a test run's daemon is gone
+/// before the next one starts. The cost of being wrong in either direction is small: too
+/// short and the next command pays one spawn, too long and one process sleeps.
+pub(crate) const IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+pub(crate) const IDLE_POLL: Duration = Duration::from_secs(60);
+
 pub struct Daemon {
     repo: PathBuf,
     socket: PathBuf,
     tracker: Arc<DirtyTracker>,
     started: Instant,
+    /// When a client last asked anything, for the idle watchdog.
+    last_request: Arc<std::sync::Mutex<Instant>>,
     /// Guarded rather than per-connection: language servers are expensive and
     /// stateful, so one pool is shared and requests to it are serialised.
     pool: Arc<std::sync::Mutex<Pool>>,
@@ -49,6 +59,7 @@ impl Daemon {
                 Arc::new(t)
             },
             started: Instant::now(),
+            last_request: Arc::new(std::sync::Mutex::new(Instant::now())),
             pool: Arc::new(std::sync::Mutex::new(Pool::new(repo, roots, container))),
         }
     }
@@ -108,6 +119,36 @@ impl Daemon {
             self.socket.display()
         );
 
+        // Nobody starts a daemon on purpose — any command that finds an index and no
+        // watcher starts one — so nothing ever stops one either. Measured on this
+        // workstation: 135 daemons alive at once, 63 of them watching a test fixture that
+        // a `cargo test` run had built in a temp directory hours earlier, each holding a
+        // language-server pool. A process that only ever accumulates is a leak however
+        // cheap one instance is.
+        //
+        // So: exit when nothing has asked anything for a while, or when the repository
+        // has gone. It goes through the ordinary shutdown request rather than exiting the
+        // process, because that is the path that stops the language servers — a watchdog
+        // that leaves those behind has moved the leak rather than fixed it.
+        let idle_socket = self.socket.clone();
+        let idle_repo = self.repo.clone();
+        let seen = Arc::clone(&self.last_request);
+        std::thread::spawn(move || loop {
+            std::thread::sleep(IDLE_POLL);
+            let quiet = seen.lock().unwrap().elapsed();
+            if quiet < IDLE_TIMEOUT && idle_repo.exists() {
+                continue;
+            }
+            let why = if idle_repo.exists() {
+                format!("idle for {}s", quiet.as_secs())
+            } else {
+                "the repository is gone".to_string()
+            };
+            eprintln!("cairn daemon: stopping - {why}");
+            let _ = crate::Client::connect(&idle_socket).map(|mut c| c.shutdown());
+            return;
+        });
+
         for stream in listener.incoming() {
             let Ok(stream) = stream else { continue };
             match self.serve_one(stream) {
@@ -153,6 +194,7 @@ impl Daemon {
         // list, so no file-system event ever arrives for the index itself. One `stat`
         // when the index has not moved, which is the common case.
         self.tracker.refresh_if_reindexed();
+        *self.last_request.lock().unwrap() = Instant::now();
         let (response, shutdown) = match serde_json::from_str::<Request>(line) {
             Ok(Request::Dirty) => (Response::Dirty(self.tracker.snapshot()), false),
             Ok(Request::Status) => (

@@ -1583,3 +1583,32 @@ remaining four turns are not obviously removable: one call to `for change`, one 
 the other candidates, and two file reads to quote the lines. The honest conclusion is that
 **this question is one a competent grep agent answers well**, and the tool's case does not
 rest on it — it rests on 3, 4 and 6, where a name search has nothing to offer.
+
+### A daemon nobody starts is a daemon nobody stops — 2026-08-05
+
+Counted while looking at something else: **135 cairn daemons alive at once**, each holding a
+language-server pool. 67 watched a scratchpad directory from a session that had ended hours
+before; **63 watched `crates/cairn-cli/tests/fixtures/corpus`** — one per `cargo test` run
+that built a fixture index and asked it a question. One watched the repository anybody
+actually cared about.
+
+The cause is the design working as intended in one direction only. *Nobody should have to
+know the daemon exists*, so any command that finds an index and no watcher starts one. There
+was no matching sentence for stopping.
+
+Two exits now, both through the ordinary shutdown request rather than `exit()` — that is the
+path that stops the language servers, and a watchdog that leaves those behind has moved the
+leak rather than fixed it:
+
+* **Idle**: nothing asked for 30 minutes. Long enough to survive a person thinking, short
+  enough that a test run's daemon is gone well before the next run starts.
+* **Gone**: the repository no longer exists. Verified end to end — a daemon on a temp
+  repository exited ~60 s after the directory was deleted, one poll interval.
+
+A test asserts the window rather than the constant's spelling: at least 10 minutes so a
+pause for thought does not cost a respawn, at most an hour so a day's test runs cannot pile
+up, and a poll faster than the window or it never fires.
+
+**The 133 orphans were killed by PID**, after listing them and confirming the live daemon was
+not among them — `pkill -f` on a pattern that also matches the shell running it is how an
+earlier session spent several rounds debugging a problem it was causing itself.

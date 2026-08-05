@@ -443,6 +443,27 @@ mod tests {
     }
 
     #[test]
+    fn the_idle_window_outlasts_thinking_and_not_a_test_run() {
+        // The numbers are the whole design, so they are asserted rather than left to a
+        // reading of the constants. 135 daemons were alive at once on one workstation,
+        // 63 of them started by `cargo test` runs against temp fixtures: the window has
+        // to be short enough that those are gone before anyone notices, and long enough
+        // that a person who steps away does not pay a respawn on every command.
+        assert!(
+            crate::server::IDLE_TIMEOUT >= Duration::from_secs(10 * 60),
+            "too short: a pause for thought would cost a respawn"
+        );
+        assert!(
+            crate::server::IDLE_TIMEOUT <= Duration::from_secs(60 * 60),
+            "too long: a day's test runs would still pile up"
+        );
+        assert!(
+            crate::server::IDLE_POLL < crate::server::IDLE_TIMEOUT,
+            "a poll slower than the window would never fire"
+        );
+    }
+
+    #[test]
     fn a_python_file_no_indexer_was_pointed_at_is_not_news() {
         // Measured on the target repository: 17 `.py` and `.go` files under `tools/` and
         // `infra/` were reported as `created` for ever, because the extension was right
