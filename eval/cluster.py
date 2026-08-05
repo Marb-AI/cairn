@@ -16,9 +16,53 @@ Usage: cluster.py runs/<run-id>.jsonl [gap-seconds]
 import json
 import sys
 
-# Between the two observed bands and far from both. Printed with the result so a run that
-# sits near it can be re-examined instead of trusted.
+# Used only when the data cannot place the threshold itself: too few gaps, or no clear
+# empty band between the two modes. Printed with the result either way, so a number that
+# came from a fallback is never mistaken for one that came from measurement.
 DEFAULT_GAP = 1.0
+
+# Where a threshold could plausibly sit. Below the floor is a batch dispatch; above the
+# ceiling everything is an inference by any reading.
+SEARCH_LO, SEARCH_HI = 0.05, 5.0
+# How empty the band has to be before it counts as a valley rather than a coincidence.
+# Adjacent gaps inside the within-turn mode sit 0.01-0.1 s apart, so this is several
+# times the spacing the data shows when there is no structure.
+MIN_VALLEY = 0.25
+
+
+def turn_threshold(gaps, default=DEFAULT_GAP):
+    """Place the within-turn / between-turn threshold from the gaps themselves.
+
+    Returns `(seconds, valley)` where `valley` is the empty band it came from, or `None`
+    when the data could not place it and the default stands.
+
+    The constant this replaces was 1.0 s, chosen when the two bands were "1.8-2.6 s
+    between turns against sub-100 ms within one". Under three-way parallelism the
+    within-turn band stretched: pooled over 44 runs it now runs to **1.03 s**, with the
+    next gap anywhere at **1.93 s**. So 1.0 sat inside the lower mode rather than between
+    the modes, and two batched calls were being counted as separate turns.
+
+    The correction moves numbers in this tool's favour, which is exactly why it is derived
+    rather than chosen: the widest empty band is where it is, and the same rule would move
+    them the other way if the data said so.
+    """
+    xs = sorted(g for g in gaps if SEARCH_LO < g < SEARCH_HI)
+    if len(xs) < 20:
+        return default, None
+    widest, at = 0.0, None
+    for a, b in zip(xs, xs[1:]):
+        if b - a > widest:
+            widest, at = b - a, (a, b)
+    if at is None or widest < MIN_VALLEY:
+        return default, None
+    mid = (at[0] + at[1]) / 2
+    # A threshold above the typical gap would call most inferences "the same turn", which
+    # is the failure this whole reconstruction exists to avoid.
+    ordered = sorted(gaps)
+    median = ordered[len(ordered) // 2]
+    if mid >= median:
+        return default, None
+    return mid, at
 
 # The parent's own calls, which bracket every run: the Agent call that starts it and the
 # marker command that closes it.

@@ -1612,3 +1612,49 @@ up, and a poll faster than the window or it never fires.
 **The 133 orphans were killed by PID**, after listing them and confirming the live daemon was
 not among them — `pkill -f` on a pattern that also matches the shell running it is how an
 earlier session spent several rounds debugging a problem it was causing itself.
+
+### The turn threshold now comes from the data, and the metric turns out to be flat
+
+Every round-trip number in this file rests on one constant: tool calls less than **1.0 s**
+apart were one turn, more were two. That constant was chosen when the two bands were
+"1.8–2.6 s between turns against sub-100 ms within one". Under three-way parallelism the
+within-turn band stretched, and round six recorded within-turn gaps of 0.93 s — close
+enough to the line to make every number in the round suspect.
+
+Pooled over 44 runs, the distribution is cleanly bimodal and the constant is in the wrong
+place:
+
+```
+within-turn band   … 0.89  0.92  0.92  0.93  0.93  0.94  1.03  1.03
+                                    ← empty, 0.90 s →
+between-turn band  1.93  2.10  2.17  2.21  2.26  2.29  2.34  2.42 …
+```
+
+**1.0 sat inside the lower mode**, not between the modes. `score.py` and `cluster.py` now
+find the widest empty band in the pooled gaps of the run set being scored and put the
+threshold at its midpoint, printing the band it came from — and falling back to the old
+constant, saying so, when a set is too small to show a valley (round 6b, three runs, does
+exactly this).
+
+**The important result is that it barely matters, and that is the point.** Sweeping the
+threshold across the whole plausible range:
+
+| threshold | s01 r6 | s04 r6 | s09 r6 | s01 rerun |
+|---|---|---|---|---|
+| 0.8 | 6 | 14 | 3 | 4 |
+| **1.0 (old)** | **5** | **13** | **3** | **4** |
+| 1.2 – 2.2 | 5 | **12** | 3 | 4 |
+
+From 1.2 s to 2.2 s every median is identical: the metric is a plateau, and the derived
+threshold sits in the middle of it rather than on its edge. The old constant was the only
+value in the range that gave a different answer, and the difference was an inflation.
+
+**What changes:** round six's s04 median goes 13 → **12**, ratio 0.48 → **0.44**. Two
+batched calls in two different runs were being counted as separate turns. s01, s09 and the
+s01 rerun are unchanged at every threshold, and **round five is unchanged in every
+scenario** — recomputed at its own derived 1.43 s it reproduces 2/2/4, 9/10/11, 7/8/11 and
+6/7/11 exactly as recorded.
+
+The correction moves a number in this tool's favour, which is why it is derived rather than
+chosen. The valley is where it is; the same rule would have moved it the other way had the
+data said so, and the plateau means no honest choice within it changes a conclusion.
