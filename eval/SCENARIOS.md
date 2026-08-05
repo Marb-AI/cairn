@@ -40,12 +40,28 @@ better.**
 - **Grading.** Each answer is compared against the key below and graded
   *same* / *better* / *worse*. The key is fixed here, before the runs, and was built by
   hand from both tools plus reading the code — not from whatever an arm happens to say.
-- **Skill overhead.** The cairn skill was **2 391 tokens** at 3.7 chars/token
-  (`skill/SKILL.md`, 8 850 chars) when this was written; it is 12 856 characters as of
-  2026-08-05, and the audit at the end of this file has the current comparison against the
-  grep arm's instructions. It is **excluded** from the per-question numbers and
-  reported once, here and in the result: it is a training asymmetry, not a property of the
-  tool, and it is paid once per session rather than once per question.
+- **Instruction overhead, both arms.** Each arm is given a preamble plus a guide, and both
+  are **excluded** from the per-question numbers: they are a training asymmetry, not a
+  property of either tool, and each is paid once per session rather than once per question.
+  Excluded is not the same as equal, so the sizes are stated here and **kept current** —
+  the figure below was quoted as fixed for four rounds while the file it measures grew by
+  45%.
+
+  | | preamble | guide | total | at 3.7 chars/token |
+  |---|---|---|---|---|
+  | grep | 1 124 | 8 878 (`arms/grep_preamble.md`) | **10 002** | ~2 700 tok |
+  | cairn | 1 204 | 12 856 (`skill/SKILL.md`) | **14 060** | ~3 800 tok |
+
+  *(2026-08-05. Round one recorded the cairn side as 8 850 chars / 2 391 tokens, and round
+  three as 12 069 — "closer to the grep arm's 10 002". That is no longer true in either
+  direction: the cairn arm now gets **40% more instruction than the baseline**. Re-measure
+  whenever either file changes; a stale number here silently understates the asymmetry.)*
+
+- **Toolkit asymmetry, stated because it is real.** The grep arm may use `grep`, `rg`, the
+  Grep tool, Read, `find`, `ls`, `sed` and `awk`. The cairn arm may use `cairn`, Read and
+  directory listing — no `sed`, no `awk`, no `find`. This runs **in the baseline's favour**,
+  so it does not flatter any result here and it stays; but a reader comparing round-trip
+  counts is comparing two differently-equipped agents and should be told so.
 - **Stale index.** The index was rebuilt at schema v18 immediately before the runs.
   Scenario 9 deliberately breaks that, and says so.
 
@@ -191,10 +207,21 @@ on a symbol that does have callers is a wrong answer with a confident face.
 `04_rank_distance_inversions.sql` is read to answer the second half. No SQL is indexed —
 cairn covers Python and Go only.
 
+**Key amended 2026-08-05, and the amendment is retroactive — see the note.** An answer is
+also graded *better* if it reports that the scripts diverge from the production code they
+mirror: the SQL `SUM`s the decay over every in-radius POI where the Go handler takes `MIN`
+over the nearest, and the scripts read table `poi` where the handler reads `poi_poi`.
+Nothing in the question asks for this, and a run that answers only what was asked is
+graded *same*, not *worse*.
+
 **Prediction.** grep 2, cairn 3 — one wasted call establishing that nothing is indexed,
 then the same work. The cairn arm's cost here is the wasted call **plus** the 2 391-token
 skill it loaded to no purpose, which is the honest way to state the overhead even though
 it is excluded from the per-question number.
+
+*(Left as written, because a pre-registration is not edited to match what came later. The
+figure is stale: 2 391 tokens was round one. It is ~3 800 today, so the overhead this
+paragraph calls out is **60% larger** than stated — the protocol table is the live number.)*
 
 ## What would falsify the case for the tool
 
@@ -563,12 +590,34 @@ prediction of 3 round trips is a prediction about a question that already tells 
 chain continues past the first hop. **Under the neutral form the number would very likely be
 higher for both arms**, and the honest comparison would be a different one.
 
-## One question does not ask what its key grades
+## Scenario 10 was graded on a criterion that was never registered
 
-Scenario 10's key and its falsifier both turn on the arm reaching a **Go handler**, and the
-question asks only about SQL files. An arm that answers the question exactly, and stops,
-is marked down for missing something it was never asked. Either the question gains a clause
-or the key loses one; they cannot both stand.
+*(This section replaces a first version that said the key and the question disagreed. They
+do not — the key above is exactly as narrow as the question. The drift is in the grading,
+which is worse, and worth stating precisely.)*
+
+The pre-registered key for scenario 10 lists two SQL files and nothing else. The verdict in
+`RESULTS.md` is that **grep wins it**, on the grounds that two of three grep runs found the
+scripts diverging from the production code — `SUM` against `MIN`, table `poi` against
+`poi_poi` — and no cairn run did, "because none went looking at the Go handler". That
+criterion appears in the round-two falsifier list and in the verdict. It has never appeared
+in the key, and the question does not ask for it.
+
+It has then been carried forward as settled through rounds three, four and five: *"scenario
+10's cairn runs still do not reach the Go handler"*, *"the one place a grep answer is
+better"*. So the single standing loss in the whole measurement rests on a criterion added
+after the runs.
+
+**It is a fair criterion** — a real divergence between a script and the code it mirrors is
+worth more than the answer that was asked for, and the acceptance rule already says a better
+answer at no more cost wins. What was wrong is that it was applied without being written
+down first, which is the exact failure this file's pre-registration exists to prevent.
+
+So it is now **in the key**, explicitly, along with the sentence that an arm answering only
+what was asked is graded *same* rather than *worse*. The verdict itself does not change:
+grep found more, at 0.80 of the cost, and still takes scenario 10. What changes is that the
+rule it was judged by is visible before the next run rather than inferred after the last
+one — and that a run which answers the question exactly is no longer penalised for it.
 
 ## What to do about it, and the cost of doing it
 
@@ -578,6 +627,13 @@ numbers behind them and a reworded question starts a new series — the comparis
 not. That is the price of the fix and it is worth paying for 1, 4 and 9, where the leading
 phrase gives away the exact thing being measured.
 
-The cheaper half costs nothing: **state the instruction asymmetry, correct the two stale
-numbers, and reconcile scenario 10's key with its question.** None of those touch a
-question's wording, so none of them break a series.
+The cheaper half costs nothing, and is **done** as of 2026-08-05: the protocol above now
+carries both arms' instruction sizes in a table that says to re-measure it, states the
+toolkit asymmetry and which way it runs, and scenario 10's key carries the criterion its
+verdict was actually decided on. None of those touched a question's wording, so no series
+was broken.
+
+What is left is the expensive half, and it is left deliberately rather than forgotten:
+**scenarios 1, 4 and 9 give away the thing they measure**, and fixing them restarts three
+series. Round six's scenario-4 prediction should be read with that in mind — it predicts a
+number for a question that already tells the arm the chain continues.

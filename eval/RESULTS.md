@@ -1283,17 +1283,30 @@ so CI was two assertions weaker than a workstation while reporting the same clea
 ### The questions the agent runs are asked, audited
 
 Separately from the tool: five rounds of round-trip numbers rest on ten questions whose
-*wording* had never been examined. `SCENARIOS.md` now carries that audit. The short version:
-**six of the ten name the shape of their own answer**, and scenario 4 — the one this round
-built a command for — tells the arm outright that the chain continues past the first hop, so
-its depth is supplied rather than discovered. Two figures in the protocol were also stale:
-the skill is 12 856 characters, not the 8 850 quoted, and the cairn arm's instructions are
-now **40% longer than the grep arm's** rather than shorter as round three recorded.
+*wording* had never been examined. `SCENARIOS.md` now carries that audit. **Six of the ten
+name the shape of their own answer**, and scenario 4 — the one this round built a command
+for — tells the arm outright that the chain continues past the first hop, so its depth is
+supplied rather than discovered.
 
-None of that invalidates the direction of travel. It does mean the per-scenario numbers
-measure something slightly narrower than the file has been claiming, and rewording a
-question restarts its series — so the audit separates the fixes that cost a history from
-the ones that cost nothing.
+**The sharpest finding is not about wording.** Scenario 10 is the single standing loss in
+the whole measurement, and its verdict rests on a criterion that was never registered: the
+key lists two SQL files, the question asks about SQL, and grep was awarded the scenario for
+finding a `SUM`/`MIN` divergence against a **Go handler** that neither mentions. That
+criterion came from the round-two falsifier list and has been carried forward as settled
+through three further rounds. It is a fair criterion — a real divergence between a script
+and the code it mirrors is worth more than the answer asked for, and the acceptance rule
+already rewards that — so it is now written into the key, with the verdict unchanged and
+the addition that answering only what was asked is graded *same*, not *worse*.
+
+The cheap fixes are applied: both arms' instruction sizes are now a table in the protocol
+with an instruction to re-measure (grep **10 002** characters, cairn **14 060** — the cairn
+arm gets 40% *more* than the baseline, reversing what round three recorded), the toolkit
+asymmetry is stated along with which way it runs, and scenario 10's key matches what
+scenario 10 was graded on.
+
+What is left is the expensive half: scenarios 1, 4 and 9 give away the thing they measure,
+and rewording them restarts three series. Round six's scenario-4 prediction should be read
+against that — it predicts a number for a question that already supplies half the answer.
 
 ### Gates
 
