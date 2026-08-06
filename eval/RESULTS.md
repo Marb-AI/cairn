@@ -2137,3 +2137,47 @@ the useful output of the day.
 - **The value figures remain uneven and are not a single number**: 0.07 on set-shaped
   questions, 0.44 on chains, 0.57–0.86 on ambiguity and identity, and grep still wins s10.
 - **One corpus, two languages.** Everything above is a statement about this repository.
+
+### Can completeness be proved on this repository? Partly, and here is exactly how far — 2026-08-06
+
+The question that closed the session was sharper than the one the day had been answering.
+Everything above is about a *negative* stated from an unbuilt source. This is about a list
+that looks complete and is not — "five of six, and you lose one". It contradicts nothing,
+so `stress.py` cannot see it, and no invariant in this repository could have.
+
+`eval/completeness.py` answers it where it is answerable. For a name carried by **exactly
+one symbol in the whole index**, every mention in the tree can be enumerated and put in one
+bucket. With a homonym it cannot: a mention may belong to the other symbol and nothing here
+can say which, so those are skipped rather than guessed at.
+
+**How much of the repository that covers: 8,646 of 11,396 hand-written types and functions,
+76%.** The remaining 24% is a limit of the proof, not of the tool, and it is stated rather
+than papered over.
+
+Over 60 such symbols, 347 code mentions (comments and the definition line excluded):
+
+| bucket | share | what it is |
+|---|---|---|
+| accounted | **73.8%** | `cairn refs` listed that file and line |
+| string | 8.6% | inside a quoted literal — the weak layer reports these |
+| attribute | 4.3% | `x.name`, the instance-attribute limit the tool documents and tells you to grep for |
+| **unexplained** | **13.3%** | none of the above |
+
+**The 13.3% is the answer to "where is the potential fake info".** It is dominated by
+keyword arguments and field declarations sharing the symbol's name —
+`RegimeEducationCard(recommended_switch_year=year)`, `remove_filter = None` — plus prose
+inside docstrings. A reference list is not *wrong* to omit those: they are not references.
+But **a rename breaks them**, and a caller who reads `6 references [L0, exact]` as
+"everything that changes" is misled by an answer that is, on its own terms, correct.
+
+So the honest statement of what can be proved on this corpus:
+
+- For 76% of hand-written symbols, **every** code mention is enumerable, and 73.8% of those
+  mentions are accounted for by `refs`, 12.9% by two documented and reported mechanisms.
+- The residual 13.3% is characterised, reproducible, and not currently surfaced anywhere.
+- For the other 24% of symbols, the question is not answerable by this method at all.
+
+Deliberately an audit script rather than a per-answer note: the earlier attempt to put a
+graph-versus-text count into `refs` was measured and pulled for being noise, and nothing
+since has changed that. What is different here is the restriction to unambiguous names,
+which is what makes the number mean something.
