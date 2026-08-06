@@ -2253,3 +2253,49 @@ design:
 That second one is the shape of the whole day in miniature: a block that had just been
 written to *prevent* over-confident answers was itself over-confident, and only reading its
 output showed it.
+
+## Verdict at e1df84c — 2026-08-06
+
+The stopping rule is met again, on the binary that merges the graph with the tree. The
+freeze held: `git status` clean throughout, nothing committed to `crates/` while these ran.
+
+| net | scope | result |
+|---|---|---|
+| harness | 160 symbols, 16 of 16 checks exercised | clean, twice |
+| sweep | 400 symbols x 14 commands | clean, twice |
+| CI step | fixture corpus, 16 of 16 | clean |
+| merge claims | 35 symbols: 32 residue blocks, 3 namesake notes | 0 contradicting the index |
+| latency | `for change` with the tree search in the loop | 0.27–0.49 s |
+
+**The previous verdict at `ac59e76` is not overwritten.** It was a different binary; this
+one is separate, and both are recorded rather than one replacing the other.
+
+### Found during the freeze, deliberately not fixed
+
+The fixture derives its weak layer correctly — `weak.candidates = 0` is recorded, so
+`weaklinks` exits 1 ("built, found nothing") rather than 3 ("unbuilt"), and the distinction
+holds at its boundary case. But **0 candidates means CI cannot catch a regression in the
+weak-link derivation itself**. The layer that was empty across the whole real index today,
+and that made `for change` print a false clean bill for every symbol in the repository, has
+no CI coverage.
+
+The fix is one string literal in the fixture naming one of its own symbols, plus a SCIP
+regeneration. Not done here because it would reset the counter for a sixth time, and fixing
+it quietly while claiming the runs still stand is the exact move this file spent the day
+finding in the tool. **It is the first thing to do next.**
+
+### What the day changed, in one line
+
+The tool used to answer from one source and, where that source fell short, tell the caller
+to go and run something else. It now answers from two — the index for what resolves, the
+tree for the residue — and where it cannot answer at all it says `UNCHECKED` and exits 3
+instead of printing a zero.
+
+### What is still true and unwelcome
+
+- **20 defects fixed today**, the worst of them found in the last two hours, by a question
+  rather than by a net.
+- **Four times my own verification was cruder than the code it was checking.** Each was
+  caught by a concrete case, never by an aggregate.
+- **The nets were green throughout every one of those discoveries.** They confirm what they
+  were built to confirm. That is the honest limit of any verdict in this file.
