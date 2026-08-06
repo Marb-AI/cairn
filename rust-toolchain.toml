@@ -12,3 +12,9 @@
 # other. Bump it deliberately, run `cargo fmt` in the same commit.
 channel = "1.97.1"
 components = ["clippy", "rustfmt"]
+# The Windows cross-check target belongs here rather than in the Dockerfile. It was
+# installed there against `stable`, and pinning the channel silently took it away: every CI
+# run from the pinning commit onwards failed at "Check the Windows code paths compile" with
+# `can't find crate for std`, for twenty-two pushes, because nothing tied the target to the
+# toolchain that actually gets used. Declared here, rustup installs it with the toolchain.
+targets = ["x86_64-pc-windows-gnu"]

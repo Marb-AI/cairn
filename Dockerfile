@@ -16,19 +16,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       gcc-mingw-w64-x86-64 \
  && rm -rf /var/lib/apt/lists/*
 
-# Components and targets go on `stable` by name, not on the image's default toolchain.
-# The base image pins a numbered toolchain, while rust-toolchain.toml asks for `stable`,
-# so rustup fetches a second one at first run — anything installed here under the default
-# would simply not be there when the build actually runs.
+# The toolchain is whatever rust-toolchain.toml asks for, installed from that file rather
+# than named again here. Naming it twice is how this broke: the image installed components
+# and the Windows target against `stable`, the repository later pinned a numbered channel,
+# and rustup fetched a second toolchain at run time without any of them.
+#
+# `rustup show` reads the file and installs what it names, so the pin, its components and
+# its targets have exactly one definition. Bumping the channel needs no change here.
 #
 # The Windows target is a cross-*check* only, nothing Windows runs in this image. The
 # release matrix builds `*-pc-windows-msvc` on real runners, but waiting for a tag to find
 # out that a `#[cfg(windows)]` block does not compile is too slow a loop; the GNU target
 # shares every one of those code paths and the same `windows-sys` bindings.
-RUN rustup toolchain install stable --profile minimal \
-      --component clippy --component rustfmt \
-      --target x86_64-pc-windows-gnu \
- && rustup default stable
+COPY rust-toolchain.toml /toolchain/rust-toolchain.toml
+RUN cd /toolchain && rustup show
 
 # Cargo caches live in volumes (see compose.yaml) so rebuilds are incremental.
 ENV CARGO_HOME=/cargo \
