@@ -2344,3 +2344,59 @@ It says the criterion is met at this commit, in this scope. It does not say the 
 reliable. The mutation audit above is the strongest evidence in this file precisely because
 it is the only check that was tested for its ability to fail — every other green result here
 is a net confirming what it was built to confirm.
+
+## Verdict at a614752 — 2026-08-06
+
+The counter was reset twice more after `bc42dc2` — once for the empty-query guard, once
+for the two layers below. Working tree clean throughout both pairs.
+
+| net | scope | result |
+|---|---|---|
+| harness | 160 symbols on the real index, 16 of 16 checks exercised | clean, twice |
+| sweep | 6,860 command runs across 490 of 490 fixture symbols | clean, twice |
+| corpus cases | 50, four of them new and each verified able to fail | clean |
+
+The verdicts at `ac59e76`, `e1df84c` and `bc42dc2` are not overwritten.
+
+### The tool is the escalation now, not the thing that recommends one
+
+`symbol` on a miss said "grep is the tool". Two states were indistinguishable behind that
+sentence — a name that is nowhere, and a name this index does not cover — and the caller
+paid a round trip to learn which. It now reads the tree first:
+
+| state | what it says |
+|---|---|
+| tree has nothing | *2270 file(s) were read and none contains that text. This is a checked absence, not an unsearched one* |
+| tree has the text | *no symbol by that name, but the text is in the working tree — 51 line(s)*, with `for find` to list them |
+| no tree readable | the old sentence, which is honest only here |
+
+`for find` stopped returning a listing where a classification is the answer. Across 50
+name searches on the real index: fires on 7, median **−75%** of output, total **−24%**,
+and the header claim — hits, files hit, files searched — is **identical in 50 of 50**.
+Test and generated lines are counted in the header and named in `suppressed:` rather than
+listed; `--all` restores them, byte for byte.
+
+### Two defects found while building this, both by a concrete case
+
+**A collapse that emptied the answer.** `chatWithFilter` is *defined* in a test file, so
+all 28 of its hits are derived and the classified body had nothing in it. A count with
+nothing to read is a missing answer, not a smaller one. A collapse that would leave the
+body empty no longer happens.
+
+**A negative from the wrong tree, newly introduced by the fix itself.** The probe derived
+its root from `<repo>/.cairn/index.sqlite`, which is a convention rather than a guarantee
+— and this repository's own harness breaks it by building the fixture index under `/tmp`.
+Derived that way the search read six unrelated files and reported "nothing in the working
+tree" as a *checked absence*. That is the exact failure this file has spent its length
+removing, re-created in the code written to remove it. The derived root is now corroborated
+against paths the index actually holds, and `symbol` takes `--repo` for the rest.
+
+It was caught because the fixture harness sits somewhere the convention does not hold.
+Nothing about the design found it; an environment that differed did.
+
+### One thing that was proposed and rejected
+
+Edit-distance "did you mean" on a miss. `ActionPlanz` is one character from a symbol with
+159 references, and the index can see that. It is still a guess about intent rather than a
+fact about the code, and a plausible wrong suggestion is the failure mode this whole file
+exists to prevent. Rejected on that ground, not on cost.
