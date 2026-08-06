@@ -12,7 +12,7 @@ RUN go install github.com/scip-code/scip-go/cmd/scip-go@latest
 # build from a clone. It only cross-checks our own parser, so failure is not fatal.
 RUN git clone --depth 1 https://github.com/sourcegraph/scip /tmp/scip \
  && (cd /tmp/scip && go build -o /go/bin/scip ./cmd/scip) \
- || echo "scip CLI se nepodařilo postavit — pokračuji bez něj" > /go/bin/.scip-missing
+ || echo "the scip CLI failed to build - continuing without it" > /go/bin/.scip-missing
 RUN touch /go/bin/scip
 
 # gopls needs a newer toolchain than scip-go does, so it gets its own stage rather
