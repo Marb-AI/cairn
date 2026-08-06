@@ -10,6 +10,11 @@ on:
     branches: ['**']
     tags-ignore: ['**']   # tags belong to release.yml
   pull_request:
+  # A push does not always produce a run. On 2026-08-06 GitHub could not resolve the
+  # actions for one commit ("Service Unavailable", twice, then failure) and created no run
+  # at all for the next — leaving a pushed commit with no CI result and no way to ask for
+  # one. Missed webhooks are not backfilled, so the only recovery was another commit.
+  workflow_dispatch:
 
 jobs:
   build:
