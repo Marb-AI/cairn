@@ -114,6 +114,26 @@ answer it. Nothing to start and nothing to keep running: a file watcher and the 
 servers come up by themselves the first time you query, so answers stay honest about edits
 made since the index was built.
 
+### What your agent actually calls
+
+The command above is the low-level layer, and it is there when you want it. What the guide
+sends an agent to first is the purpose, not the mechanism — measurement found that agents
+state what they are doing reliably and pick the command for it badly:
+
+```
+cairn for change <symbol>       I am about to edit this. What breaks?
+cairn for understand <symbol>   What is this, what calls it, what does it reach?
+cairn for find "<text>"         Where is this value, key or header, and whose line is it?
+```
+
+Each block of the answer names the command behind it, so going one level down is a
+copy-paste rather than a guess.
+
+A miss is a *searched* miss. When nothing matches, cairn reads the working tree before
+answering and says which of two things happened — the name is nowhere, or it exists as a
+string, a comment, or in a file the index does not cover. That is the difference between
+an answer and a suggestion to go and grep.
+
 ### If your agent does not run in the repository
 
 The above assumes your agent's working directory *is* the repository, which is the usual
@@ -210,12 +230,27 @@ STOP - every seed is a module __init__ or a test file, so nothing here answers
 
 That one message took a losing task from 13 tool calls to 7.
 
+**These five questions were not chosen in advance.** A later round was: ten scenarios
+fixed before any number existed, measuring round trips rather than tokens. It is the more
+honest test and it reads worse. **Cairn costs more on five of the ten**, so "never worse"
+is not supported, and across the whole mix it is roughly a 20 % saving — real, and an
+order of magnitude smaller than the best cases above, because half the mix is questions
+the tool is not for. Two of those losses are not fixable by any change to the output: a
+stale index, and a question about files no indexer reads.
+
+Individual scenarios were re-measured after the defects that round exposed were fixed, and
+sit around a halving of round trips at the median. The full ledger, including the runs
+that went the wrong way and the ones too noisy to call, is in
+[eval/RESULTS.md](eval/RESULTS.md).
+
 **How much to trust this.** One repository, one language pair, one model — and a
 repository you cannot inspect, which is fair to hold against it. Two of the five targets
-were chosen by a fixed rule rather than by hand, and both scored *better* than the
+above were chosen by a fixed rule rather than by hand, and both scored *better* than the
 hand-picked ones, which is the opposite of what overfitting predicts. The baseline itself
 varies by up to 1.8x run to run on open questions, so anything under about 15 % here is
-noise and is reported as such.
+noise and is reported as such — and three runs per arm, which is what the table above
+rests on, was later shown by a permutation test to be too few to resolve the two most
+open-ended scenarios at all.
 
 Numbers from public repositories are the obvious next step and are planned: they would be
 reproducible by anyone, and these are not.
