@@ -2444,3 +2444,19 @@ mutates every occurrence where a pattern is not unique.
 Adding it to the repository is the point: a check count is not a measurement, and this is
 the only number in this file that was obtained by trying to break something rather than by
 running it and seeing green.
+
+## Verdict at 41d47b2 — 2026-08-06
+
+| net | scope | result |
+|---|---|---|
+| harness | 160 symbols on the real index, 16 of 16 checks exercised | clean, twice |
+| sweep | 6,860 command runs across 490 of 490 fixture symbols | clean, twice |
+| suite | 175 tests, 52 corpus cases | clean |
+| **mutation audit** | **10 realistic regressions** | **10 of 10 caught** |
+
+Working tree clean throughout. The verdicts at `ac59e76`, `e1df84c`, `bc42dc2` and
+`a614752` are not overwritten.
+
+This is the first verdict in this file with a row that was obtained by trying to break
+something. The other three rows say the code and the checks agree; only the last says the
+checks would notice if they stopped agreeing — and only for the ten things that were tried.
