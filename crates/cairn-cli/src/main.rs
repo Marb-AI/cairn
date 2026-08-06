@@ -1772,8 +1772,28 @@ fn run() -> Result<u8> {
                     env = env.unknown(sites);
                 }
             }
+            // No service graph at all means every cross-boundary answer is unchecked, in
+            // both directions. The same lesson as the weak layer, one layer down: this
+            // index records 73 services today, but a repository whose generated code sits
+            // somewhere the classifier does not recognise gets zero — and that has already
+            // happened once, to repositories generating into `gen/` or `pb/`.
+            let no_graph = !store.has_service_graph();
+            if no_graph {
+                env = env.unknown(
+                    "this index holds NO service links at all, so this answer is UNCHECKED \
+                     rather than empty. Either nothing here speaks gRPC, or the generated \
+                     code sits where the artefact classifier did not look - `cairn status` \
+                     reports the service count",
+                );
+            }
             emit(env);
-            Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+            Ok(if found {
+                exit::FOUND
+            } else if no_graph {
+                exit::DEGRADED
+            } else {
+                exit::NOT_FOUND
+            })
         }
 
         Cmd::Path {

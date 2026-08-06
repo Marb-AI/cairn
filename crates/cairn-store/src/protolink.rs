@@ -1011,6 +1011,27 @@ impl Store {
 }
 
 impl Store {
+    /// Does this index hold a service graph at all?
+    ///
+    /// The generalisation of the weak-layer lesson, one layer down. With `service_links`
+    /// empty, `reaches <handler>` answers "0 callers across gRPC — nothing on the other
+    /// side of a service boundary", exit 0: an unbuilt layer reported as a fact about the
+    /// architecture.
+    ///
+    /// And this one has already happened. `package_of` carries the note: a repository that
+    /// generates into `gen/`, `pb/` or `proto/` got **zero cross-language links and no
+    /// indication of it**. The cause was fixed; the symptom — a confident zero from an
+    /// empty layer — never was, so the next layout nobody anticipated fails the same
+    /// silent way.
+    pub fn has_service_graph(&self) -> bool {
+        self.conn
+            .query_row("SELECT count(*) FROM service_links", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .map(|n| n > 0)
+            .unwrap_or(false)
+    }
+
     /// Every RPC method name a generated client in this index exposes, with its service.
     ///
     /// For corroborating a *negative*. When `rpc_targets` resolves nothing, the question

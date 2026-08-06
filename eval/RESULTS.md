@@ -2023,3 +2023,40 @@ temptation each time was to trust the aggregate.
 Four closed, two measured and deliberately left. The rule holds in both directions: a
 negative must be corroborated, *and* a corroboration that cannot carry its own weight must
 not ship.
+
+### The same lesson one layer down, found by asking the reframed question again — 2026-08-06
+
+With the nets green, the useful move was not another net but the question that found the
+weak layer, asked of everything else: *which derived layer can be empty without anyone
+noticing?*
+
+`service_links` can. Emptied — simulating a link pass that produced nothing — `reaches`
+answers:
+
+```
+[d95] FolderServiceHandler — 0 callers across gRPC        [L1, convention]
+  (nothing on the other side of a service boundary)          exit 0
+```
+
+An unbuilt layer reported as a fact about the architecture, exactly as the weak layer was.
+
+**And this one has already happened.** `package_of` carries the note in its own comment: a
+repository that generates into `gen/`, `pb/` or `proto/` got **zero cross-language links and
+no indication of it**. The cause was fixed — the classifier now takes the parent directory
+whatever it is called — but the *symptom* was never guarded, so the next layout nobody
+anticipated fails the same silent way, and the first sign of it is an agent confidently
+told that a handler nothing reaches.
+
+`reaches` now checks whether the index holds any service links at all, says so when it does
+not, and exits **3** rather than 1. A real index is unaffected: `reaches d95` still answers
+10 callers, exit 0.
+
+**This is the third instance of one bug**: weak layer, service graph, and the unindexed
+prefix. All three were an empty derived source rendered as a finding, and all three were
+found by the same question rather than by the sampling. That is worth stating plainly — the
+nets confirm what they were built to confirm, and the question is what finds the next class.
+
+`weak.candidates` is still the only layer that records having been built; the rest are
+inferred from a row count, which is the same trap one level further down. Named here rather
+than fixed, because a fix nobody has measured the need for is the other failure this file
+keeps recording.
