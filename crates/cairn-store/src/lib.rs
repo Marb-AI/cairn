@@ -377,3 +377,48 @@ pub fn symbol_hash(symbol: &str) -> [u8; 16] {
     out.copy_from_slice(&full.as_bytes()[..16]);
     out
 }
+
+impl Store {
+    /// Whether a derived layer holds anything at all.
+    ///
+    /// The generalisation of a bug found three times in one evening and then twice more
+    /// when the same question was put to the remaining layers: the weak links, the service
+    /// graph, an unindexed path prefix, the documentation sections, the literals. Each time
+    /// an empty derived source produced a confident negative — and `docs --about` and
+    /// `literal` went further and labelled theirs `[L0, exact]`.
+    ///
+    /// Exposed as one place so the next layer added to this store has an obvious thing to
+    /// call, rather than each command re-deciding what its own silence means.
+    pub fn layer_counts(&self) -> LayerCounts {
+        let n = |sql: &str| -> i64 { self.conn.query_row(sql, [], |r| r.get(0)).unwrap_or(0) };
+        LayerCounts {
+            doc_sections: n("SELECT count(*) FROM doc_sections"),
+            literals: n("SELECT count(*) FROM literals"),
+            service_links: n("SELECT count(*) FROM service_links"),
+        }
+    }
+}
+
+/// Row counts for the derived layers a command can answer a negative from.
+#[derive(Debug, Clone, Copy)]
+pub struct LayerCounts {
+    pub doc_sections: i64,
+    pub literals: i64,
+    pub service_links: i64,
+}
+
+impl LayerCounts {
+    /// The sentence to add when a layer is empty, or `None` when it holds something.
+    ///
+    /// One wording for every layer on purpose. An agent that learns what
+    /// "UNCHECKED rather than empty" means once should not have to learn it again per
+    /// command, and a caller matching on the text has one string to match.
+    pub fn unchecked(n: i64, layer: &str, how: &str) -> Option<String> {
+        (n == 0).then(|| {
+            format!(
+                "this index holds NO {layer} at all, so this answer is UNCHECKED rather \
+                 than empty - nothing has been ruled out. {how}"
+            )
+        })
+    }
+}

@@ -2060,3 +2060,31 @@ nets confirm what they were built to confirm, and the question is what finds the
 inferred from a row count, which is the same trap one level further down. Named here rather
 than fixed, because a fix nobody has measured the need for is the other failure this file
 keeps recording.
+
+### Asking the same question of every remaining layer — 2026-08-06
+
+Having found it three times, the cheap move was to put the question to the rest of the
+store at once: empty each derived table in a copy of the index and see what the commands
+that read it then claim.
+
+| layer emptied | what the command said |
+|---|---|
+| `doc_sections` | `0 sections for "quota": 0 are about it, 0 mention it` **[L0-M, exact]** |
+| `literals` | `0 literals containing "Kontomatik", 0 inside a function` **[L0, exact]** |
+| `deploy_services` | unaffected — `affects` still answered 4 services |
+
+Two more, and both labelled their empty answer **exact**. That makes five instances of one
+bug: weak links, service graph, unindexed prefix, documentation sections, literals.
+
+Rather than write a fifth special case, the question now has one place to be asked —
+`Store::layer_counts()` and `LayerCounts::unchecked()`, with a single wording for every
+layer. An agent that learns what *"UNCHECKED rather than empty"* means once should not have
+to learn it again per command, and a caller matching on the text has one string to match.
+All of them exit **3**, and a real index is unaffected: `docs --about`, `literal` and
+`reaches` all still exit 0 with their normal answers.
+
+**What this run of the pattern actually showed.** The wide nets were green throughout — 160
+symbols, 16 of 16 checks, 400 symbols through every command — and found none of these five.
+Every one came from asking *which derived layer can be empty without anyone noticing*. The
+nets confirm what they were built to confirm; the question is what finds the next class, and
+that asymmetry is the most useful thing this file records today.

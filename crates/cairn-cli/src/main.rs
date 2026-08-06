@@ -1544,6 +1544,11 @@ fn run() -> Result<u8> {
             let store = open(&db)?;
             let rows = store.literals(&text, limit)?;
             let found = !rows.is_empty();
+            let literal_gap = cairn_store::LayerCounts::unchecked(
+                store.layer_counts().literals,
+                "string literals",
+                "Reindex; until then `cairn for find` reads the tree directly and is                  never stale.",
+            );
             let ctx = cairn_fmt::SiteContext::parse(&context)
                 .with_context(|| format!("unknown --context '{context}' (none|line|block|<n>)"))?;
             // Worked out, not asked for. Requiring --repo would put a flag between the
@@ -1574,8 +1579,15 @@ fn run() -> Result<u8> {
                      worked out. Pass --repo <dir>",
                 );
             }
+            if let Some(note) = &literal_gap {
+                env = env.unknown(note.clone());
+            }
             emit(env);
-            Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+            Ok(match (found, literal_gap.is_some()) {
+                (true, _) => exit::FOUND,
+                (false, true) => exit::DEGRADED,
+                (false, false) => exit::NOT_FOUND,
+            })
         }
 
         Cmd::Docs { path, about } => {
@@ -1597,8 +1609,21 @@ fn run() -> Result<u8> {
                         .unwrap_or_else(|| PathBuf::from("."));
                     let rows = store.sections_matching(&root, &q)?;
                     let found = !rows.is_empty();
-                    emit(cairn_fmt::doc_search(&rows, &q, &mut budget));
-                    Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+                    let gap = cairn_store::LayerCounts::unchecked(
+                        store.layer_counts().doc_sections,
+                        "documentation sections",
+                        "Reindex, or the tree has no markdown the indexer recognised.",
+                    );
+                    let mut env = cairn_fmt::doc_search(&rows, &q, &mut budget);
+                    if let Some(note) = &gap {
+                        env = env.unknown(note.clone());
+                    }
+                    emit(env);
+                    Ok(match (found, gap.is_some()) {
+                        (true, _) => exit::FOUND,
+                        (false, true) => exit::DEGRADED,
+                        (false, false) => exit::NOT_FOUND,
+                    })
                 }
                 (None, None) => {
                     let docs = store.documents()?;
