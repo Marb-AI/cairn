@@ -2088,3 +2088,52 @@ symbols, 16 of 16 checks, 400 symbols through every command — and found none o
 Every one came from asking *which derived layer can be empty without anyone noticing*. The
 nets confirm what they were built to confirm; the question is what finds the next class, and
 that asymmetry is the most useful thing this file records today.
+
+---
+
+## Verdict at ac59e76 — 2026-08-06
+
+The stopping rule agreed earlier — two consecutive wide runs of both nets, on one frozen
+binary, finding nothing new — is **met**. The binary was frozen after the last fix and
+nothing was committed to `crates/` while these ran.
+
+| net | scope | result |
+|---|---|---|
+| harness | 160 symbols, 16 of 16 checks exercised | clean, twice |
+| sweep | 400 symbols x 14 commands = 5,600 invocations | clean, twice |
+| tests | 169 | pass |
+| CI | 16 of 16 checks exercised on the fixture | pass |
+| index determinism | two independent builds, 35 queries | identical |
+| budget | headline claim under a tight budget, 10 symbols | unchanged |
+| citation | assembled answers vs the commands they cite, 8 symbols | 0 disagreements |
+
+Earlier clean runs on earlier binaries are recorded in the session ledger and deliberately
+**not** counted: they tested different code, and counting them would be the same
+bookkeeping error this file spent the day finding in the tool.
+
+### What the verdict says
+
+That the nets this project knows how to build are green on this commit.
+
+### What it does not say
+
+**That the tool tells no falsehoods.** The strongest evidence against that reading is from
+today: the wide nets were green at the moment `for change` was printing, for *every symbol
+in the repository*, "no string literal anywhere names this symbol, so nothing reaches it by
+a name resolved at run time" — from a table nobody had filled in. Green nets are evidence
+that what can be checked holds. They are not evidence that nothing else is wrong.
+
+Six of the last defects came from one question — *which derived layer can be empty without
+anyone noticing* — and the nets found none of the six. That asymmetry, not the verdict, is
+the useful output of the day.
+
+### The scoreboard, for whoever picks this up
+
+- **18 defects fixed.** Five were one class: an empty derived layer printed as a finding.
+  Four negatives are now corroborated against the working tree; two were measured and
+  deliberately left unbuilt because they would be noise.
+- **Two of my own measurements over-reported** and argued for fixes that were not warranted.
+  Both were caught by looking at a concrete case rather than the aggregate.
+- **The value figures remain uneven and are not a single number**: 0.07 on set-shaped
+  questions, 0.44 on chains, 0.57–0.86 on ambiguity and identity, and grep still wins s10.
+- **One corpus, two languages.** Everything above is a statement about this repository.
