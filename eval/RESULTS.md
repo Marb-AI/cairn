@@ -1931,3 +1931,48 @@ names in the index's own client artefacts, and only the `.Name(` shape. A servic
 through a hand-written transport, a queue, or a differently-spelled wrapper is still
 invisible, and the envelope still says so. The change is that "invisible" no longer prints
 as "absent".
+
+### Two more negatives closed, and a third measured and left alone — 2026-08-06
+
+**`unreached` and `outline` over a path the index does not cover.** Asked about
+`tools/pbgen`, a directory holding four Python files no indexer has ever read:
+
+```
+0 symbols under tools/pbgen with no production caller       [L1, exact]
+  (everything here has a production caller)
+unknown: none            exit 0
+```
+
+That is an affirmative claim — *everything here has a caller* — made about code the index
+has never seen, marked exact, with nothing unknown. `outline` was the same shape: `0 of 0
+definitions`.
+
+Both now check whether any indexed file matches the prefix, and when none does they say so,
+count what the working tree actually holds there, and name the roots the indexers were
+pointed at — which is nearly always the explanation:
+
+```
+NO FILE under `tools/pbgen` is in this index, so this answer is UNCHECKED rather than
+empty - nothing here has been ruled out. The working tree holds 4 indexable file(s)
+there. The indexers were pointed at: py=srcpy go=srcgo.
+```
+
+Both exit **3 (degraded)** rather than 1, so a caller reading only the exit code cannot
+mistake an unindexed path for a clean one. A path the index does cover is unaffected: still
+exit 0, no note.
+
+**The third one was measured and deliberately not built.** The candidate was a
+graph-versus-text count on `refs`: the tree spells `total_dsti_monthly_impact` 23 times and
+the graph accounts for 6. Over 25 single-symbol names, **17 were fully accounted for** once
+graph references and weak links were both counted, and the eight that were not turned out to
+be an artefact of my own measurement — `GetPhotoAnalysis` looked like "graph 0, code 30"
+because it is **9 symbols of that name, 8 of them generated**, and I was comparing one
+symbol's references against every occurrence of the word.
+
+So the honest result is that this signal is mostly homonyms and comments, and the part that
+does break — `__all__`, string dispatch — is already carried by the weak layer now that it is
+built. Adding the note would have been the loud-staleness mistake this codebase already made
+once: a number nobody can act on, printed often enough that the section stops being read.
+
+**Measured, found uninformative, not built** — and recorded here so the next person does not
+re-derive the idea and reach a different conclusion from a cruder measurement, as I did.

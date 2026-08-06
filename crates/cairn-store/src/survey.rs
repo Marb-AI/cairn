@@ -58,6 +58,23 @@ pub struct OutlineEntry {
 }
 
 impl Store {
+    /// How many indexed files sit under a path prefix.
+    ///
+    /// The question every set-shaped answer has to ask before reporting an empty set.
+    /// `unreached tools/pbgen` said "0 symbols … everything here has a production caller",
+    /// marked `[L1, exact]`, exit 0 — over a directory holding four Python files that no
+    /// indexer has ever read. `outline` said "0 of 0 definitions". Both were describing
+    /// the index's silence as a property of the code.
+    pub fn indexed_under(&self, prefix: &str) -> Result<i64> {
+        let like = format!("{}%", prefix.trim_end_matches('/'));
+        Ok(self.conn.query_row(
+            "SELECT count(*) FROM files f JOIN strings p ON p.id = f.path_id
+              WHERE p.s LIKE ?1",
+            params![like],
+            |r| r.get(0),
+        )?)
+    }
+
     /// Symbols under `prefix` that no production code calls.
     ///
     /// Restricted to things that can meaningfully be "called" — types and functions —

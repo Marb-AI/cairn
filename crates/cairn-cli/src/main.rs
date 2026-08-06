@@ -1155,11 +1155,20 @@ fn run() -> Result<u8> {
             let rows = store.unreached(&prefix, limit)?;
             let found = !rows.is_empty();
             let paths = paths_of(rows.iter().map(|r| r.symbol.def.as_ref()));
-            emit(
-                cairn_fmt::unreached(&prefix, &rows, &mut budget)
-                    .mark_stale(dirty.as_deref(), &paths),
-            );
-            Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+            let gap = unindexed_prefix_note(&store, &prefix, repo_for(&db).as_deref());
+            let mut env = cairn_fmt::unreached(&prefix, &rows, &mut budget)
+                .mark_stale(dirty.as_deref(), &paths);
+            if let Some(note) = &gap {
+                env = env.unknown(note.clone());
+            }
+            emit(env);
+            // Degraded, not "nothing found": a caller acting on the exit code alone must
+            // not read an unindexed path as a clean one.
+            Ok(match (found, gap.is_some()) {
+                (true, _) => exit::FOUND,
+                (false, true) => exit::DEGRADED,
+                (false, false) => exit::NOT_FOUND,
+            })
         }
 
         Cmd::Outline { prefix, limit } => {
@@ -1167,11 +1176,18 @@ fn run() -> Result<u8> {
             let (rows, total) = store.outline(&prefix, limit)?;
             let found = !rows.is_empty();
             let paths = paths_of(rows.iter().map(|r| r.symbol.def.as_ref()));
-            emit(
-                cairn_fmt::outline(&prefix, &rows, total, &mut budget)
-                    .mark_stale(dirty.as_deref(), &paths),
-            );
-            Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+            let gap = unindexed_prefix_note(&store, &prefix, repo_for(&db).as_deref());
+            let mut env = cairn_fmt::outline(&prefix, &rows, total, &mut budget)
+                .mark_stale(dirty.as_deref(), &paths);
+            if let Some(note) = &gap {
+                env = env.unknown(note.clone());
+            }
+            emit(env);
+            Ok(match (found, gap.is_some()) {
+                (true, _) => exit::FOUND,
+                (false, true) => exit::DEGRADED,
+                (false, false) => exit::NOT_FOUND,
+            })
         }
 
         Cmd::Usage {
@@ -2313,6 +2329,64 @@ fn unresolved_rpc_calls(
         hits.len(),
         hits.join("; ")
     )))
+}
+
+/// Says so when a set-shaped question was asked about a path the index does not cover.
+///
+/// The same corroboration as `unresolved_rpc_calls`, for the other direction: there, the
+/// graph came up empty and the text was asked whether anything was there; here, the *index*
+/// covers nothing under the prefix and the tree is asked the same question.
+///
+/// Without it `unreached tools/pbgen` answers "everything here has a production caller" and
+/// `outline tools/pbgen` answers "0 of 0 definitions", both `unknown: none`, both exit 0,
+/// about four Python files no indexer has read. The roots are named in the message because
+/// that is almost always the reason — this repository indexed `srcpy` and `srcgo`, and
+/// every path outside them is invisible by construction rather than by accident.
+fn unindexed_prefix_note(store: &Store, prefix: &str, root: Option<&Path>) -> Option<String> {
+    if store.indexed_under(prefix).unwrap_or(1) > 0 {
+        return None;
+    }
+    let on_disk = root.map(|r| count_indexable(&r.join(prefix))).unwrap_or(0);
+    let roots = store
+        .language_roots()
+        .map(|rs| {
+            rs.iter()
+                .map(|(l, p)| format!("{l}={p}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_default();
+    Some(format!(
+        "NO FILE under `{prefix}` is in this index, so this answer is UNCHECKED rather \
+         than empty - nothing here has been ruled out. The working tree holds {on_disk} \
+         indexable file(s) there.{}",
+        if roots.is_empty() {
+            String::new()
+        } else {
+            format!(" The indexers were pointed at: {roots}.")
+        }
+    ))
+}
+
+/// Files under a directory an indexer could have read, counted from the tree.
+fn count_indexable(dir: &Path) -> usize {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return 0;
+    };
+    let mut n = 0;
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            n += count_indexable(&p);
+        } else if p
+            .extension()
+            .and_then(|x| x.to_str())
+            .is_some_and(|x| matches!(x, "py" | "pyi" | "go"))
+        {
+            n += 1;
+        }
+    }
+    n
 }
 
 /// What resolving a `for` subject produced.
