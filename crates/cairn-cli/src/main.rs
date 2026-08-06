@@ -184,6 +184,10 @@ enum Cmd {
         /// Repository root. Defaults to the working directory.
         #[arg(long)]
         repo: Option<PathBuf>,
+        /// `find`: list every hit, including the ones in test and generated files that a
+        /// large answer otherwise reports as a count.
+        #[arg(long)]
+        all: bool,
     },
     /// Entry point by concept: turn "the OAuth stuff" into symbols to start from.
     Context {
@@ -217,6 +221,10 @@ enum Cmd {
         query: String,
         #[arg(long, default_value_t = 15)]
         limit: usize,
+        /// Repository root, for corroborating a miss against the working tree. Derived
+        /// from the index location when it can be confirmed, so it is rarely needed.
+        #[arg(long)]
+        repo: Option<PathBuf>,
     },
     /// Show references to a symbol.
     Refs {
@@ -1077,6 +1085,7 @@ fn run() -> Result<u8> {
             subject: subj,
             limit,
             repo,
+            all,
         } => {
             // An empty subject is a mistake, not a query, and the guard belongs here
             // rather than in the resolver: `for find` never reaches the resolver. `symbol`
@@ -1110,7 +1119,8 @@ fn run() -> Result<u8> {
                                 .map(|p| p.to_path_buf())
                         })
                         .unwrap_or_else(|| PathBuf::from("."));
-                    let (env, found) = purpose::find(&store, &root, &subj, limit, &mut budget)?;
+                    let (env, found) =
+                        purpose::find(&store, &root, &subj, limit, all, &mut budget)?;
                     emit(env);
                     Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
                 }
@@ -1238,7 +1248,7 @@ fn run() -> Result<u8> {
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
-        Cmd::Symbol { query, limit } => {
+        Cmd::Symbol { query, limit, repo } => {
             // An empty or blank query is a caller mistake, not a search. It used to match
             // everything — fifteen arbitrary symbols returned as "15 matches" with
             // `unknown: none`, which is the tool asserting it found something and knows of
@@ -1251,10 +1261,35 @@ fn run() -> Result<u8> {
             let coverage = store.coverage_summary()?;
             let rows = store.find_symbols(&query, limit)?;
             let found = !rows.is_empty();
+            // Only on a miss. A hit needs no corroboration, and reading the tree for every
+            // successful lookup would make the common case pay for the rare one. An
+            // explicit `--repo` is the caller stating which tree to read, so it is taken as
+            // given; a derived one is the tool's own inference and has to hold up.
+            let tree = (!found)
+                .then(|| {
+                    repo.filter(|r| r.is_dir())
+                        .or_else(|| confirmed_repo(&db, &store))
+                })
+                .flatten()
+                .map(|root| {
+                    let f = treefind::search(&root, &query, 200);
+                    cairn_fmt::TreeProbe {
+                        hits: f.hits.len(),
+                        files: f.files_read,
+                        truncated: f.truncated,
+                    }
+                });
             let paths = paths_of(rows.iter().map(|r| r.def.as_ref()));
             emit(
-                cairn_fmt::symbols(&rows, &query, &coverage, rows.len() < limit, &mut budget)
-                    .mark_stale(dirty.as_deref(), &paths),
+                cairn_fmt::symbols(
+                    &rows,
+                    &query,
+                    &coverage,
+                    rows.len() < limit,
+                    tree,
+                    &mut budget,
+                )
+                .mark_stale(dirty.as_deref(), &paths),
             );
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
@@ -2370,6 +2405,26 @@ fn repo_for(db: &Path) -> Option<PathBuf> {
         .map(|p| p.to_path_buf())
 }
 
+/// The repository this index describes, only where the tree on disk agrees that it is.
+///
+/// `repo_for` applies the `<repo>/.cairn/index.sqlite` convention, which is right whenever
+/// the index sits where `cairn index` puts it and wrong the moment `--db` points elsewhere.
+/// It was wrong in this repository's own test harness, which builds its index under
+/// `/tmp`: a search derived that way read six unrelated files and reported "nothing in the
+/// working tree" as a checked absence. A negative from the wrong tree is worse than no
+/// negative, so the root is confirmed against paths the index actually holds before any
+/// answer is allowed to rest on it.
+fn confirmed_repo(db: &Path, store: &Store) -> Option<PathBuf> {
+    let root = repo_for(db)?;
+    if !root.is_dir() {
+        return None;
+    }
+    let paths = store.sample_paths(8).ok()?;
+    // One is enough to establish it is the right tree; requiring all of them would fail on
+    // a file deleted since the index was built, which is a different fact entirely.
+    paths.iter().any(|p| root.join(p).exists()).then_some(root)
+}
+
 /// Names in a symbol's body that are RPCs of a service this repository speaks, when the
 /// graph resolved no outgoing hop at all.
 ///
@@ -2665,7 +2720,7 @@ fn resolve_for_purpose(
                                 ),
                             };
                             emit(
-                                cairn_fmt::symbols(&named, subj, &coverage, true, budget)
+                                cairn_fmt::symbols(&named, subj, &coverage, true, None, budget)
                                     .unknown(why),
                             );
                             return Ok(Subject::Answered(exit::ERROR));
@@ -2681,7 +2736,7 @@ fn resolve_for_purpose(
     let root = root
         .map(|r| r.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."));
-    let (env, found) = purpose::find(store, &root, subj, limit, budget)?;
+    let (env, found) = purpose::find(store, &root, subj, limit, false, budget)?;
     if found {
         eprintln!(
             "cairn: no symbol '{subj}' in the index, so the graph cannot answer about it \
@@ -2713,7 +2768,7 @@ fn subject(store: &Store, given: &str, cli_budget: Option<usize>) -> Result<Opti
             let coverage = store.coverage_summary()?;
             let mut b = Budget::from_opt(cli_budget);
             emit(
-                cairn_fmt::symbols(&named, given, &coverage, true, &mut b).unknown(format!(
+                cairn_fmt::symbols(&named, given, &coverage, true, None, &mut b).unknown(format!(
                     "'{given}' is the name of {} symbols, so this command cannot tell \
                      which one you mean. Run it again with one of the handles above",
                     named.len()

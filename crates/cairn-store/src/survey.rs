@@ -75,6 +75,23 @@ impl Store {
         )?)
     }
 
+    /// A handful of indexed paths, for checking that a directory really is the tree this
+    /// index describes.
+    ///
+    /// `<repo>/.cairn/index.sqlite` is the convention, so the repository is two levels up
+    /// — but it is a convention, not a guarantee, and `--db` can point anywhere. The test
+    /// harness builds its index under `/tmp`, and a search derived that way read `/tmp`
+    /// and reported "nothing in the working tree" about a tree it had never opened. A
+    /// derived root has to be corroborated before an answer rests on it.
+    pub fn sample_paths(&self, n: usize) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT p.s FROM files f JOIN strings p ON p.id = f.path_id
+              WHERE f.generated = 0 LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![n as i64], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
     /// Which of these names the index holds as a hand-written type or function.
     ///
     /// For corroborating an empty callee list. `graph --aspect calls` deliberately drops

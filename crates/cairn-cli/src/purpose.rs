@@ -31,6 +31,7 @@ pub fn find(
     repo: &Path,
     needle: &str,
     limit: usize,
+    list_all: bool,
     budget: &mut Budget,
 ) -> Result<(Envelope, bool)> {
     let found = treefind::search(repo, needle, limit);
@@ -50,9 +51,12 @@ pub fn find(
         needle,
         &lines,
         &services,
-        found.skipped_large,
-        found.truncated,
-        found.files_read,
+        &cairn_fmt::TreeSweep {
+            files_read: found.files_read,
+            skipped_large: found.skipped_large,
+            truncated: found.truncated,
+            list_all,
+        },
         budget,
     );
     Ok((env, any))

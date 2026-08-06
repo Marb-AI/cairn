@@ -430,3 +430,22 @@
   exit: 2
   contains: ["empty query"]
   max_seconds: 5
+
+# ── the tool is the escalation, rather than the thing that recommends one ─────────────
+#
+# `symbol` used to answer a miss with "grep is the tool", which spends a round trip to
+# learn what the tool could establish itself and leaves two different states looking
+# identical: a name that is nowhere, and a name this index does not cover. It now reads
+# the tree on a miss and says which of the two it is.
+- name: a name that is nowhere says the tree was read too, not that grep is the tool
+  args: [symbol, ThisSymbolDoesNotExistAnywhere, --repo, "{repo}"]
+  exit: 1
+  contains: ["nothing in the working tree either", "checked absence"]
+  not_contains: ["grep is the tool"]
+  max_seconds: 10
+
+- name: text that exists without a symbol is reported as text, not as an absence
+  args: [symbol, "severe cold", --repo, "{repo}"]
+  exit: 1
+  contains: ["no symbol by that name", "the text is in the working tree"]
+  max_seconds: 10

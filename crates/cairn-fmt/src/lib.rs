@@ -183,11 +183,25 @@ pub fn symbol_line(s: &SymbolRow) -> String {
 
 /// `complete` is false when `--limit` may have cut the list. See `concentration_note`:
 /// without it, a truncated set that happens to share a file is announced as all of them.
+/// What a text search of the working tree found, when one was made.
+///
+/// `None` means no search was possible — not that it came up empty. The difference is the
+/// whole point of carrying it: an absence nobody looked for is not an absence.
+#[derive(Clone, Copy)]
+pub struct TreeProbe {
+    pub hits: usize,
+    /// Files actually read, so a miss can say how wide it was.
+    pub files: usize,
+    /// The search stopped at its limit, so `hits` is a floor and not a count.
+    pub truncated: bool,
+}
+
 pub fn symbols(
     rows: &[SymbolRow],
     query: &str,
     coverage: &str,
     complete: bool,
+    tree: Option<TreeProbe>,
     budget: &mut Budget,
 ) -> Envelope {
     let mut body = String::new();
@@ -245,10 +259,37 @@ pub fn symbols(
             .iter()
             .all(|r| r.def.as_ref().map(|d| d.generated).unwrap_or(false));
     if rows.is_empty() {
-        env = env.unknown(format!(
-            "nothing by that name. {coverage} - if the code you mean lives elsewhere, \
-             it is not in this index and grep is the tool"
-        ));
+        env = match tree {
+            // The escalation this command used to delegate. Telling the caller "grep is
+            // the tool" spends a round trip to learn something the tool could have
+            // established itself, and leaves the two cases indistinguishable: a name that
+            // is nowhere, and a name the index simply does not cover. Searching the tree
+            // separates them, and each branch is a fact rather than a suggestion.
+            Some(TreeProbe { hits: 0, files, .. }) => env.unknown(format!(
+                "nothing by that name, and nothing in the working tree either - \
+                 {files} file(s) were read and none contains that text. This is a \
+                 checked absence, not an unsearched one: a text search will return \
+                 the same. {coverage}"
+            )),
+            Some(TreeProbe {
+                hits,
+                files,
+                truncated,
+            }) => env.unknown(format!(
+                "no symbol by that name, but the text is in the working tree - \
+                 {}{hits} line(s) across {files} file(s) read. So it exists as a string, \
+                 a comment, or in a file this index does not cover; \
+                 `cairn for find \"{query}\"` lists each with its enclosing function. \
+                 {coverage}",
+                if truncated { "at least " } else { "" }
+            )),
+            // No tree to read, so the old answer is the honest one: this really is the
+            // limit of what can be said from here.
+            None => env.unknown(format!(
+                "nothing by that name. {coverage} - if the code you mean lives elsewhere, \
+                 it is not in this index and grep is the tool"
+            )),
+        };
     } else if all_generated {
         env = env.unknown(format!(
             "every match is in generated code, which usually means the thing you meant \
@@ -2449,15 +2490,31 @@ pub struct FoundLine {
 /// it — the enclosing function and its handle, the markdown section and its range, the
 /// deployed service — and where it knows nothing, it says why rather than leaving a gap
 /// the reader has to interpret.
+/// The shape of the search behind a `for find` answer, as opposed to its results.
+///
+/// Four facts that all qualify the same claim - how wide the read was, whether it was cut
+/// short, what it could not open, and whether the caller asked for everything - so they
+/// travel together rather than as four positional arguments at the end of a call.
+pub struct TreeSweep {
+    pub files_read: usize,
+    pub skipped_large: usize,
+    pub truncated: bool,
+    pub list_all: bool,
+}
+
 pub fn found(
     needle: &str,
     hits: &[FoundLine],
     services: &[String],
-    skipped: usize,
-    truncated: bool,
-    files: usize,
+    sweep: &TreeSweep,
     budget: &mut Budget,
 ) -> Envelope {
+    let TreeSweep {
+        files_read: files,
+        skipped_large: skipped,
+        truncated,
+        list_all,
+    } = *sweep;
     let mut body = String::new();
     let files_hit = hits
         .iter()
@@ -2486,9 +2543,48 @@ pub fn found(
         );
     }
 
+    // A long listing is not an answer; it is the work of reading one, handed back. Measured
+    // on the target repository, 8 of 50 name searches return 20 lines or more, and in the
+    // five largest, hand-written non-test code was 5 lines of 355 — the rest was tests and
+    // generated code. Both are things the index already distinguishes, so the count can be
+    // stated and the lines left out, which is a smaller answer and not a weaker one: the
+    // header still counts every hit and `suppressed:` names what it held back.
+    const CLASSIFY_AT: usize = 20;
+    let tests = hits.iter().filter(|h| h.context.is_test).count();
+    let generated = hits.iter().filter(|h| h.context.generated).count();
+    let docs = hits.iter().filter(|h| h.context.section.is_some()).count();
+    let derived = |h: &FoundLine| h.context.is_test || h.context.generated;
+    // The last clause is not a refinement, it is the fix for a case that reduced a real
+    // answer to nothing: `chatWithFilter` is *defined* in a test file, so every one of its
+    // 28 hits was derived and the collapsed body was empty. A count with an empty body is
+    // not a smaller answer, it is a missing one — so a collapse that would leave nothing
+    // to read does not happen, and the caller gets the lines.
+    let collapse = !list_all
+        && hits.len() >= CLASSIFY_AT
+        && hits.iter().any(derived)
+        && hits.iter().any(|h| !derived(h));
+    let listed: Vec<&FoundLine> = if collapse {
+        hits.iter().filter(|h| !derived(h)).collect()
+    } else {
+        hits.iter().collect()
+    };
+    if collapse {
+        let _ = writeln!(
+            body,
+            "of these: {} in hand-written code or prose (below), {tests} in tests, \
+             {generated} in generated code{}",
+            listed.len(),
+            if docs > 0 {
+                format!("; {docs} of the listed lines are markdown prose, not code")
+            } else {
+                String::new()
+            }
+        );
+    }
+
     let mut shown = 0usize;
     let mut last_path = String::new();
-    for h in hits {
+    for h in listed.iter().copied() {
         if h.path != last_path {
             // The file header carries the flags, because "this hit is in generated code"
             // changes what the hit means and is cheaper said once per file.
@@ -2548,8 +2644,18 @@ pub fn found(
     }
 
     let mut env = Envelope::new(body).rows(shown);
-    if shown < hits.len() {
-        env = env.suppressed(budget.cut_note(hits.len() - shown, "lines"));
+    // Two different reasons for a line not to be here, and they must not be conflated: the
+    // budget ran out, or the line was classified as derived and deliberately withheld. The
+    // second is recoverable by a flag and the first is not, so the caller is told which.
+    if collapse {
+        env = env.suppressed(format!(
+            "{} line(s) in test or generated files, counted in the header but not listed \
+             - `cairn for find \"{needle}\" --all` lists every hit",
+            hits.len() - listed.len()
+        ));
+    }
+    if shown < listed.len() {
+        env = env.suppressed(budget.cut_note(listed.len() - shown, "lines"));
     }
     if truncated {
         env = env.unknown(
