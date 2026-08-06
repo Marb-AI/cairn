@@ -36,6 +36,17 @@ command behind it, so going one level down is a copy-paste.
 `for change` on something that is not a symbol will say so and point you at `for find`
 rather than guessing.
 
+**A miss here is a searched miss, so do not re-run it as a text search.** When `symbol`
+finds nothing it reads the working tree before answering, and says which of two things
+happened: *nothing in the working tree either* — the name is nowhere, and grep will
+return the same — or *no symbol by that name, but the text is in the working tree*, which
+means it is a string, a comment, or a file this index does not cover. Only where no tree
+could be read does it hand the question back.
+
+Large text answers are classified rather than listed in full: hits in test and generated
+files are counted in the header and withheld from the body, and `suppressed:` says how
+many. `for find "<text>" --all` lists every one.
+
 ## Stop when you have the answer
 
 This is the tool's main cost, measured three times. An agent gets the answer in one or two
