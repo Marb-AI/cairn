@@ -1,38 +1,23 @@
 #!/usr/bin/env python3
 """Does the suite catch a regression, or only agree with the code?
 
-A green suite says the code and the checks agree. It does not say the checks would notice
-if the code changed - and a check that cannot fail is the exact state the weak-link layer
-was in while it was empty across a whole repository, reporting a clean bill for every
-symbol. Counting checks measures nothing; this measures whether they defend anything.
+235 checks are green. Nine have been shown able to fail. The other 226 are in the state the
+weak-link layer was in all day: green, and green either way. This applies realistic
+regressions - each one a defect this repository has actually had, or the obvious way a
+guarantee gets dropped - and reports which the suite notices.
 
-Each mutation is a defect this repository has actually had, or the obvious way a stated
-guarantee gets dropped. It is applied to the source, the whole suite is re-run, and a
-mutation that *survives* names a guarantee nothing is defending. The first run of this
-scored 3 of 10, and four of the seven survivors were guarantees added the same day.
+A mutation that survives names a guarantee nothing is defending.
 
-Run it after adding a check, and after changing anything the envelope promises.
-
-Two things this file has already got wrong, both of which produced a plausible table
-rather than an error, and both of which are the reason it reads the whole output and
-requires unique anchors:
-
-  * `tail -40` on the test output: a failure in an early crate scrolled off the end and
-    was scored SURVIVED.
-  * an anchor with ten occurrences in one file, replaced once: the mutation landed on a
-    different call site than the label claimed.
-
-Sources are restored from copies rather than `git checkout`, which on a working file
-discards uncommitted work.
-
-Usage: python3 eval/mutate.py     (from the repository root; builds run in the ci container)
+Sources are restored from copies, not from git: `git checkout` on a working file destroyed
+an hour of uncommitted work earlier today.
 """
 import pathlib
 import shutil
+import tempfile
 import subprocess
 import sys
 
-SCRATCH = pathlib.Path(__file__).parent
+SCRATCH = pathlib.Path(tempfile.mkdtemp(prefix="cairn-mutate-"))
 CI = ["docker", "compose", "run", "--rm", "ci", "sh", "-c"]
 
 # (name, file, find, replace) - each is a plausible regression, not a random edit.
@@ -72,8 +57,12 @@ MUT = [
      "        && true;"),
     ("derived root no longer corroborated",
      "crates/cairn-cli/src/main.rs",
-     "paths.iter().any(|p| root.join(p).exists()).then_some(root)",
+     "plausible_root(&root, &paths, |p| p.exists()).then_some(root)",
      "{ let _ = paths; Some(root) }"),
+    ("a watcher is started on the filesystem root",
+     "crates/cairn-cli/src/main.rs",
+     "    if is_filesystem_root(root) {\n        return false;\n    }",
+     "    if false {\n        return false;\n    }"),
     ("generated definitions counted as hand-written",
      "crates/cairn-fmt/src/lib.rs",
      ".all(|r| r.def.as_ref().map(|d| d.generated).unwrap_or(false));",
@@ -92,11 +81,17 @@ def suite():
     # in the harness that the harness exists to find in the tool.
     r = run("cargo test --workspace 2>&1")
     out = r.stdout + r.stderr
+    # Order matters, and getting it wrong cost a third plausible table: `cargo test` stops
+    # after a target fails, so a *caught* mutation never reaches `tests/corpus.rs` and a
+    # "did the suite run?" guard placed first reports it as if nothing had been checked.
+    # A failure anywhere is a catch; only a run with no failures needs the guard.
+    if "FAILED" in out or "test failed" in out:
+        return "CAUGHT", out
     if "error[E" in out or "could not compile" in out:
         return "BUILD-FAIL", out
     if "Running tests/corpus.rs" not in out:
         return "SUITE-NOT-RUN", out
-    return ("CAUGHT" if "FAILED" in out else "SURVIVED"), out
+    return "SURVIVED", out
 
 
 def main():

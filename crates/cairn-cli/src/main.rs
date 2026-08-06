@@ -665,8 +665,12 @@ fn wants_a_watcher(cmd: &Cmd) -> bool {
 fn spawn_daemon(db: &Path) {
     use std::process::Stdio;
 
-    // `<repo>/.cairn/index.sqlite` — the repository is two levels up.
-    let Some(repo) = db.parent().and_then(|d| d.parent()) else {
+    // `<repo>/.cairn/index.sqlite` — the repository is two levels up, *when the index sits
+    // where `cairn index` puts it*. Taken on faith it is how a watcher ends up on a tree
+    // nobody asked about: `--db /w/ts.sqlite` derives `/` and the daemon starts watching
+    // the whole filesystem, which does not fail, it hangs. Corroborated against paths the
+    // index holds, the same way a miss corroborates before claiming an absence.
+    let Some(repo) = open(db).ok().and_then(|s| confirmed_repo(db, &s)) else {
         return;
     };
     let Ok(exe) = std::env::current_exe() else {
@@ -2405,6 +2409,32 @@ fn repo_for(db: &Path) -> Option<PathBuf> {
         .map(|p| p.to_path_buf())
 }
 
+/// Is this the root of a filesystem, rather than a repository?
+///
+/// A second, independent guard, because the consequence is not a wrong answer but a hung
+/// command: an index one level below the root derives `/`, and a watcher pointed there
+/// walks the entire filesystem. Corroboration would usually catch it too — every indexed
+/// path would have to exist relative to `/` — and on a container image where the tree is
+/// mounted at `/w` a handful of them plausibly do. Two cheap guards for a failure mode
+/// with no error message are worth more than one clever one.
+fn is_filesystem_root(p: &Path) -> bool {
+    p.parent().is_none() || p.as_os_str() == "/"
+}
+
+/// The whole decision, separated from where its inputs come from so it can be tested.
+///
+/// Keeping this inline cost nothing until the guard needed defending: a test that only
+/// exercises `is_filesystem_root` proves the predicate works and says nothing about whether
+/// anything calls it, which is the shape of check this repository has spent a day removing.
+fn plausible_root(root: &Path, indexed: &[String], exists: impl Fn(&Path) -> bool) -> bool {
+    if is_filesystem_root(root) {
+        return false;
+    }
+    // One is enough to establish it is the right tree; requiring all of them would fail on
+    // a file deleted since the index was built, which is a different fact entirely.
+    indexed.iter().any(|p| exists(&root.join(p)))
+}
+
 /// The repository this index describes, only where the tree on disk agrees that it is.
 ///
 /// `repo_for` applies the `<repo>/.cairn/index.sqlite` convention, which is right whenever
@@ -2420,9 +2450,7 @@ fn confirmed_repo(db: &Path, store: &Store) -> Option<PathBuf> {
         return None;
     }
     let paths = store.sample_paths(8).ok()?;
-    // One is enough to establish it is the right tree; requiring all of them would fail on
-    // a file deleted since the index was built, which is a different fact entirely.
-    paths.iter().any(|p| root.join(p).exists()).then_some(root)
+    plausible_root(&root, &paths, |p| p.exists()).then_some(root)
 }
 
 /// Names in a symbol's body that are RPCs of a service this repository speaks, when the
@@ -2805,4 +2833,56 @@ fn open(db: &Path) -> Result<Store> {
         );
     }
     Ok(store)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_index_beside_the_filesystem_root_is_not_a_repository() {
+        // Probing TypeScript support with `--db /w/ts.sqlite` derived `/` as the tree and
+        // the daemon started watching the whole filesystem. It printed `watching /`, took
+        // no error path, and the command never returned. A watcher with nothing to watch
+        // fails loudly; a watcher with everything to watch does not fail at all.
+        assert_eq!(
+            repo_for(Path::new("/w/ts.sqlite")).as_deref(),
+            Some(Path::new("/"))
+        );
+        assert!(is_filesystem_root(Path::new("/")));
+        assert!(!is_filesystem_root(Path::new("/home/work/repo")));
+    }
+
+    #[test]
+    fn a_root_derived_onto_the_filesystem_is_refused_however_plausible_its_paths_look() {
+        // The guard has to be checked where it is *used*, not only where it is defined.
+        // `/w/ts.sqlite` derives `/`, and on a container image `/srcpy/...` can genuinely
+        // exist, so the corroboration alone would have let this through.
+        let indexed = ["srcpy/alerting/dispatch.py".to_string()];
+        assert!(
+            !plausible_root(Path::new("/"), &indexed, |_| true),
+            "accepted the filesystem root as a repository"
+        );
+        assert!(plausible_root(
+            Path::new("/home/work/repo"),
+            &indexed,
+            |_| true
+        ));
+    }
+
+    #[test]
+    fn a_root_whose_indexed_paths_are_absent_is_the_wrong_tree() {
+        let indexed = ["srcpy/alerting/dispatch.py".to_string()];
+        assert!(!plausible_root(Path::new("/tmp"), &indexed, |_| false));
+        assert!(!plausible_root(Path::new("/tmp"), &[], |_| true));
+    }
+
+    #[test]
+    fn the_ordinary_layout_still_yields_the_repository() {
+        assert_eq!(
+            repo_for(Path::new("/home/work/repo/.cairn/index.sqlite")).as_deref(),
+            Some(Path::new("/home/work/repo"))
+        );
+        assert!(!is_filesystem_root(Path::new("/home/work/repo")));
+    }
 }
