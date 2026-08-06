@@ -2299,3 +2299,48 @@ instead of printing a zero.
   caught by a concrete case, never by an aggregate.
 - **The nets were green throughout every one of those discoveries.** They confirm what they
   were built to confirm. That is the honest limit of any verdict in this file.
+
+## Verdict at bc42dc2 — 2026-08-06
+
+The gap recorded above as "the first thing to do next" is closed, and the counter was
+reset a sixth time rather than the previous runs being carried over.
+
+The fixture's alerting dispatcher binds handlers by *reason* string, so no literal in the
+corpus had ever spelled a symbol's own name and the weak derivation had nothing to derive.
+It printed `0 candidates` whether it worked or not. `PAGING_HANDLERS`, naming two of the
+corpus's own handlers, gives it something to find: 2 candidate links from 188 literals.
+
+| net | scope | result |
+|---|---|---|
+| harness | 160 symbols on the real index, 16 of 16 checks exercised | clean, twice |
+| sweep | 6,860 command runs across 490 of 490 fixture symbols | clean, twice |
+| corpus cases | 46, including two new ones pinning both sides of the weak layer | clean |
+
+`CAIRN_SWEEP_SAMPLE=400` against a 490-symbol corpus gives a stride of 1, so the sweep
+covers every symbol rather than 400 of them. The earlier verdicts' "400 symbols" understated
+their own scope. The verdicts at `ac59e76` and `e1df84c` are not overwritten.
+
+### Both sides of the new cases were verified, not just the passing one
+
+A case that cannot fail is what caused this entry. So the derivation was disabled and the
+suite re-run: `the weak layer is derived by index` fails by name. Then the same question was
+asked of the class rather than the instance — **can any derived layer go empty without CI
+noticing?** Each of the four was patched to wipe its table and return zero, the exact shape
+of the failure that lived in the real index:
+
+| layer emptied | caught by |
+|---|---|
+| weak links | `the weak layer is derived by index, so a literal naming a symbol is found` |
+| literals | corpus case |
+| service graph | corpus case |
+| doc sections | `docs lists what documentation exists and what each costs to read` |
+
+4 of 4. Before today's fixture change that table would have read 3 of 4, and the missing
+row was the layer that had actually failed in production.
+
+### What this verdict does not say
+
+It says the criterion is met at this commit, in this scope. It does not say the tool is
+reliable. The mutation audit above is the strongest evidence in this file precisely because
+it is the only check that was tested for its ability to fail — every other green result here
+is a net confirming what it was built to confirm.
