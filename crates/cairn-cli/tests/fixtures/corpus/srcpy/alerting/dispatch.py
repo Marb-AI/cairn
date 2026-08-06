@@ -66,3 +66,23 @@ def handle_freezing_fog(alert: Alert, store: AlertStore) -> str:
 def handle_unknown(alert: Alert, store: AlertStore) -> str:
     """The fallback, and the only handler anything calls by name."""
     return f"ignored: no handler for {alert.reason!r}"
+
+
+# Handlers that page a human, named as strings rather than referenced.
+#
+# The registry above binds a handler to its *reason* ("severe cold"), so a literal search
+# for a handler's own name finds nothing. This list names the functions themselves, which
+# is the shape that actually defeats a call graph: the only mention of
+# ``handle_severe_heat`` outside its own definition is inside this string, and a rename
+# leaves it dangling with nothing to catch it.
+#
+# It exists so the weak-link layer has something to derive in this corpus. That layer was
+# empty across a whole real repository for an unknown length of time while every answer
+# reported it as clean, and CI could not have noticed because the fixture gave it nothing
+# to find.
+PAGING_HANDLERS = ["handle_severe_cold", "handle_severe_heat"]
+
+
+def pages_a_human(handler_name: str) -> bool:
+    """Whether a handler escalates to a person, by name."""
+    return handler_name in PAGING_HANDLERS

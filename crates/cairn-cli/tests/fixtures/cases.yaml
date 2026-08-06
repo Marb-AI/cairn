@@ -387,3 +387,28 @@
   args: [reaches, AlertService, --outgoing]
   contains: ["across gRPC"]
   max_seconds: 10
+
+# ── the weak-link layer, which was empty across a whole real index for an unknown time ──
+#
+# `cairn weak` used to be a separate command `cairn index` never ran. On the target
+# repository nobody had ever run it: 45,884 literals recorded, zero edges derived, and
+# every `weaklinks` answer said "no literal in the repo spells this name" while
+# `for change` printed "nothing reaches it by a name resolved at run time" for every
+# symbol in the repository. It was a claim about the world made from an empty table.
+#
+# These two cases are what makes a repeat of that a red build rather than a silent one.
+# The corpus was given `PAGING_HANDLERS = ["handle_severe_cold", ...]` for exactly this:
+# before it, the fixture derived zero candidates and CI had nothing to check.
+- name: the weak layer is derived by `index`, so a literal naming a symbol is found
+  args: [weaklinks, handle_severe_cold]
+  exit: 0
+  contains: ["dispatch.py", "confidence"]
+  not_contains: ["no literal in the repo spells this name"]
+  max_seconds: 5
+
+- name: a symbol no literal names is a checked negative, not an unchecked one
+  args: [weaklinks, handle_frost]
+  exit: 1
+  contains: ["no literal in the repo spells this name"]
+  not_contains: ["UNCHECKED"]
+  max_seconds: 5
