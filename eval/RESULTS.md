@@ -1976,3 +1976,50 @@ once: a number nobody can act on, printed often enough that the section stops be
 
 **Measured, found uninformative, not built** — and recorded here so the next person does not
 re-derive the idea and reach a different conclusion from a cruder measurement, as I did.
+
+### The last two negatives, and two measurement errors of my own — 2026-08-06
+
+**`path` now corroborates.** "No call path from A to B within N hops" is a negative produced
+by the call graph, so the graph cannot vouch for it. It now reads A's body from the tree and
+looks for B's name specifically:
+
+```
+but [22a]'s own body calls something named `filter` at …/0003_split_draft_profile.py:28,
+which the graph resolved no edge for. 34 symbols share that name, so it may be another of
+them rather than [d4b2]. Read the line: this is UNRESOLVED, not a proven absence.
+```
+
+Note what it does *not* say. `filter(` in a Django migration is a queryset method, not the
+indexed symbol named `filter`, and the tool cannot tell — so it reports the name match, the
+homonym count, and the line, and asserts nothing. Targeted at one name because the caller
+named it: "did you miss *this*" is answerable where "what did you miss" is not.
+
+**`graph --aspect calls` was implemented and then reverted**, on the measurement.
+
+And here the honest part. My first measurement said 12 of 13 empty callee lists name a
+symbol the index knows — which would have made this the strongest signal of the three. It
+was wrong: the regex matched each function's **own definition line**, so `def compute_f1(`
+counted as `compute_f1` being called. Redone with the definition line excluded, the figure
+is **3 of 13**, and two of those three are homonyms in Django migrations (`filter`,
+`ChatObject`). A signal that fires three times in sixty and is mostly wrong when it does is
+the loud-staleness mistake again, so the code came out.
+
+**That is twice in two hours** that a quick measurement over-reported and the fix it argued
+for turned out to be unwarranted — the `refs`-versus-text count was the other. Both were
+caught by looking at a concrete case before shipping, and both are recorded because the
+temptation each time was to trust the aggregate.
+
+### Where the negatives stand now
+
+| negative | before | now |
+|---|---|---|
+| weak layer unbuilt | "no string literal names this symbol" | built at index time; unbuilt says UNCHECKED, exit 3 |
+| `reaches --outgoing` = 0 | "0 targets" | body scanned for RPC names, sites reported |
+| `unreached` / `outline`, unindexed path | "everything here has a caller" | NO FILE … is in this index, exit 3 |
+| `path` not found | "no call path within N hops" | plus the name match in the source body, with homonym count |
+| `graph --aspect calls` empty | "calls nothing" | **unchanged — measured, not worth it** |
+| `refs` under-count vs text | N references | **unchanged — measured, not worth it** |
+
+Four closed, two measured and deliberately left. The rule holds in both directions: a
+negative must be corroborated, *and* a corroboration that cannot carry its own weight must
+not ship.

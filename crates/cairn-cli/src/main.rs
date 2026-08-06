@@ -1802,13 +1802,49 @@ fn run() -> Result<u8> {
                 None => {
                     // "Not within this bound" is a different statement from "never",
                     // and the difference matters to whoever asked.
-                    let env = cairn_fmt::Envelope::new(format!(
+                    let mut env = cairn_fmt::Envelope::new(format!(
                         "no call path from [{from}] to [{to}] within {max_depth} hops\n"
                     ))
                     .unknown(
                         "only static calls were followed; a dynamic dispatch on the way \
                          would not appear here",
                     );
+                    // The one corroboration this negative admits: does the source body
+                    // simply name the destination? If it does, the missing path is one
+                    // unresolved edge away rather than genuinely absent, and the caller
+                    // should be told where to look instead of being told "no".
+                    if let (Some(a), Some(b)) = (store.symbol(src)?, store.symbol(dst)?) {
+                        if let Some(hits) = unlinked_calls_in_body(
+                            &store,
+                            &a,
+                            repo_for(&db).as_deref(),
+                            Some(&b.name),
+                        ) {
+                            let where_ = a.def.as_ref().map(|d| d.path.clone()).unwrap_or_default();
+                            // A name match, said as one. `filter(` in a Django
+                            // migration is a queryset method, not the indexed symbol
+                            // named `filter`, and the tool cannot tell — so it reports
+                            // how many symbols share the name and sends the reader to
+                            // the line rather than asserting the call.
+                            let homonyms =
+                                store.symbols_named(&b.name).map(|v| v.len()).unwrap_or(1);
+                            env = env.unknown(format!(
+                                "but [{from}]'s own body calls something named `{}` at \
+                                 {where_}:{}, which the graph resolved no edge for. {} \
+                                 Read the line: this is UNRESOLVED, not a proven absence.",
+                                b.name,
+                                hits[0].1,
+                                if homonyms > 1 {
+                                    format!(
+                                        "{homonyms} symbols share that name, so it may be \
+                                         another of them rather than [{to}]."
+                                    )
+                                } else {
+                                    format!("Only [{to}] has that name.")
+                                }
+                            ));
+                        }
+                    }
                     emit(env);
                     Ok(exit::NOT_FOUND)
                 }
@@ -2329,6 +2365,76 @@ fn unresolved_rpc_calls(
         hits.len(),
         hits.join("; ")
     )))
+}
+
+/// Names a symbol's body calls that the index knows but did not link.
+///
+/// The corroboration for an empty callee list, and for a call path that was not found. Both
+/// are negatives produced by the call graph, and the call graph is the thing that came up
+/// empty — so the body is read from the tree and every call-shaped name in it is checked
+/// against the index. A name the index has never heard of is stdlib or third-party and is
+/// correctly absent; a name it holds is an edge that should have existed.
+///
+/// `only` narrows it to one name, which is what `path` needs: the question there is not
+/// "what did you miss" but "did you miss *this*".
+fn unlinked_calls_in_body(
+    store: &Store,
+    sym: &cairn_store::SymbolRow,
+    root: Option<&Path>,
+    only: Option<&str>,
+) -> Option<Vec<(String, i64)>> {
+    let (root, def, end) = (root?, sym.def.as_ref()?, sym.def_end_line?);
+    let text = std::fs::read_to_string(root.join(&def.path)).ok()?;
+    let mut seen: Vec<(String, i64)> = Vec::new();
+    let mut names: Vec<String> = Vec::new();
+    for (i, line) in text.lines().enumerate() {
+        let n = i as i64;
+        if n < def.line || n > end {
+            continue;
+        }
+        let bytes = line.as_bytes();
+        for (s, e) in word_spans(line) {
+            if bytes.get(e).copied() != Some(b'(') {
+                continue;
+            }
+            let w = &line[s..e];
+            if w.len() < 5 || w == sym.name || only.is_some_and(|o| o != w) {
+                continue;
+            }
+            if !names.iter().any(|x| x == w) {
+                names.push(w.to_string());
+                seen.push((w.to_string(), n + 1));
+            }
+        }
+    }
+    let known = store.known_symbol_names(&names).ok()?;
+    let hits: Vec<(String, i64)> = seen
+        .into_iter()
+        .filter(|(n, _)| known.iter().any(|k| k == n))
+        .take(6)
+        .collect();
+    (!hits.is_empty()).then_some(hits)
+}
+
+/// Identifier spans in a line, so a name is only matched whole.
+fn word_spans(line: &str) -> Vec<(usize, usize)> {
+    let b = line.as_bytes();
+    let ident = |c: u8| c.is_ascii_alphanumeric() || c == b'_';
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        if ident(b[i]) && !(i > 0 && ident(b[i - 1])) {
+            let mut j = i;
+            while j < b.len() && ident(b[j]) {
+                j += 1;
+            }
+            out.push((i, j));
+            i = j;
+        } else {
+            i += 1;
+        }
+    }
+    out
 }
 
 /// Says so when a set-shaped question was asked about a path the index does not cover.

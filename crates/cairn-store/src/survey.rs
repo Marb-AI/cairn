@@ -75,6 +75,38 @@ impl Store {
         )?)
     }
 
+    /// Which of these names the index holds as a hand-written type or function.
+    ///
+    /// For corroborating an empty callee list. `graph --aspect calls` deliberately drops
+    /// parameters, locals and anything with no definition here — a stdlib `round(` is
+    /// noise, and excluding it is right. What that exclusion cannot distinguish is a name
+    /// the index has never heard of from one it knows perfectly well and simply failed to
+    /// link, and the second is a missing edge rather than a correct silence.
+    ///
+    /// Measured on the target repo: of 59 sampled hand-written functions, 13 got an empty
+    /// callee list, and **12 of those 13 name a symbol this index knows** — `_fmt_czk`,
+    /// `compute_f1`, `_augment_system_prompt`. Those are calls, and the answer said the
+    /// function calls nothing.
+    pub fn known_symbol_names(&self, candidates: &[String]) -> Result<Vec<String>> {
+        if candidates.is_empty() {
+            return Ok(Vec::new());
+        }
+        let holes = vec!["?"; candidates.len()].join(",");
+        let sql = format!(
+            "SELECT DISTINCT n.s FROM symbols s
+               JOIN strings n ON n.id = s.name_id
+               JOIN files f ON f.id = s.def_file_id AND f.generated = 0
+              WHERE s.kind IN (1, 3) AND n.s IN ({holes})"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(candidates), |r| r.get(0))?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
     /// Symbols under `prefix` that no production code calls.
     ///
     /// Restricted to things that can meaningfully be "called" — types and functions —
