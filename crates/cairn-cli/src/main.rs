@@ -1078,6 +1078,24 @@ fn run() -> Result<u8> {
             limit,
             repo,
         } => {
+            // An empty subject is a mistake, not a query, and the guard belongs here
+            // rather than in the resolver: `for find` never reaches the resolver. `symbol`
+            // has rejected an empty query since the beginning; the `for` family did not.
+            // `for change ""` answered for one of the ten symbols whose name is empty, and
+            // `for find ""` returned every line of every file it read with exit 0. The
+            // entry point the skill sends an agent to first was the one that lacked it.
+            if subj.trim().is_empty() {
+                eprintln!(
+                    "cairn: empty query - `cairn for {}` needs a name, or part of one. An \
+                     empty string matches everything, which is never the question.",
+                    match purpose {
+                        Purpose::Change => "change",
+                        Purpose::Understand => "understand",
+                        Purpose::Find => "find",
+                    }
+                );
+                return Ok(exit::ERROR);
+            }
             let store = open(&db)?;
             match purpose {
                 Purpose::Find => {

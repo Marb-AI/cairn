@@ -412,3 +412,21 @@
   contains: ["no literal in the repo spells this name"]
   not_contains: ["UNCHECKED"]
   max_seconds: 5
+
+# ── an empty query is a mistake in every entry point, not just the oldest one ──────────
+#
+# `cairn symbol ""` was rejected from the start. The `for` family, which the skill sends
+# an agent to first, was not: `for change ""` answered for one of the ten symbols whose
+# name is empty, and `for find ""` returned every line it read with exit 0. The guard
+# existed and was in the wrong place.
+- name: an empty subject is a bad query for `for change`, not an answer about nothing
+  args: [for, change, ""]
+  exit: 2
+  contains: ["empty query"]
+  max_seconds: 5
+
+- name: an empty subject does not make `for find` match every line in the tree
+  args: [for, find, ""]
+  exit: 2
+  contains: ["empty query"]
+  max_seconds: 5
