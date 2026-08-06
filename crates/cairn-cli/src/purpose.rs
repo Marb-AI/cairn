@@ -160,42 +160,59 @@ pub fn change(
         let _ = writeln!(body, "  (from `cairn refs {}`)\n", node.symbol.handle);
     }
 
-    // 2b. For an attribute on a type, do the grep the answer would otherwise tell the
-    //     caller to run.
+    // 2b. The lines the graph did not resolve, from the tree.
     //
-    //     Measured completeness over names carried by exactly one symbol: types are 99%
-    //     accounted for by `refs` and functions 96%, but attributes are where the gap
-    //     lives — `Card(field_name=...)` keyword arguments and `x.field` reads that
-    //     resolve only when the holder's type is known. The tool has always been honest
-    //     about it: `USE GREP FOR THIS ONE`, with the command to run.
+    //     The index is precise and incomplete; a text search is complete and imprecise.
+    //     Cairn holds both and used to hand the caller only the first, with a sentence
+    //     recommending they run the second themselves. There is no reason for that: the
+    //     residue is *what the tree has and the graph does not*, which is exactly the
+    //     "five of six, and you lose one" the reference list cannot show.
     //
-    //     Honest and one round trip short of useful. Saying "run this other thing" is the
-    //     shape this entry point exists to remove, and the search is the same tree search
-    //     `for find` already does — 34% of symbols are attributes, so this is not a rare
-    //     branch, and for every one of them the caller was being sent away.
-    if cairn_store::query::is_under_resolved_attribute(sym.kind, sym.container.as_deref()) {
-        if let Some(root) = repo {
-            // Code and schema only. The tree search covers every file type by design —
-            // that is what makes `for find` worth having — but the question here is "what
-            // breaks if I change this", and a mention in a markdown spec does not break.
-            // First cut of this block put eight documentation lines above the first line
-            // of code, which is the noise that gets a section skipped.
-            let interesting = |p: &str| {
-                p.rsplit('.')
-                    .next()
-                    .is_some_and(|e| matches!(e, "py" | "pyi" | "go" | "proto"))
-            };
-            let mut found = treefind::search(root, &sym.name, 120);
-            found.hits.retain(|h| interesting(&h.path));
+    //     Measured over 30 symbols with an unambiguous name: 99 resolved rows, 42 extra
+    //     code lines, median one per symbol. Small, bounded, and precisely the part that
+    //     breaks a rename — keyword arguments, proto fields, re-exports.
+    //
+    //     Only for a name carried by ONE symbol. With a homonym a lexical hit may belong
+    //     to the other one and nothing here can say which, so the count is stated and the
+    //     lines are not, rather than attributing them by guess.
+    let namesakes = store.symbols_named(&sym.name)?.len();
+    if let Some(root) = repo {
+        // Subtract every known reference, generated included, or the residue fills up
+        // with rows the answer above deliberately suppressed.
+        let (all_refs, _, _) = store.references(symbol_id, true, 900)?;
+        let known: std::collections::HashSet<(String, i64)> = all_refs
+            .iter()
+            .map(|r| (r.path.clone(), r.line + 1))
+            .collect();
+        let code = |p: &str| {
+            p.rsplit('.')
+                .next()
+                .is_some_and(|e| matches!(e, "py" | "pyi" | "go" | "proto"))
+        };
+        if namesakes <= 1 {
+            let mut found = treefind::search(root, &sym.name, 200);
+            // Case-sensitive, unlike the tree search itself. `for find` is deliberately
+            // case-insensitive - someone locating a header does not want to know how it
+            // is capitalised - but this block claims "no other symbol has this name", and
+            // `mortgage_term_months` and `MORTGAGE_TERM_MONTHS` are two symbols. Matching
+            // loosely here would attribute a constant's lines to a field and say it was
+            // certain.
+            found.hits.retain(|h| {
+                code(&h.path)
+                    && h.text.contains(sym.name.as_str())
+                    && !known.contains(&(h.path.clone(), h.line as i64))
+            });
             if !found.hits.is_empty() {
                 let _ = writeln!(
                     body,
-                    "every line naming `{}` in the working tree - lexical, because \
-                     attribute access does not resolve. The list above is a lower bound; \
-                     this one over-counts. The truth is between them:",
+                    "{} line(s) name `{}` that the graph did not resolve. No other symbol \
+                     has this name, so each one is about this symbol - a keyword argument, \
+                     a proto field, a re-export, a docstring. A rename breaks them; the \
+                     list above does not contain them:",
+                    found.hits.len(),
                     sym.name
                 );
-                for h in found.hits.iter().take(20) {
+                for h in found.hits.iter().take(15) {
                     if budget.push(
                         &mut body,
                         &format!("  {}:{}  {}", h.path, h.line, h.text.trim()),
@@ -203,20 +220,31 @@ pub fn change(
                         rows += 1;
                     }
                 }
-                if found.hits.len() > 20 {
+                if found.hits.len() > 15 {
                     unknown.push(format!(
-                        "{} more lexical hits than the 20 shown; `cairn for find \"{}\"` \
+                        "{} more unresolved lines than the 15 shown; `cairn for find \"{}\"` \
                          gives all of them with attribution",
-                        found.hits.len() - 20,
+                        found.hits.len() - 15,
                         sym.name
                     ));
                 }
                 let _ = writeln!(
                     body,
-                    "  (from `cairn for find \"{}\"`, which attributes each hit)\n",
+                    "  (from `cairn for find \"{}\"`, minus everything `refs` already \
+                     resolved)\n",
                     sym.name
                 );
             }
+        } else {
+            // Said rather than shown. Attributing a lexical hit to one of several
+            // same-named symbols is the guess this tool exists not to make.
+            unknown.push(format!(
+                "{namesakes} symbols share the name `{}`, so the working tree cannot be \
+                 searched for this one specifically - a lexical hit may belong to any of \
+                 them. The list above is what the graph resolved; `cairn for find \"{}\"` \
+                 shows every mention with the enclosing function of each",
+                sym.name, sym.name
+            ));
         }
     }
 

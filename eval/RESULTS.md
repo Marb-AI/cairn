@@ -2216,3 +2216,40 @@ two other signals this session: a block nobody reads is worse than no block.
 
 A plain function is unaffected: the branch fires only where `is_under_resolved_attribute`
 already holds, which is the same test that decides whether the `USE GREP` sentence appears.
+
+### Using the grep ourselves, where the index knows it is not enough — 2026-08-06
+
+The question that closed the loop: *why can't we run the grep?* There was no good answer.
+Cairn holds both halves — a precise, incomplete index and a complete, imprecise tree search
+it already ships as `for find` — and was handing the caller only the first, with a sentence
+recommending they run the second.
+
+`for change` now prints the **residue**: every line in the tree naming the symbol that the
+graph did not resolve, with everything `refs` already listed subtracted out. That residue is
+exactly the "five of six, and you lose one" a reference list cannot show — keyword
+arguments, proto fields, `__all__` entries, a name inside a docstring. Measured over 30
+symbols with an unambiguous name: 99 resolved rows against **42 extra code lines, median one
+per symbol**. Bounded, and precisely the part a rename breaks.
+
+**It only runs where it can be sound.** For a name carried by more than one symbol the
+residue cannot be attributed, and the answer says how many share it instead of guessing:
+
+```
+3 symbols share the name `recommended_switch_year`, so the working tree cannot be searched
+for this one specifically - a lexical hit may belong to any of them.
+```
+
+Two corrections before it shipped, both caught by looking at the output rather than the
+design:
+
+- **The first cut had no file filter** and put eight markdown lines above the first line of
+  code. Restricted to `.py`, `.pyi`, `.go`, `.proto` — a mention in a spec does not break.
+- **The second was case-insensitive**, because the tree search deliberately is: `for find`
+  should not care how a header is capitalised. But this block claims *no other symbol has
+  this name*, and `mortgage_term_months` and `MORTGAGE_TERM_MONTHS` are two symbols. Loose
+  matching attributed a constant's lines to a field and called it certain. Exact-case
+  matching took that symbol's residue from 20 lines to 11, all of them genuinely its own.
+
+That second one is the shape of the whole day in miniature: a block that had just been
+written to *prevent* over-confident answers was itself over-confident, and only reading its
+output showed it.
