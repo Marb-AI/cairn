@@ -2824,3 +2824,181 @@ mod tests {
         assert_eq!(Envelope::new("report".into()).rows, None);
     }
 }
+
+#[cfg(test)]
+mod guarantees {
+    //! The guarantees a mutation audit found nothing defending.
+    //!
+    //! Ten realistic regressions were applied to the source and the whole suite re-run;
+    //! three were caught. These pin the ones that were not. Each is a pure function of its
+    //! input, so it is checked here rather than through a corpus case that would need the
+    //! fixture to grow a file for every branch.
+    use super::*;
+    use cairn_store::attribute::LineContext;
+
+    fn line(path: &str, generated: bool, is_test: bool) -> FoundLine {
+        FoundLine {
+            path: path.into(),
+            line: 1,
+            text: "needle".into(),
+            context: LineContext {
+                symbol: None,
+                section: None,
+                generated,
+                is_test,
+                indexed: true,
+            },
+            around: Vec::new(),
+        }
+    }
+
+    fn sweep() -> TreeSweep {
+        TreeSweep {
+            files_read: 10,
+            skipped_large: 0,
+            truncated: false,
+            list_all: false,
+        }
+    }
+
+    fn render(hits: &[FoundLine], list_all: bool) -> String {
+        let mut b = Budget::unlimited();
+        found(
+            "needle",
+            hits,
+            &[],
+            &TreeSweep {
+                list_all,
+                ..sweep()
+            },
+            &mut b,
+        )
+        .render()
+    }
+
+    #[test]
+    fn lines_withheld_from_a_large_answer_are_counted_in_the_envelope() {
+        // Withholding without declaring it is the failure the envelope exists to prevent:
+        // a body that reads as the whole answer while a third of it is missing.
+        let mut hits: Vec<_> = (0..15)
+            .map(|_| line("srcgo/a_test.go", false, true))
+            .collect();
+        hits.extend((0..10).map(|_| line("srcpy/a.py", false, false)));
+        let out = render(&hits, false);
+        assert!(out.contains("of these:"), "no classification was printed");
+        assert!(
+            out.contains("15 line(s) in test or generated files"),
+            "held back 15 lines without saying how many:\n{out}"
+        );
+        assert!(
+            !out.contains("suppressed: none"),
+            "withheld silently:\n{out}"
+        );
+    }
+
+    #[test]
+    fn a_small_answer_is_listed_rather_than_classified() {
+        // The threshold is the whole reason this is an improvement and not noise: the
+        // median text search on the target repository returns two lines, and a two-line
+        // answer summarised into buckets is strictly worse than the two lines.
+        let mut hits: Vec<_> = (0..3)
+            .map(|_| line("srcgo/a_test.go", false, true))
+            .collect();
+        hits.extend((0..2).map(|_| line("srcpy/a.py", false, false)));
+        let out = render(&hits, false);
+        assert!(
+            !out.contains("of these:"),
+            "classified a 5-line answer:\n{out}"
+        );
+    }
+
+    #[test]
+    fn a_symbol_that_lives_in_tests_is_still_answered() {
+        // `chatWithFilter` is *defined* in a test file, so every one of its 28 hits is
+        // derived and the classified body had nothing in it at all. A count with nothing
+        // to read is a missing answer, not a smaller one.
+        let hits: Vec<_> = (0..25)
+            .map(|_| line("srcgo/a_test.go", false, true))
+            .collect();
+        let out = render(&hits, false);
+        assert!(
+            out.contains("srcgo/a_test.go"),
+            "every hit was withheld and the body is empty:\n{out}"
+        );
+    }
+
+    #[test]
+    fn asking_for_everything_lists_everything() {
+        let mut hits: Vec<_> = (0..15)
+            .map(|_| line("srcgo/a_test.go", false, true))
+            .collect();
+        hits.extend((0..10).map(|_| line("srcpy/a.py", false, false)));
+        let all = render(&hits, true);
+        assert!(!all.contains("of these:"));
+        assert!(
+            all.contains("srcgo/a_test.go"),
+            "--all dropped the test hits"
+        );
+    }
+
+    #[test]
+    fn an_answer_about_edited_files_says_so() {
+        // `mark_stale` going quiet is invisible: every field still prints, `stale: none` is
+        // a valid-looking answer, and the caller reads an index older than their own edit
+        // as current. Nothing in the suite noticed when it was turned into a no-op.
+        let dirty = ["srcpy/a.py".to_string()];
+        let fresh = Envelope::new("body".into())
+            .mark_stale(Some(&dirty), &["srcpy/b.py".to_string()])
+            .render();
+        assert!(fresh.contains("stale: none"), "unedited file marked stale");
+        let edited = Envelope::new("body".into())
+            .mark_stale(Some(&dirty), &["srcpy/a.py".to_string()])
+            .render();
+        assert!(
+            !edited.contains("stale: none"),
+            "an answer quoting an edited file reported itself current:\n{edited}"
+        );
+    }
+
+    #[test]
+    fn a_result_set_that_is_entirely_generated_says_which_kind_of_nothing_that_is() {
+        // Matches that are all generated mean the caller's name exists only in code nobody
+        // wrote, which is a different answer from "here it is" and usually means the thing
+        // they meant is not indexed under that name.
+        let gen = |name: &str| SymbolRow {
+            id: 1,
+            handle: "h".into(),
+            name: name.into(),
+            container: None,
+            module: None,
+            kind: cairn_store::SymbolKind::Type,
+            lang: cairn_store::Lang::Go,
+            def: Some(cairn_store::Occurrence {
+                path: "srcgo/x.pb.go".into(),
+                line: 1,
+                col_start: 0,
+                col_end: 5,
+                role: 0,
+                generated: true,
+                gen_via: cairn_store::GeneratedVia::PathPattern,
+                enclosing: None,
+            }),
+            def_end_line: None,
+            ref_count: 0,
+        };
+        let mut b = Budget::unlimited();
+        let out = symbols(
+            &[gen("Alert")],
+            "Alert",
+            "indexed: srcgo/",
+            true,
+            None,
+            &mut b,
+        )
+        .render();
+        assert!(
+            out.contains("every match is in generated code"),
+            "a wholly generated result set read as an ordinary one:\n{out}"
+        );
+    }
+}

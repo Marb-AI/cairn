@@ -2400,3 +2400,47 @@ Edit-distance "did you mean" on a miss. `ActionPlanz` is one character from a sy
 159 references, and the index can see that. It is still a guess about intent rather than a
 fact about the code, and a plausible wrong suggestion is the failure mode this whole file
 exists to prevent. Rejected on that ground, not on cost.
+
+## What the green suite was worth — 2026-08-06
+
+235 checks were passing. The question nobody had asked of them: *would any of them notice
+if the code stopped doing what it says?* Ten realistic regressions — each a defect this
+repository has had, or the obvious way a stated guarantee gets dropped — were applied to
+the source with the whole suite re-run after each.
+
+**Three of ten were caught.** Seven guarantees had nothing defending them:
+
+| guarantee | why it mattered |
+|---|---|
+| the `--limit` cut is declared | a first page read as the whole answer |
+| staleness marking | `mark_stale` as a no-op still prints `stale: none`, so an index older than the caller's own edit reports itself current |
+| withheld lines are counted | a body that reads as complete with a third of it missing |
+| the classification threshold | a two-line answer summarised into buckets is worse than the two lines |
+| the empty-body guard | a count with nothing to read |
+| **the corroborated repository root** | the fix, made hours earlier, for a search that reported "checked absence" about a directory it had never opened |
+| an all-generated result set says so | a name that exists only in code nobody wrote reads as an ordinary hit |
+
+**Four of the seven were guarantees added the same day.** The worst is the sixth: two
+corpus cases were written for it and both pass `--repo` explicitly, so they exercise the
+branch that was never broken and leave the derived path — the one the fix exists for —
+untested. It looked covered.
+
+Eight checks were added: six unit tests in `cairn-fmt::guarantees`, since these are pure
+functions of their input and a corpus case for each would need the fixture to grow a file
+per branch, and two corpus cases. The case for the corroborated root deliberately omits
+`--repo`: the harness builds its index under `/tmp`, where the convention does not hold,
+and declining is the right answer there.
+
+Re-run: **10 of 10 caught.** 175 tests, 52 corpus cases.
+
+### The audit is `eval/mutate.py`, and it has been wrong twice
+
+Both times it produced a plausible table rather than an error, which is the failure mode
+worth naming: `tail -40` on the test output let a failure in an early crate scroll off and
+be scored SURVIVED, and an anchor with ten occurrences in one file, replaced once, put the
+mutation on a different call site than the label claimed. It now reads the whole output and
+mutates every occurrence where a pattern is not unique.
+
+Adding it to the repository is the point: a check count is not a measurement, and this is
+the only number in this file that was obtained by trying to break something rather than by
+running it and seeing green.

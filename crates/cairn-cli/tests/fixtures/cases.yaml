@@ -449,3 +449,24 @@
   exit: 1
   contains: ["no symbol by that name", "the text is in the working tree"]
   max_seconds: 10
+
+# ── two guarantees a mutation audit found nothing defending ───────────────────────────
+#
+# Ten realistic regressions were applied to the source and the whole suite re-run; three
+# were caught. The rest are pinned here and in cairn-fmt's `guarantees` module.
+- name: a first page says it is one, so a partial list is not read as the whole answer
+  args: [symbol, Alert, --limit, "2"]
+  contains: ["--limit reached", "more matches beyond --limit"]
+  not_contains: ["suppressed: none"]
+  max_seconds: 5
+
+# Deliberately *without* `--repo`: this is the derived-root path, and the harness builds
+# its index under /tmp, where the `<repo>/.cairn/index.sqlite` convention does not hold.
+# The right answer there is to decline. Removing the corroboration makes this case report
+# a checked absence about /tmp — which is what it did before the corroboration existed.
+- name: an unconfirmable repository root declines rather than searching whatever is there
+  args: [symbol, ThisSymbolDoesNotExistAnywhere]
+  exit: 1
+  contains: ["grep is the tool"]
+  not_contains: ["checked absence"]
+  max_seconds: 10
