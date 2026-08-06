@@ -2181,3 +2181,38 @@ Deliberately an audit script rather than a per-answer note: the earlier attempt 
 graph-versus-text count into `refs` was measured and pulled for being noise, and nothing
 since has changed that. What is different here is the restriction to unambiguous names,
 which is what makes the number mean something.
+
+### Completeness by kind of symbol, and doing the grep the answer was recommending — 2026-08-06
+
+The follow-up question — *shouldn't the grep cover that too, depending on what kind of
+symbol it is?* — turned out to be the right cut. Running the completeness audit grouped by
+kind, over names carried by exactly one symbol in the index:
+
+| kind | mentions | accounted by `refs` | unexplained |
+|---|---|---|---|
+| type | 144 | **99%** | **0%** |
+| function | 114 | **96%** | 2% |
+| attribute / field | 104 | 79% | **14%** |
+| namespace | 5 | 0% | 100% (5 mentions, no conclusion) |
+
+**Types and functions are complete in practice.** The gap is entirely in attributes, and
+that is the class the tool has always refused to answer confidently about — `for change` on
+one prints `USE GREP FOR THIS ONE`, names the reason (attribute access resolves only where
+the holder's type is known) and hands over the exact grep to run.
+
+So the "five of six and you lose one" risk is not spread across the tool. It sits in one
+kind, it is 34% of symbols, and the answer already says out loud that its list is a lower
+bound.
+
+**What was missing was doing it.** Telling a caller to run a second command is the shape
+this entry point exists to remove. `for change` on an attribute now runs the same tree
+search `for find` uses and includes the hits, labelled as lexical, with both bounds stated:
+the resolved list under-counts, the lexical list over-counts, the truth is between them.
+
+Restricted to `.py`, `.pyi`, `.go` and `.proto`. The first cut used the unfiltered search
+and put eight markdown lines above the first line of code — technically every mention, and
+noise for a question about what breaks. That correction is the same judgement that pulled
+two other signals this session: a block nobody reads is worse than no block.
+
+A plain function is unaffected: the branch fires only where `is_under_resolved_attribute`
+already holds, which is the same test that decides whether the `USE GREP` sentence appears.

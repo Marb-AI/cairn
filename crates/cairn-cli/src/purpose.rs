@@ -160,6 +160,66 @@ pub fn change(
         let _ = writeln!(body, "  (from `cairn refs {}`)\n", node.symbol.handle);
     }
 
+    // 2b. For an attribute on a type, do the grep the answer would otherwise tell the
+    //     caller to run.
+    //
+    //     Measured completeness over names carried by exactly one symbol: types are 99%
+    //     accounted for by `refs` and functions 96%, but attributes are where the gap
+    //     lives — `Card(field_name=...)` keyword arguments and `x.field` reads that
+    //     resolve only when the holder's type is known. The tool has always been honest
+    //     about it: `USE GREP FOR THIS ONE`, with the command to run.
+    //
+    //     Honest and one round trip short of useful. Saying "run this other thing" is the
+    //     shape this entry point exists to remove, and the search is the same tree search
+    //     `for find` already does — 34% of symbols are attributes, so this is not a rare
+    //     branch, and for every one of them the caller was being sent away.
+    if cairn_store::query::is_under_resolved_attribute(sym.kind, sym.container.as_deref()) {
+        if let Some(root) = repo {
+            // Code and schema only. The tree search covers every file type by design —
+            // that is what makes `for find` worth having — but the question here is "what
+            // breaks if I change this", and a mention in a markdown spec does not break.
+            // First cut of this block put eight documentation lines above the first line
+            // of code, which is the noise that gets a section skipped.
+            let interesting = |p: &str| {
+                p.rsplit('.')
+                    .next()
+                    .is_some_and(|e| matches!(e, "py" | "pyi" | "go" | "proto"))
+            };
+            let mut found = treefind::search(root, &sym.name, 120);
+            found.hits.retain(|h| interesting(&h.path));
+            if !found.hits.is_empty() {
+                let _ = writeln!(
+                    body,
+                    "every line naming `{}` in the working tree - lexical, because \
+                     attribute access does not resolve. The list above is a lower bound; \
+                     this one over-counts. The truth is between them:",
+                    sym.name
+                );
+                for h in found.hits.iter().take(20) {
+                    if budget.push(
+                        &mut body,
+                        &format!("  {}:{}  {}", h.path, h.line, h.text.trim()),
+                    ) {
+                        rows += 1;
+                    }
+                }
+                if found.hits.len() > 20 {
+                    unknown.push(format!(
+                        "{} more lexical hits than the 20 shown; `cairn for find \"{}\"` \
+                         gives all of them with attribution",
+                        found.hits.len() - 20,
+                        sym.name
+                    ));
+                }
+                let _ = writeln!(
+                    body,
+                    "  (from `cairn for find \"{}\"`, which attributes each hit)\n",
+                    sym.name
+                );
+            }
+        }
+    }
+
     // 3. The deployed radius.
     let affected = store.affects(symbol_id, 12, 40)?;
     let radius = cairn_fmt::affects(&sym, &affected, budget);

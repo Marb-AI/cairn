@@ -177,6 +177,14 @@ reports what it dropped. Better than guessing `--limit` and asking twice.
   try `for find` - it reads the tree rather than the index - and do not keep probing the
   graph.
 - Exit codes: `0` found, `1` nothing, `2` bad query, `3` degraded index.
+- **`UNCHECKED` and exit `3` mean "I did not look" — never "there is nothing".** They are
+  not the same answer and the difference is the whole point: a negative you act on has to
+  come from a layer that was actually built. If you see either, the question is unanswered,
+  not answered no. Reindex, or use the command the message names, before concluding
+  anything — especially before a rename or a delete.
+- The words that carry a *checked* negative are different: `no callers`, `0 targets`,
+  `suppressed: none`. Those come from a layer that exists and found nothing. `no calls,
+  N ref(s)` means uncalled but referenced — deletable, at the cost of N other edits.
 
 ## Documentation
 
