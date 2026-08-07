@@ -2523,3 +2523,47 @@ day against an older index of the same codebase.
 
 To "an environment that differs finds what sameness hides", add: **so does data that
 differs.** Neither was a new check.
+
+## Frontend, round one — 2026-08-07
+
+One run per arm. The protocol says that is the wrong resolution, and this file says a
+single-run delta under ~15% is noise, so these are a **shape, not a verdict**. Scenarios,
+keys and the prediction were registered in `eval/SCENARIOS-FRONTEND.md` at `7ee939b`,
+before any arm ran.
+
+| | grep turns | cairn turns | ratio | predicted |
+|---|---|---|---|---|
+| F1 generated-code trace, name repeated in a second app | 19 | 15 | **0.79** | cairn wins |
+| F2 translation key — a string, not a symbol | 7 | 2 | **0.29** | grep wins or ties |
+| F3 ordinary reference question | 10 | 9 | **0.90** | grep wins or ties |
+
+Median 0.79, mean 0.66. Round trips reconstructed from the hook log at a 1.5 s gap; the
+first turn is each arm reading its own instructions and is excluded from both.
+
+**Both arms answered correctly on all three**, and both went past the key: each
+independently found that `ChatSummaryAside` receives an `onStartNewChat` prop it never
+calls, and that three of the nine values `useChatFilters` returns have no consumer. Those
+are findings about the repository, not about either tool.
+
+### The prediction was wrong twice, in opposite directions
+
+**F2 was written off and won by the largest margin.** The reasoning on record — "there is
+no graph to use, it is a string in a JSON file" — was right about the index and wrong about
+the question. The grep arm found the key, then had to find who renders it, then confirm the
+component; cairn's text search attaches the enclosing symbol to every hit, so those three
+steps were one. **The value was in the attribution, not in the graph.**
+
+**F1 was the scenario cairn was expected to carry and it barely did.** A generated wrapper
+around a generated call, with the same name defined again in a retired sibling app, is the
+nearest thing a frontend has to the boundary cairn wins on — and 0.79 does not meet the
+acceptance rule. The grep arm handled the generated code by reading it, which on a
+frontend is cheap: the wrapper is four lines, not a protobuf stub.
+
+### What this says so far
+
+The overall prediction — *no better than the backend's median, plausibly worse* — holds:
+0.79 against 0.50. Only F2 meets the acceptance rule; F1 and F3 fail it at equal answer
+quality. On this evidence cairn's frontend case does not rest on the call graph at all,
+which is the opposite of where it was expected to rest.
+
+**Not yet measured:** rounds two and three. Every number above is one draw.
