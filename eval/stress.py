@@ -43,8 +43,9 @@ def run(db, *args):
 
 
 def sample(db, n):
-    """A stratified, deterministic draw: handler types, methods, plain functions, both
-    languages. Ordered by hash so the same index always yields the same set."""
+    """A stratified, deterministic draw: handler types, chain starts, and plain functions
+    in every language the index holds. Ordered by hash so the same index always yields the
+    same set."""
     c = sqlite3.connect(db)
     picks = []
     strata = {
@@ -52,16 +53,25 @@ def sample(db, n):
                               JOIN symbols s ON s.id = l.symbol_id AND s.kind = 1
                               JOIN handles h ON h.symbol_id = s.id
                              WHERE l.role = 0 ORDER BY h.handle""",
-        "py functions": """SELECT h.handle FROM symbols s
+    }
+    # One function stratum per language the index actually holds, rather than one named
+    # stratum per language this harness was written against. Pointed at a TypeScript index
+    # the hardcoded `lang = 1` and `lang = 2` selected nothing at all: the run reported
+    # "0 symbols", eleven of sixteen checks sat behind their guards, and the summary line
+    # said "no contradictions found" — which was true, and meant nothing. A harness that
+    # silently examines nothing on an unfamiliar corpus is the same failure as a tool that
+    # reports an empty layer as a clean bill.
+    for (lang,) in c.execute(
+        """SELECT DISTINCT s.lang FROM symbols s
+             JOIN files f ON f.id = s.def_file_id AND f.generated = 0
+            WHERE s.kind = 3 ORDER BY s.lang"""
+    ):
+        strata[f"functions (lang {lang})"] = f"""SELECT h.handle FROM symbols s
                              JOIN handles h ON h.symbol_id = s.id
                              JOIN files f ON f.id = s.def_file_id AND f.generated = 0
-                            WHERE s.lang = 1 AND s.kind = 3 AND s.ref_count > 2
-                            ORDER BY h.handle""",
-        "go functions": """SELECT h.handle FROM symbols s
-                             JOIN handles h ON h.symbol_id = s.id
-                             JOIN files f ON f.id = s.def_file_id AND f.generated = 0
-                            WHERE s.lang = 2 AND s.kind = 3 AND s.ref_count > 2
-                            ORDER BY h.handle""",
+                            WHERE s.lang = {int(lang)} AND s.kind = 3 AND s.ref_count > 2
+                            ORDER BY h.handle"""
+    strata.update({
         # Symbols that actually call across a service boundary. Added after a binary with
         # a deliberately re-injected defect ran the whole file and reported nothing: the
         # three strata above select on reference count, and the code that starts a chain
@@ -78,7 +88,7 @@ def sample(db, n):
                              JOIN files f ON f.id = s.def_file_id AND f.generated = 0
                              JOIN handles h ON h.symbol_id = s.id
                             WHERE e.kind = 0 ORDER BY h.handle""",
-    }
+    })
     rng = random.Random(20260805)
     for label, q in strata.items():
         rows = [r[0] for r in c.execute(q)]

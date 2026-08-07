@@ -60,6 +60,9 @@ pub struct IngestStats {
     pub hashed_files: usize,
     /// Documents whose path escaped the workspace root and were dropped.
     pub paths_outside_repo: usize,
+    /// Occurrences the input repeated exactly, removed before the uniqueness index is
+    /// built. Reported because a repair nobody mentions cannot be told from no repair.
+    pub duplicate_occurrences: usize,
 }
 
 /// Interns strings, keeping an in-process cache so the common case never touches SQLite.
@@ -302,6 +305,34 @@ pub fn ingest_scip(
     {
         store.set_meta(&format!("root.{}", lang.tag()), &stats.path_prefix)?;
     }
+
+    // The occurrence rows go in before `occ_unique` exists — the index is built afterwards
+    // because a 350k-row insert against it is several times slower — so `INSERT OR IGNORE`
+    // has nothing to check against and a duplicate in the *input* survives the load. It
+    // then fails the CREATE UNIQUE INDEX, and the whole build dies with a raw SQLite
+    // constraint error naming five columns.
+    //
+    // scip-go and scip-python happen never to emit one, so this stood for months. The
+    // first real scip-typescript index hit it immediately: an Expo app of 827 files, and
+    // `cairn index` refused the lot. Deduplicating before the index is built is what the
+    // constraint was going to do anyway — the same occurrence twice is the same fact — and
+    // the count is reported rather than dropped quietly, because a silent repair is
+    // indistinguishable from nothing having been wrong.
+    stats.duplicate_occurrences = store.conn.execute(
+        "DELETE FROM occurrences WHERE rowid NOT IN (
+             SELECT rowid FROM (
+                 SELECT rowid, row_number() OVER (
+                     PARTITION BY symbol_id, file_id, line, col_start, role
+                     -- Keep the row that knows its enclosing range: the uniqueness key
+                     -- does not include `enc_end`, so an arbitrary winner can throw away
+                     -- the only copy that had one.
+                     ORDER BY (enc_end IS NULL), rowid
+                 ) AS rn FROM occurrences
+             ) WHERE rn = 1
+         )",
+        [],
+    )?;
+    stats.occurrences -= stats.duplicate_occurrences;
 
     schema::create_indexes(&store.conn)?;
     schema::finalize(&store.conn)?;
