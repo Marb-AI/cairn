@@ -794,16 +794,38 @@ fn produce_indexes(repo: &Path, out_rel: &Path, survey: &index::Survey) -> Resul
     let mut produced = Vec::new();
     let mut failed = Vec::new();
     for f in &survey.found {
-        print!("  {:<10} indexing  ", f.language.name);
-        let _ = std::io::stdout().flush();
-        match index::run_indexer(f, repo, out_rel) {
-            index::Outcome::Indexed { scip, seconds } => {
-                println!("{seconds:.1}s");
-                produced.push(scip);
-            }
-            index::Outcome::Failed(e) => {
-                println!("failed: {e}");
-                failed.push(f.language.name);
+        // One run per project root. A Go module's root sees every package inside it, so
+        // there is one; a JavaScript workspace has one per member, because `apps/a` and
+        // `apps/b` are separate compilations with separate dependency trees. Indexing only
+        // the shallowest there covered a retired app and left the live one out, and the
+        // index would have answered about the rest of the repository as if it were empty.
+        for (n, root) in f.roots.iter().enumerate() {
+            let tag = if f.roots.len() == 1 {
+                f.language.name.to_string()
+            } else {
+                // Distinct output names, or each project would overwrite the last and the
+                // ingest would read one of them as the whole language.
+                format!("{}-{n}", f.language.name)
+            };
+            let where_ = root
+                .strip_prefix(repo)
+                .ok()
+                .filter(|p| !p.as_os_str().is_empty())
+                .map(|p| format!(" {}", p.display()))
+                .unwrap_or_default();
+            print!("  {:<10} indexing{where_}  ", f.language.name);
+            let _ = std::io::stdout().flush();
+            match index::run_indexer(f, root, &tag, repo, out_rel) {
+                index::Outcome::Indexed { scip, seconds } => {
+                    println!("{seconds:.1}s");
+                    produced.push(scip);
+                }
+                index::Outcome::Failed(e) => {
+                    println!("failed: {e}");
+                    if !failed.contains(&f.language.name) {
+                        failed.push(f.language.name);
+                    }
+                }
             }
         }
     }

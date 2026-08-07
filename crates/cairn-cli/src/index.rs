@@ -42,6 +42,14 @@ pub struct Language {
     /// Files that mark a project root for this language. Used only to choose *where* to
     /// run the indexer once the extensions have already said the language is here.
     pub markers: &'static [&'static str],
+    /// Do sibling project roots have to be indexed separately?
+    ///
+    /// False for Go and Python, where the outermost project sees every package inside it,
+    /// so the shallowest marker is the whole repository. True for JavaScript workspaces,
+    /// where `apps/a` and `apps/b` are separate compilations with separate dependency
+    /// trees - indexing the shallowest one there covered a retired app and silently left
+    /// out the live one of 827 files.
+    pub roots_are_independent: bool,
 }
 
 pub const LANGUAGES: &[Language] = &[
@@ -50,6 +58,7 @@ pub const LANGUAGES: &[Language] = &[
         extensions: &["go"],
         indexer: "scip-go",
         markers: &["go.mod"],
+        roots_are_independent: false,
     },
     Language {
         name: "python",
@@ -61,16 +70,26 @@ pub const LANGUAGES: &[Language] = &[
             "setup.cfg",
             "requirements.txt",
         ],
+        roots_are_independent: false,
+    },
+    Language {
+        // `.js` and `.jsx` are indexed by the same tool and land in the same graph, so
+        // they are extensions of this language rather than a language of their own.
+        name: "typescript",
+        extensions: &["ts", "tsx", "js", "jsx"],
+        indexer: "scip-typescript",
+        // Only the compiler configs. `package.json` was here and it was wrong: in a pnpm
+        // or yarn workspace there is one at the root that configures no TypeScript
+        // project at all, so the indexer was pointed at a directory with no tsconfig and
+        // refused. What marks a TypeScript project is the file the compiler reads.
+        markers: &["tsconfig.json", "jsconfig.json"],
+        roots_are_independent: true,
     },
 ];
 
 /// Extensions cairn cannot index, named so a warning can say which language was skipped
 /// rather than leaving someone to guess from a file count.
 const UNSUPPORTED: &[(&str, &str)] = &[
-    ("ts", "TypeScript"),
-    ("tsx", "TypeScript"),
-    ("js", "JavaScript"),
-    ("jsx", "JavaScript"),
     ("rs", "Rust"),
     ("java", "Java"),
     ("kt", "Kotlin"),
@@ -100,9 +119,12 @@ pub struct Found {
     pub files: usize,
     /// Share of all source files seen, for the summary line.
     pub share: f64,
-    /// Directory to run the indexer in: the shallowest project marker for this language,
-    /// or the repository root when it has none.
-    pub root: PathBuf,
+    /// Directories to run the indexer in, sorted so a run is reproducible.
+    ///
+    /// One entry for a language whose outermost project contains the rest; one per
+    /// workspace member where it does not. Never empty: with no marker at all it is the
+    /// repository root.
+    pub roots: Vec<PathBuf>,
 }
 
 /// What a walk of the tree found.
@@ -136,8 +158,16 @@ pub fn scan(repo: &Path) -> Result<Survey> {
     let mut counts: HashMap<String, usize> = HashMap::new();
     let mut markers: HashMap<&'static str, PathBuf> = HashMap::new();
     let mut depth_of_marker: HashMap<&'static str, usize> = HashMap::new();
+    let mut all_markers: HashMap<&'static str, Vec<PathBuf>> = HashMap::new();
 
-    walk(repo, 0, &mut counts, &mut markers, &mut depth_of_marker)?;
+    walk(
+        repo,
+        0,
+        &mut counts,
+        &mut markers,
+        &mut depth_of_marker,
+        &mut all_markers,
+    )?;
 
     // Only extensions we can name count towards the total. Otherwise a repository full of
     // .json fixtures would drag every real language under the threshold.
@@ -170,14 +200,35 @@ pub fn scan(repo: &Path) -> Result<Survey> {
             if !worth_it(files) {
                 return None;
             }
+            let shallowest = markers
+                .get(lang.name)
+                .cloned()
+                .unwrap_or_else(|| repo.to_path_buf());
+            let mut roots = vec![shallowest];
+            if lang.roots_are_independent {
+                if let Some(all) = all_markers.get(lang.name) {
+                    // Every marker not inside another one: a `tsconfig.json` below a
+                    // project it belongs to is part of that compilation, not a second one.
+                    let mut outer: Vec<PathBuf> = all
+                        .iter()
+                        .filter(|p| !all.iter().any(|q| q != *p && p.starts_with(q)))
+                        .cloned()
+                        .collect();
+                    outer.sort();
+                    outer.dedup();
+                    // Sorted, so which project is indexed first does not depend on the
+                    // order the filesystem handed back its entries. It did: the first run
+                    // on a three-app workspace picked the retired one.
+                    if !outer.is_empty() {
+                        roots = outer;
+                    }
+                }
+            }
             Some(Found {
                 language: lang,
                 files,
                 share: share(files),
-                root: markers
-                    .get(lang.name)
-                    .cloned()
-                    .unwrap_or_else(|| repo.to_path_buf()),
+                roots,
             })
         })
         .collect();
@@ -207,12 +258,14 @@ pub fn scan(repo: &Path) -> Result<Survey> {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn walk(
     dir: &Path,
     depth: usize,
     counts: &mut HashMap<String, usize>,
     markers: &mut HashMap<&'static str, PathBuf>,
     depth_of_marker: &mut HashMap<&'static str, usize>,
+    all_markers: &mut HashMap<&'static str, Vec<PathBuf>>,
 ) -> Result<()> {
     if depth > MAX_DEPTH {
         return Ok(());
@@ -236,7 +289,14 @@ fn walk(
             if kind.is_symlink() || name.starts_with('.') || SKIP_DIRS.contains(&name.as_str()) {
                 continue;
             }
-            walk(&path, depth + 1, counts, markers, depth_of_marker)?;
+            walk(
+                &path,
+                depth + 1,
+                counts,
+                markers,
+                depth_of_marker,
+                all_markers,
+            )?;
             continue;
         }
 
@@ -248,6 +308,10 @@ fn walk(
                 if previous.is_none_or(|d| depth < d) {
                     depth_of_marker.insert(lang.name, depth);
                     markers.insert(lang.name, dir.to_path_buf());
+                }
+                let seen = all_markers.entry(lang.name).or_default();
+                if !seen.contains(&dir.to_path_buf()) {
+                    seen.push(dir.to_path_buf());
                 }
             }
         }
@@ -269,11 +333,9 @@ pub enum Outcome {
 /// The output path is expressed inside the container, not on the host: the repository is
 /// mounted at a fixed place, so the paths the indexer records do not depend on where the
 /// repository happens to live on this machine.
-pub fn run_indexer(found: &Found, repo: &Path, out_rel: &Path) -> Outcome {
+pub fn run_indexer(found: &Found, root: &Path, tag: &str, repo: &Path, out_rel: &Path) -> Outcome {
     let started = std::time::Instant::now();
-    let out_in_container = Path::new("/repo")
-        .join(out_rel)
-        .join(format!("{}.scip", found.language.name));
+    let out_in_container = Path::new("/repo").join(out_rel).join(format!("{tag}.scip"));
     let out = out_in_container.to_string_lossy().to_string();
 
     let project;
@@ -282,8 +344,7 @@ pub fn run_indexer(found: &Found, repo: &Path, out_rel: &Path) -> Outcome {
         "python" => {
             // `--project-name` is required and ends up inside every symbol string, so it
             // has to be stable across runs: the directory name is, a timestamp is not.
-            project = found
-                .root
+            project = root
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "project".to_string());
@@ -299,13 +360,37 @@ pub fn run_indexer(found: &Found, repo: &Path, out_rel: &Path) -> Outcome {
                 &out,
             ]
         }
+        "typescript" => {
+            // Unlike the other two, this indexer cannot do anything at all without the
+            // project's own dependencies on disk. A tsconfig that says
+            // `extends: "expo/tsconfig.base"` is unreadable without them, and what comes
+            // out is not a smaller index but `no files got indexed` — an empty index that
+            // every later answer would report as a fact about the code. Refusing here,
+            // naming the directory and the command, is the whole difference.
+            // Node resolution walks up, and pnpm/yarn workspaces hoist most packages to
+            // the repository root, so a workspace member legitimately has no `node_modules`
+            // of its own. Checking only the project directory refused two of three apps
+            // that would have indexed fine.
+            let installed = root
+                .ancestors()
+                .take_while(|d| d.starts_with(repo) || *d == repo)
+                .any(|d| d.join("node_modules").is_dir());
+            if !installed {
+                return Outcome::Failed(format!(
+                    "{} has no node_modules, and scip-typescript resolves nothing without \
+                     them - a tsconfig that extends a package cannot even be read, and the \
+                     index would come out empty rather than partial. Install the \
+                     dependencies there (npm/pnpm/yarn install) and run `cairn index` again",
+                    root.display()
+                ));
+            }
+            vec!["scip-typescript", "index", "--output", &out]
+        }
         other => return Outcome::Failed(format!("no invocation known for {other}")),
     };
 
-    let result = crate::docker::exec(repo, &found.root, &args);
-    let on_host = repo
-        .join(out_rel)
-        .join(format!("{}.scip", found.language.name));
+    let result = crate::docker::exec(repo, root, &args);
+    let on_host = repo.join(out_rel).join(format!("{tag}.scip"));
 
     match result {
         Ok(o) if o.status.success() && on_host.exists() => Outcome::Indexed {
@@ -440,25 +525,49 @@ mod tests {
 
     #[test]
     fn a_language_we_cannot_read_is_named_rather_than_ignored() {
+        // Rust rather than TypeScript: this used to name TypeScript, which then became a
+        // language cairn indexes, and the test went from checking the warning to checking
+        // nothing. The property is about *any* unreadable language, so it needs an example
+        // that stays unreadable.
         let mut files = many("srcgo", "go", 20);
-        files.extend(many("web", "ts", 20));
+        files.extend(many("engine", "rs", 20));
         let dir = tree("unsupported", &refs(&files));
         let survey = scan(&dir).unwrap();
         assert_eq!(survey.found.len(), 1, "only Go can be indexed");
         assert_eq!(survey.unsupported.len(), 1);
-        assert_eq!(survey.unsupported[0].0, "TypeScript");
+        assert_eq!(survey.unsupported[0].0, "Rust");
         assert_eq!(survey.unsupported[0].1, 20);
     }
 
     #[test]
     fn extensions_of_one_language_are_counted_together() {
         let mut files = many("srcgo", "go", 20);
-        files.extend(many("web", "ts", 11));
-        files.extend(many("web", "tsx", 9));
+        files.extend(many("engine", "c", 11));
+        files.extend(many("engine", "h", 9));
         let dir = tree("grouped", &refs(&files));
         let survey = scan(&dir).unwrap();
-        assert_eq!(survey.unsupported[0].0, "TypeScript");
-        assert_eq!(survey.unsupported[0].1, 20, ".ts and .tsx are one language");
+        assert_eq!(survey.unsupported[0].0, "C");
+        assert_eq!(survey.unsupported[0].1, 20, ".c and .h are one language");
+    }
+
+    #[test]
+    fn a_typescript_tree_is_a_language_now_and_its_four_extensions_are_one() {
+        // The counterpart of the two above, and the reason they had to change: .ts, .tsx,
+        // .js and .jsx are one graph produced by one indexer, so they are one language
+        // here rather than four rows a reader has to add up.
+        let mut files = vec![("tsconfig.json".to_string(), "{}".to_string())];
+        files.extend(many("app", "ts", 10));
+        files.extend(many("app", "tsx", 8));
+        files.extend(many("app", "js", 2));
+        let dir = tree("ts-tree", &refs(&files));
+        let survey = scan(&dir).unwrap();
+        assert_eq!(survey.found.len(), 1);
+        assert_eq!(survey.found[0].language.name, "typescript");
+        assert_eq!(survey.found[0].files, 20);
+        assert!(
+            survey.unsupported.is_empty(),
+            "TypeScript should no longer be reported as unreadable"
+        );
     }
 
     #[test]
@@ -471,15 +580,49 @@ mod tests {
         let dir = tree("shallowest", &refs(&files));
         let survey = scan(&dir).unwrap();
         assert_eq!(
-            survey.found[0].root, dir,
-            "the root module sees every package"
+            survey.found[0].roots,
+            vec![dir],
+            "the root module sees every package, so there is one root"
         );
     }
 
     #[test]
     fn without_a_marker_the_indexer_runs_at_the_repository_root() {
         let dir = tree("no-marker", &refs(&many("pkg", "go", 10)));
-        assert_eq!(scan(&dir).unwrap().found[0].root, dir);
+        assert_eq!(scan(&dir).unwrap().found[0].roots, vec![dir]);
+    }
+
+    #[test]
+    fn every_workspace_member_is_a_root_of_its_own() {
+        // Go and Python nest: the outer project compiles the inner one. A JavaScript
+        // workspace does not, and taking the shallowest marker there indexed one app of
+        // three - picked by directory order, so a second run could pick another - while
+        // reporting an index of the repository.
+        let mut files = vec![
+            ("package.json".to_string(), "{}".to_string()),
+            ("apps/live/tsconfig.json".to_string(), "{}".to_string()),
+            ("apps/retired/tsconfig.json".to_string(), "{}".to_string()),
+        ];
+        files.extend(many("apps/live", "ts", 20));
+        files.extend(many("apps/retired", "ts", 10));
+        let dir = tree("workspace", &refs(&files));
+        let roots = &scan(&dir).unwrap().found[0].roots;
+        assert_eq!(
+            roots,
+            &vec![dir.join("apps/live"), dir.join("apps/retired")],
+            "both members, in a fixed order"
+        );
+    }
+
+    #[test]
+    fn a_nested_tsconfig_is_part_of_its_project_not_a_second_one() {
+        let mut files = vec![
+            ("tsconfig.json".to_string(), "{}".to_string()),
+            ("src/feature/tsconfig.json".to_string(), "{}".to_string()),
+        ];
+        files.extend(many("src", "ts", 20));
+        let dir = tree("nested-ts", &refs(&files));
+        assert_eq!(scan(&dir).unwrap().found[0].roots, vec![dir]);
     }
 
     #[test]

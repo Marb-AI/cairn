@@ -33,8 +33,14 @@ COPY --from=node:22-bookworm-slim /usr/local/lib/node_modules /usr/local/lib/nod
 # pyright as well as scip-python: the indexer bundles its own analysis but does not ship
 # `pyright-langserver`, and that is what the daemon drives to answer about a file that has
 # been edited since the index was built.
+#
+# scip-typescript and the TypeScript language server come from the same npm tree. The
+# indexer needs the *project's* dependencies present to do anything at all — a tsconfig
+# that says `extends: "expo/tsconfig.base"` cannot even be read without them — but that is
+# the repository's business, not the image's; what belongs here is the indexer itself.
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
- && npm install -g @sourcegraph/scip-python@latest pyright@latest
+ && npm install -g @sourcegraph/scip-python@latest pyright@latest \
+      @sourcegraph/scip-typescript@latest typescript typescript-language-server@latest
 
 # The Go toolchain as well as the indexer: scip-go runs `go list` against the module it is
 # indexing, so the compiler has to be here too. gopls is the Go half of the live overlay.

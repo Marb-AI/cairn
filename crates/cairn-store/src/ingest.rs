@@ -513,13 +513,19 @@ fn resolve_prefix(index: &cairn_scip::Index, repo_root: Option<&Path>) -> String
     }
 
     let mut candidates: Vec<String> = vec![String::new()];
-    // The indexer records its own project root, e.g. "file:///work/srcpy".
+    // The indexer records its own project root, e.g. "file:///work/srcpy". Every suffix of
+    // it is a candidate, not just the last segment: a workspace member sits two levels
+    // down (`/repo/apps/<member>`), and with only the last segment and the top-level
+    // to choose from nothing matched, the prefix came out empty, and every path in the
+    // index was short by `apps/<member>`. The index built, and each answer named a file
+    // caller could not open. Suffixes are checked against the tree below like any other
+    // candidate, so an extra one costs a few `exists` calls and cannot introduce a wrong
+    // answer.
     if let Some(meta) = &index.metadata {
         let pr = meta.project_root.trim_start_matches("file://");
-        if let Some(base) = Path::new(pr).file_name().and_then(|s| s.to_str()) {
-            if !base.is_empty() {
-                candidates.push(base.to_string());
-            }
+        let segs: Vec<&str> = pr.split('/').filter(|s| !s.is_empty()).collect();
+        for start in (0..segs.len()).rev() {
+            candidates.push(segs[start..].join("/"));
         }
     }
     // Fall back to scanning one level down, for indexes with unhelpful metadata.

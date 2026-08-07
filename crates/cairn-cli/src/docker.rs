@@ -1,9 +1,12 @@
 //! Running the indexers without their toolchains being on the machine.
 //!
-//! Docker is cairn's one dependency. Indexing needs `scip-go` and `scip-python`, which in
-//! turn need a Go toolchain and Node; asking someone to install four things before a tool
-//! does anything is how a tool goes uninstalled. So the toolchains live in an image and
-//! the host stays clean.
+//! Docker is cairn's one dependency. Indexing needs `scip-go`, `scip-python` and
+//! `scip-typescript`, which in turn need a Go toolchain and Node; asking someone to
+//! install four things before a tool does anything is how a tool goes uninstalled. So the
+//! toolchains live in an image and the host stays clean.
+//!
+//! One thing the image cannot supply: a TypeScript project's own `node_modules`. Those
+//! belong to the repository, and without them scip-typescript resolves nothing at all.
 //!
 //! Nothing is pulled. The Dockerfile is embedded in the binary and built locally, so there
 //! is no registry to reach, nothing to authenticate against, and no way for the image to
@@ -238,6 +241,21 @@ mod tests {
             DOCKERFILE.contains("scip-python"),
             "the Python indexer is missing"
         );
+        assert!(
+            DOCKERFILE.contains("scip-typescript"),
+            "the TypeScript indexer is missing"
+        );
+        // Every language cairn claims to index must have its indexer in the image. Adding
+        // a `Language` entry and forgetting the Dockerfile produces "executable file not
+        // found" from inside a container, minutes into a first run.
+        for lang in crate::index::LANGUAGES {
+            assert!(
+                DOCKERFILE.contains(lang.indexer),
+                "{} is indexed by {}, which the image does not install",
+                lang.name,
+                lang.indexer
+            );
+        }
         assert!(
             DOCKERFILE.starts_with('#'),
             "expected the explanatory header"

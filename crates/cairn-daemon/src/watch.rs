@@ -33,6 +33,15 @@ const IGNORED_DIRS: &[&str] = &[
     ".ruff_cache",
     "vendor",
     ".cairn",
+    // Package-manager stores, which are dependencies rather than code and are large
+    // enough to dominate a search: a pnpm store inside one repository held 73,731 files
+    // against 1,059 of source, and `for find` reported "from 73435 searched" — a number
+    // that says the answer was thorough when almost all of it was other people's code.
+    ".pnpm-store",
+    ".yarn",
+    ".expo",
+    ".turbo",
+    "coverage",
 ];
 
 /// Events arrive in bursts - one editor save can produce several, and a git operation
@@ -436,6 +445,8 @@ mod tests {
         assert!(is_ignored(".git/objects/ab"));
         assert!(is_ignored("srcpy/__pycache__/x.pyc"));
         assert!(is_ignored("web/node_modules/pkg/i.js"));
+        assert!(is_ignored(".pnpm-store/v3/files/00/abcd"));
+        assert!(is_ignored("apps/web/.expo/types/router.d.ts"));
         assert!(is_ignored(".cairn/index.sqlite"));
         assert!(!is_ignored("srcpy/domains/orders/x.py"));
         // A path merely containing the word is not a match.
