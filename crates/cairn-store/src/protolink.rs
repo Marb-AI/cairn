@@ -924,6 +924,24 @@ impl Store {
     /// The binding fallback runs at the root only. Deeper down it would turn one symbol
     /// that merely *holds* a client into every handler of that service, and a weak claim
     /// compounded three levels deep is a chain a reader would believe and should not.
+    /// Services this symbol calls, at service granularity rather than RPC granularity.
+    ///
+    /// The coarser half of the same fact, and the only half available when the generated
+    /// client in the index does not name a service's RPCs: `rpc_chain` resolves method to
+    /// method and finds nothing, while the service link plainly says a boundary is
+    /// crossed. Answering "calls nothing across a service boundary" from the first while
+    /// the second holds three targets is the contradiction this exists to prevent.
+    pub fn services_called(&self, symbol_id: i64) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT ps.pkg || '.' || ps.name FROM service_links l
+               JOIN proto_services ps ON ps.id = l.service_id
+              WHERE l.symbol_id = ?1 AND l.role = 1
+              ORDER BY 1",
+        )?;
+        let rows = stmt.query_map(params![symbol_id], |r| r.get::<_, String>(0))?;
+        Ok(rows.collect::<std::result::Result<Vec<_>, _>>()?)
+    }
+
     pub fn rpc_chain(&self, root: i64, max_depth: usize, max_hops: usize) -> Result<Chain> {
         let mut chain = Chain::default();
         let mut seen: std::collections::HashSet<i64> = std::collections::HashSet::from([root]);

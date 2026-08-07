@@ -347,14 +347,85 @@ pub fn understand(store: &Store, symbol_id: i64, budget: &mut Budget) -> Result<
     //    deeper rather than to trim this one. Both are printed when they bite.
     let chain = store.rpc_chain(symbol_id, 4, 40)?;
     if chain.hops.is_empty() {
-        let _ = writeln!(
-            body,
-            "[{}] {} calls nothing across a service boundary  (from `cairn reaches {} \
-             --outgoing`)",
-            sym.handle,
-            sym.qualified(),
-            sym.handle
-        );
+        // Not "nothing" until the command this line cites agrees. `rpc_chain` resolves
+        // method to method; `reaches --outgoing` falls back to the client binding when it
+        // cannot. The two disagreed on a real symbol: this printed "calls nothing across a
+        // service boundary", naming `reaches --outgoing`, whose own answer was three
+        // targets. Asking the same question the citation does removes the disagreement by
+        // construction rather than by keeping two paths in step by hand.
+        // Three fallbacks, because `reaches --outgoing` has three: a resolved RPC, then
+        // the client binding, then the cross-language link — and the link is where this
+        // symbol's three targets actually lived. Stopping at the second is why the two
+        // commands disagreed while one of them named the other.
+        let (bound, unchecked) = store.rpc_targets_by_binding(symbol_id)?;
+        let linked = if bound.is_empty() {
+            store.cross_language_targets(symbol_id)?
+        } else {
+            Vec::new()
+        };
+        if bound.is_empty() && !linked.is_empty() {
+            let _ = writeln!(
+                body,
+                "[{}] {} — {} target(s) across a service boundary, from the service link \
+                 rather than from a resolved RPC  (from `cairn reaches {} --outgoing`)",
+                sym.handle,
+                sym.qualified(),
+                linked.len(),
+                sym.handle
+            );
+            for t in &linked {
+                // The same row shape the chain prints. Not cosmetic: `  -> [handle]` is
+                // how a hop is written everywhere else, and a reader - or a check - that
+                // knows one form should not have to learn a second for the fallback.
+                let _ = writeln!(
+                    body,
+                    "  -> [{}] {}  {}",
+                    t.symbol.handle,
+                    t.symbol.qualified(),
+                    t.symbol
+                        .def
+                        .as_ref()
+                        .map(|d| d.location())
+                        .unwrap_or_else(|| "<no definition indexed>".into())
+                );
+                rows += 1;
+            }
+        } else if bound.is_empty() {
+            let _ = writeln!(
+                body,
+                "[{}] {} calls nothing across a service boundary  (from `cairn reaches {} \
+                 --outgoing`)",
+                sym.handle,
+                sym.qualified(),
+                sym.handle
+            );
+        } else {
+            let _ = writeln!(
+                body,
+                "[{}] {} — {} target(s) across a service boundary, from the client it is \
+                 bound to rather than from a resolved RPC  (from `cairn reaches {} \
+                 --outgoing`)",
+                sym.handle,
+                sym.qualified(),
+                bound.len(),
+                sym.handle
+            );
+            for t in &bound {
+                let _ = writeln!(
+                    body,
+                    "  [{}] {}  {}",
+                    t.symbol.handle,
+                    t.symbol.qualified(),
+                    t.symbol
+                        .def
+                        .as_ref()
+                        .map(|d| d.location())
+                        .unwrap_or_else(|| "<no definition indexed>".into())
+                );
+                rows += 1;
+            }
+            unknown.extend(unchecked.iter().cloned());
+        }
     } else {
         let depth = chain.hops.iter().map(|h| h.depth).max().unwrap_or(0);
         // Not "followed to the end" any more. Round six: three arms found a fourth hop the
