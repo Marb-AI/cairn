@@ -1214,19 +1214,48 @@ fn run() -> Result<u8> {
 
         Cmd::Unreached { prefix, limit } => {
             let store = open(&db)?;
-            let rows = store.unreached(&prefix, limit)?;
+            let mut rows = store.unreached(&prefix, limit)?;
+            // A file named `x.web.ts` next to `x.ts` is one module with two
+            // implementations, and which one ships is decided by the bundler from the
+            // platform - no import ever names the variant. So every symbol that lives only
+            // in a variant has no static caller and looked like dead code: on a workspace
+            // of 44 such files, `unreached` reported one as having "no production caller"
+            // and marked it `[L1, exact]`. Reachability cannot see a bundler, so it may
+            // not make that claim; the rows are withheld and counted instead.
+            let variant = |p: &str| {
+                [".web.", ".ios.", ".android.", ".native."]
+                    .iter()
+                    .any(|suffix| p.contains(suffix))
+            };
+            let before = rows.len();
+            rows.retain(|r| {
+                !r.symbol
+                    .def
+                    .as_ref()
+                    .map(|d| variant(&d.path))
+                    .unwrap_or(false)
+            });
+            let hidden = before - rows.len();
             let found = !rows.is_empty();
             let paths = paths_of(rows.iter().map(|r| r.symbol.def.as_ref()));
             let gap = unindexed_prefix_note(&store, &prefix, repo_for(&db).as_deref());
-            let mut env = cairn_fmt::unreached(&prefix, &rows, &mut budget)
+            let mut env = cairn_fmt::unreached(&prefix, &rows, hidden, &mut budget)
                 .mark_stale(dirty.as_deref(), &paths);
             if let Some(note) = &gap {
                 env = env.unknown(note.clone());
             }
+            if hidden > 0 {
+                env = env.unknown(format!(
+                    "{hidden} symbol(s) here are defined only in a platform variant \
+                     (.web/.ios/.android/.native) and are NOT listed: the bundler picks \
+                     those by platform, so no import names them and reachability cannot \
+                     see who calls them. Whether they are dead is unchecked, not answered"
+                ));
+            }
             emit(env);
             // Degraded, not "nothing found": a caller acting on the exit code alone must
             // not read an unindexed path as a clean one.
-            Ok(match (found, gap.is_some()) {
+            Ok(match (found, gap.is_some() || hidden > 0) {
                 (true, _) => exit::FOUND,
                 (false, true) => exit::DEGRADED,
                 (false, false) => exit::NOT_FOUND,

@@ -1185,13 +1185,23 @@ pub fn context(
 pub fn unreached(
     prefix: &str,
     rows: &[cairn_store::UnreachedSymbol],
+    // Symbols the caller withheld because reachability cannot speak about them. The header
+    // must know: with rows removed, "0 symbols … everything here has a production caller"
+    // is a claim about symbols nobody looked at, and it contradicts the envelope line two
+    // rows below that says exactly the opposite.
+    withheld: usize,
     budget: &mut Budget,
 ) -> Envelope {
     let mut body = String::new();
     let _ = writeln!(
         body,
-        "{} symbols under {prefix} with no production caller       [L1, exact]",
-        rows.len()
+        "{} symbols under {prefix} with no production caller{}       [L1, exact]",
+        rows.len(),
+        if withheld > 0 {
+            format!(", and {withheld} that could not be checked")
+        } else {
+            String::new()
+        }
     );
     let mut shown = 0usize;
     for (i, r) in rows.iter().enumerate() {
@@ -1216,7 +1226,15 @@ pub fn unreached(
         shown = i + 1;
     }
     if rows.is_empty() {
-        let _ = writeln!(body, "  (everything here has a production caller)");
+        let _ = writeln!(
+            body,
+            "  {}",
+            if withheld > 0 {
+                "(nothing listed here is uncalled; see `unknown` for what was not checked)"
+            } else {
+                "(everything here has a production caller)"
+            }
+        );
     }
     let mut env = Envelope::new(body).rows(shown).unknown(
         "reachability is static: a symbol invoked by name at runtime looks unreached. \
@@ -3000,5 +3018,28 @@ mod guarantees {
             out.contains("every match is in generated code"),
             "a wholly generated result set read as an ordinary one:\n{out}"
         );
+    }
+}
+
+#[cfg(test)]
+mod unreached_header {
+    use super::*;
+
+    #[test]
+    fn a_header_with_rows_withheld_does_not_claim_everything_is_called() {
+        // The fix for one false claim produced another: with the platform-variant rows
+        // removed the body said "(everything here has a production caller)" while the
+        // envelope two lines below said one symbol had not been checked. A tool that
+        // contradicts itself inside one answer is worse than one that overclaims once.
+        let mut b = Budget::unlimited();
+        let clean = unreached("hooks", &[], 0, &mut b).render();
+        assert!(clean.contains("everything here has a production caller"));
+        let mut b = Budget::unlimited();
+        let withheld = unreached("hooks", &[], 1, &mut b).render();
+        assert!(
+            !withheld.contains("everything here has a production caller"),
+            "claimed full coverage while withholding a row:\n{withheld}"
+        );
+        assert!(withheld.contains("could not be checked"));
     }
 }
