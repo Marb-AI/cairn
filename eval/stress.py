@@ -29,6 +29,7 @@ lands in the container's target directory rather than beside this file.
 import os
 import pathlib
 import random
+import re
 import sqlite3
 import subprocess
 import sys
@@ -487,6 +488,65 @@ def without_stale(text):
     nondeterminism twice on the fixture corpus. The *answer* must be stable; the freshness
     of the index underneath it is exactly what is not."""
     return "\n".join(l for l in text.splitlines() if not l.startswith("stale:"))
+
+
+def workspace_member(path):
+    """The workspace member a repo-relative path belongs to, or None.
+
+    `apps/<name>/...` in a JavaScript workspace. Deliberately not a general "top two
+    segments": a repository that is not a workspace has no members and every check built
+    on this must then sit out rather than invent a boundary.
+    """
+    parts = (path or "").split("/")
+    return "/".join(parts[:2]) if len(parts) > 2 and parts[0] == "apps" else None
+
+
+def check_no_answer_crosses_a_workspace_member(db, handle, f):
+    """A symbol's references must stay inside its own workspace member.
+
+    The first invariant written for the shape of the *second* corpus rather than the
+    first. Members of a JavaScript workspace are separate compilations with separate
+    dependency trees: `apps/a` importing from `apps/b` does not happen, and a retired app
+    kept on disk for reference holds a full copy of names that are live elsewhere. An
+    answer that mixed them would be false in the most expensive way — it would name files
+    whose edit does nothing.
+
+    Both measured arms had to establish this by hand and say so in their answers. Nothing
+    was checking it: on this index 0 of 55,948 call edges cross a member, and a check that
+    only holds while nobody breaks it is the state this file exists to end.
+    """
+    c, out, _ = run(db, "refs", handle, "--include-generated", "--limit", "200")
+    if c != 0:
+        return
+    own = workspace_member(definition_path(db, handle))
+    if not own:
+        return
+    for path in {m.group(1) for m in re.finditer(r"\s+(\S+\.\w+):\d+", out)}:
+        other = workspace_member(path)
+        if not other:
+            continue
+        f.ran("no answer crosses a workspace member")
+        if other != own:
+            f.note(
+                "refs names a file in a different workspace member",
+                handle,
+                f"the symbol is defined in {own} and {path} is in {other}; those are "
+                f"separate compilations and an edit in one does nothing for the other",
+                f"cairn refs {handle}",
+            )
+            return
+
+
+def definition_path(db, handle):
+    """Where a handle is defined, repo-relative."""
+    c = sqlite3.connect(db)
+    row = c.execute(
+        "SELECT p.s FROM symbols s JOIN handles h ON h.symbol_id = s.id "
+        "JOIN files fl ON fl.id = s.def_file_id JOIN strings p ON p.id = fl.path_id "
+        "WHERE h.handle = ?",
+        (handle,),
+    ).fetchone()
+    return row[0] if row else None
 
 
 def check_determinism(db, handle, f):
@@ -972,6 +1032,7 @@ def printed_locations(line):
 # loop by accident would otherwise vanish from the report along with its coverage, which
 # is the same silence this is here to break.
 ALL_CHECKS = [
+    "no answer crosses a workspace member",
     "reaches symmetry",
     "nothing reaches itself",
     "affects covers its methods",
@@ -1047,6 +1108,7 @@ def main():
         check_nothing_reaches_itself_across_a_boundary(db, handle, f)
         check_affects_covers_methods(db, handle, f)
         check_usage_within_refs(db, handle, f)
+        check_no_answer_crosses_a_workspace_member(db, handle, f)
         check_determinism(db, handle, f)
         check_budget_admits_what_it_cut(db, handle, f)
         check_runs_agrees_with_affects(db, handle, f)
