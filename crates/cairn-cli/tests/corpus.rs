@@ -82,6 +82,20 @@ fn make_fixtures(real: &Path) -> std::collections::HashMap<String, PathBuf> {
     );
     out.insert("garbage".to_string(), garbage);
 
+    // A structurally valid index whose deployment layer resolved nothing: the state of
+    // every repository without a compose file cairn can read, which is most of them. The
+    // corpus itself resolves two entrypoints, so without this fixture the branch that says
+    // "UNCHECKED rather than empty" has nothing to exercise it - and that branch exists
+    // because `topology` used to answer "0 services" there with `unknown: none`.
+    let no_deploy = dir.join("no-deploy.sqlite");
+    std::fs::copy(real, &no_deploy).expect("copying the index to make a no-deploy fixture");
+    {
+        let conn = rusqlite::Connection::open(&no_deploy).expect("opening the fixture");
+        conn.execute("UPDATE deploy_services SET entry_file = NULL", [])
+            .expect("clearing the fixture's resolved entrypoints");
+    }
+    out.insert("no-deploy".to_string(), no_deploy);
+
     // An index written by an older build: the binary must refuse it rather than read
     // whatever the old layout happens to put where it now expects something else.
     let old = dir.join("old-schema.sqlite");

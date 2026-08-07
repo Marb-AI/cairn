@@ -470,3 +470,18 @@
   contains: ["grep is the tool"]
   not_contains: ["checked absence"]
   max_seconds: 10
+
+# ── the sixth layer, fixed after the other five ───────────────────────────────────────
+#
+# `topology` printed "0 services, 0 with a resolved entrypoint" with `unknown: none` on a
+# repository whose deployment layer had simply not been derivable, and `affects` - which
+# rests on it - then said "affects 0 deployed service(s)" in the same confident voice. A
+# repository with no compose file cairn can read is not one where nothing is deployed.
+# The fixture corpus resolves no entrypoint, so it is exactly that case.
+- name: a topology with no resolved entrypoint is UNCHECKED, not a repository without services
+  args: [topology]
+  db: no-deploy
+  exit: 3
+  contains: ["UNCHECKED rather than empty", "deployment entrypoints"]
+  not_contains: ["unknown: none"]
+  max_seconds: 5

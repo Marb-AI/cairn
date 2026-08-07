@@ -395,6 +395,14 @@ impl Store {
             doc_sections: n("SELECT count(*) FROM doc_sections"),
             literals: n("SELECT count(*) FROM literals"),
             service_links: n("SELECT count(*) FROM service_links"),
+            // The deployment side, which the five layers above were fixed without. On a
+            // repository whose topology resolves nothing - a frontend, a library, anything
+            // with no compose file cairn can read - `topology` said "0 services" with
+            // `unknown: none` and `affects` said "affects 0 deployed service(s)". Two
+            // confident zeros from a layer that had not been built.
+            deploy_entrypoints: n(
+                "SELECT count(*) FROM deploy_services WHERE entry_file IS NOT NULL",
+            ),
         }
     }
 }
@@ -405,6 +413,7 @@ pub struct LayerCounts {
     pub doc_sections: i64,
     pub literals: i64,
     pub service_links: i64,
+    pub deploy_entrypoints: i64,
 }
 
 impl LayerCounts {
@@ -420,5 +429,36 @@ impl LayerCounts {
                  than empty - nothing has been ruled out. {how}"
             )
         })
+    }
+}
+
+#[cfg(test)]
+mod layer_count_tests {
+    use super::*;
+
+    #[test]
+    fn every_counted_layer_names_a_column_that_exists() {
+        // `layer_counts` swallows a SQL error and returns 0, which is right when a table is
+        // legitimately empty and catastrophic when a column has been renamed: every command
+        // that reads it would report UNCHECKED on every repository, and nothing would say
+        // why. The first version of the deployment count asked for `entrypoint_symbol`,
+        // which is spelled `entry_file`; it compiled, ran, and returned 0 everywhere.
+        let store = Store::open_in_memory().expect("in-memory store");
+        let counts = store.layer_counts();
+        // Zero is the honest answer for an empty store. What is being checked is that the
+        // queries *ran* — a failed one is indistinguishable from an empty table here, so
+        // each is re-issued directly and its error surfaced.
+        for sql in [
+            "SELECT count(*) FROM doc_sections",
+            "SELECT count(*) FROM literals",
+            "SELECT count(*) FROM service_links",
+            "SELECT count(*) FROM deploy_services WHERE entry_file IS NOT NULL",
+        ] {
+            store
+                .conn
+                .query_row(sql, [], |r| r.get::<_, i64>(0))
+                .unwrap_or_else(|e| panic!("layer count query failed: {sql}: {e}"));
+        }
+        assert_eq!(counts.deploy_entrypoints, 0);
     }
 }

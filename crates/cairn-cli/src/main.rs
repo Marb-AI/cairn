@@ -1530,8 +1530,28 @@ fn run() -> Result<u8> {
             let store = open(&db)?;
             let rows = store.deploy_services()?;
             let found = !rows.is_empty();
-            emit(cairn_fmt::topology(&rows, &mut budget));
-            Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+            // The sixth layer, fixed after the other five. "0 services, 0 with a resolved
+            // entrypoint" was printed with `unknown: none` on a repository whose topology
+            // had simply not been derivable - and `affects`, which rests on it, then said
+            // "affects 0 deployed service(s)" in the same confident voice. A repository
+            // with no compose file cairn can read is not a repository where nothing is
+            // deployed.
+            let gap = cairn_store::LayerCounts::unchecked(
+                store.layer_counts().deploy_entrypoints,
+                "deployment entrypoints",
+                "Nothing here can say which service runs a symbol. `cairn rules` shows the \
+                 start commands this index knows how to read.",
+            );
+            let mut env = cairn_fmt::topology(&rows, &mut budget);
+            if let Some(note) = &gap {
+                env = env.unknown(note.clone());
+            }
+            emit(env);
+            Ok(match (found, gap.is_some()) {
+                (_, true) => exit::DEGRADED,
+                (true, false) => exit::FOUND,
+                (false, false) => exit::NOT_FOUND,
+            })
         }
 
         Cmd::Llm {
