@@ -29,8 +29,28 @@ pub struct Rules {
     /// Ordered: the first rule that matches a command wins, so `Register`-style prefixes
     /// and more specific shapes must come before the general ones.
     pub commands: Vec<CommandRule>,
+    /// Files a build tool picks between, which no import names.
+    pub build_selected: BuildSelectedRules,
     pub proto: ProtoRules,
     pub on_demand: OnDemandRules,
+}
+
+/// Files chosen by a build tool rather than by an import statement.
+///
+/// `x.web.ts` beside `x.ts` is one module with two implementations and the bundler picks
+/// one from the platform; nothing in the source names the variant, so a symbol living only
+/// in one has no static caller and reachability cannot say whether it is dead.
+///
+/// This lives in the rule pack rather than in the command that needs it, and the
+/// distinction is the point: the first version of this was four string literals inside
+/// `Cmd::Unreached`, which is one ecosystem's convention compiled into the tool. A
+/// repository that names its variants differently - or a language with no such mechanism -
+/// can now say so in a `rules.yaml` instead of waiting for a release.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct BuildSelectedRules {
+    /// Infixes marking a variant, e.g. `.web.` in `useColorScheme.web.ts`.
+    #[serde(default)]
+    pub path_contains: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

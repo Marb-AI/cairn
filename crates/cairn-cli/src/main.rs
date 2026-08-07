@@ -1222,11 +1222,12 @@ fn run() -> Result<u8> {
             // of 44 such files, `unreached` reported one as having "no production caller"
             // and marked it `[L1, exact]`. Reachability cannot see a bundler, so it may
             // not make that claim; the rows are withheld and counted instead.
-            let variant = |p: &str| {
-                [".web.", ".ios.", ".android.", ".native."]
-                    .iter()
-                    .any(|suffix| p.contains(suffix))
-            };
+            // From the rule pack, not from a list compiled in here. The first version of
+            // this held the four infixes literally, which is one ecosystem's convention
+            // welded into the tool: a repository that names its variants differently, or a
+            // language with no such mechanism, had no way to say so.
+            let selected = store.rules.build_selected.path_contains.clone();
+            let variant = |p: &str| selected.iter().any(|infix| p.contains(infix.as_str()));
             let before = rows.len();
             rows.retain(|r| {
                 !r.symbol

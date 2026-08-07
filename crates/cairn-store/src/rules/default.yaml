@@ -19,6 +19,13 @@ tests:
   file_prefixes: ["test_"]
   file_suffixes: ["_test.go", "_test.py", ".test.ts", ".spec.ts"]
 
+# Files a build tool picks between, which no import statement names. A symbol defined only
+# in one of these has no static caller by construction, so reachability must decline rather
+# than call it dead. React Native and Expo resolve these by platform; Metro, Vite and
+# webpack all have equivalents. Empty for a repository with no such mechanism.
+build_selected:
+  path_contains: [".web.", ".ios.", ".android.", ".native."]
+
 # First match wins, so order is meaning.
 commands:
   - name: python-module
