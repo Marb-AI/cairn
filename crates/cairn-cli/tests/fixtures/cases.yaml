@@ -485,3 +485,20 @@
   contains: ["UNCHECKED rather than empty", "deployment entrypoints"]
   not_contains: ["unknown: none"]
   max_seconds: 5
+
+# The two commands that rest on the same layer as `topology`. Fixed one at a time, and the
+# first fix covered only `topology`: these went on printing "(no service entrypoint reaches
+# it)" and exiting 1 from a layer holding nothing. One note, three commands, three cases.
+- name: affects declares an underived deployment layer instead of answering from it
+  args: [affects, "ez5"]
+  db: no-deploy
+  exit: 3
+  contains: ["UNCHECKED rather than empty", "deployment entrypoints"]
+  max_seconds: 5
+
+- name: runs declares an underived deployment layer instead of answering from it
+  args: [runs, "ez5"]
+  db: no-deploy
+  exit: 3
+  contains: ["UNCHECKED rather than empty", "deployment entrypoints"]
+  max_seconds: 5

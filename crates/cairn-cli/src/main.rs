@@ -1566,12 +1566,7 @@ fn run() -> Result<u8> {
             // "affects 0 deployed service(s)" in the same confident voice. A repository
             // with no compose file cairn can read is not a repository where nothing is
             // deployed.
-            let gap = cairn_store::LayerCounts::unchecked(
-                store.layer_counts().deploy_entrypoints,
-                "deployment entrypoints",
-                "Nothing here can say which service runs a symbol. `cairn rules` shows the \
-                 start commands this index knows how to read.",
-            );
+            let gap = deployment_gap(&store);
             let mut env = cairn_fmt::topology(&rows, &mut budget);
             if let Some(note) = &gap {
                 env = env.unknown(note.clone());
@@ -1812,8 +1807,17 @@ fn run() -> Result<u8> {
             let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
             let a = store.affects(symbol_id, depth, fanout)?;
             let found = !a.in_process.is_empty() || !a.hops.is_empty();
-            emit(cairn_fmt::affects(&sym, &a, &mut budget));
-            Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+            let gap = deployment_gap(&store);
+            let mut env = cairn_fmt::affects(&sym, &a, &mut budget);
+            if let Some(note) = &gap {
+                env = env.unknown(note.clone());
+            }
+            emit(env);
+            Ok(match (found, gap.is_some()) {
+                (_, true) => exit::DEGRADED,
+                (true, false) => exit::FOUND,
+                (false, false) => exit::NOT_FOUND,
+            })
         }
 
         Cmd::Runs { handle, depth } => {
@@ -1825,8 +1829,17 @@ fn run() -> Result<u8> {
             let (services, via) = store.services_running_attributed(symbol_id, depth)?;
             let found = !services.is_empty();
             let blind = store.services_without_entrypoint()?;
-            emit(cairn_fmt::runs_in(&sym, &services, depth, &via, &blind));
-            Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+            let gap = deployment_gap(&store);
+            let mut env = cairn_fmt::runs_in(&sym, &services, depth, &via, &blind);
+            if let Some(note) = &gap {
+                env = env.unknown(note.clone());
+            }
+            emit(env);
+            Ok(match (found, gap.is_some()) {
+                (_, true) => exit::DEGRADED,
+                (true, false) => exit::FOUND,
+                (false, false) => exit::NOT_FOUND,
+            })
         }
 
         Cmd::Reaches { handle, outgoing } => {
@@ -2483,6 +2496,23 @@ fn make_source(detail: Detail, repo: Option<PathBuf>) -> Result<Option<Source>> 
 /// tomorrow because somebody added a second symbol of that name. That is honest, but it
 /// is a change the caller did not make, and it is the reason handles still exist.
 /// The repository an index describes: `<repo>/.cairn/index.sqlite`, so two levels up.
+/// The note `affects`, `runs` and `topology` all owe when nothing was deployed.
+///
+/// The three answer one question at different grain and rest on one layer, so they were
+/// fixed one at a time and the first fix covered one of them: `topology` learned to say
+/// UNCHECKED while `affects` and `runs` went on printing "(no service entrypoint reaches
+/// it)" and exiting 1. A repository with no compose file cairn can read is not one where
+/// nothing is deployed, and saying so in one place is what stops the next command that
+/// reads this layer from having to remember.
+fn deployment_gap(store: &Store) -> Option<String> {
+    cairn_store::LayerCounts::unchecked(
+        store.layer_counts().deploy_entrypoints,
+        "deployment entrypoints",
+        "Nothing here can say which service runs a symbol. `cairn rules` shows the start \
+         commands this index knows how to read.",
+    )
+}
+
 fn repo_for(db: &Path) -> Option<PathBuf> {
     db.parent()
         .and_then(|d| d.parent())
