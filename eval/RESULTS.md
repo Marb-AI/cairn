@@ -2460,3 +2460,66 @@ Working tree clean throughout. The verdicts at `ac59e76`, `e1df84c`, `bc42dc2` a
 This is the first verdict in this file with a row that was obtained by trying to break
 something. The other three rows say the code and the checks agree; only the last says the
 checks would notice if they stopped agreeing — and only for the ten things that were tried.
+
+## The harness was measuring a binary from nine hours earlier — 2026-08-07
+
+`stress.py` took its binary from `$CAIRN_BIN`, defaulting to a fixed path **outside the
+repository**. Unset, it measured whatever was at that path. On this machine that file was
+built at 09:23 and the commit under test at 18:00.
+
+It was caught by accident. A run reported a contradiction between `for understand` and
+`reaches --outgoing` that had been fixed an hour earlier — the fix was real, the run was
+measuring a binary that predated it. Without that fix having just landed, the run would
+have been clean and wrong, and this file would carry a verdict about code that was never
+executed.
+
+**Which verdicts this affects.** The harness half of `bc42dc2`, `a614752` and `41d47b2`
+was run without `CAIRN_BIN` and therefore measured the 09:23 binary rather than the frozen
+commit. Those rows are **not withdrawn and not re-run**: the runs happened, and what they
+establish is that the 09:23 binary was clean on those corpora, which is a weaker statement
+than the one recorded. The sweep half is unaffected — it builds through `cargo` in the
+container and has always compiled the working tree.
+
+**The fix is that the harness may not choose its own subject.** `$CAIRN_BIN`, then a
+release build from this checkout, then the container's — and if none exists it refuses to
+start rather than reaching outside the repository. Every run now opens with what it is
+measuring and when that was built:
+
+```
+measuring …/cairn-5ee6a8c (built 2026-08-07 09:46)
+160 symbols and 40 shared names, stratified and seeded
+```
+
+Third time today that the instrument was wrong rather than the tool, and the third time it
+produced a result rather than an error. The other two were in `eval/mutate.py`.
+
+## Verdict at 5ee6a8c — 2026-08-07
+
+The first verdict on a binary that indexes three languages, and the first whose harness
+runs name the binary they measured.
+
+| net | scope | result |
+|---|---|---|
+| harness | 160 symbols on the real index, 16 of 16 checks exercised | clean, twice |
+| sweep | 6,860 command runs across 490 of 490 fixture symbols | clean, twice |
+| suite | 182 tests, 52 corpus cases | clean |
+| mutation audit | 11 realistic regressions | 11 of 11 caught |
+| CI | every step, on the runner | clean |
+
+Working tree clean throughout. Earlier verdicts are not overwritten.
+
+### What TypeScript cost, and what it found
+
+Adding a language was four small edits, as estimated. What it was not: three defects that
+only a real tree in an unfamiliar shape could produce — an indexer that repeats an
+occurrence killing the whole build, a workspace indexed one member deep by directory
+order, and a prefix that reached one path segment when it needed two, so every path in the
+index named a file the caller could not open.
+
+A fourth came from the *data* rather than the shape: a freshly built index of the same
+repository surfaced a `for understand` answer that said nothing crossed a service boundary
+while citing the command that listed three targets. The same invariant had run green all
+day against an older index of the same codebase.
+
+To "an environment that differs finds what sameness hides", add: **so does data that
+differs.** Neither was a new check.

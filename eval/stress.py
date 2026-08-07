@@ -27,12 +27,47 @@ lands in the container's target directory rather than beside this file.
 """
 
 import os
+import pathlib
 import random
 import sqlite3
 import subprocess
 import sys
 
-BIN = os.environ.get("CAIRN_BIN", "/home/workspaces/cairn/bin/cairn-bin")
+def _binary() -> str:
+    """The binary to measure, and never a guess about which one that is.
+
+    This defaulted to a fixed path outside the repository. On 2026-08-07 that file was
+    nine hours old, and two "clean" harness runs quoted in a verdict had measured it
+    rather than the commit they were freezing — the run reported a contradiction that had
+    already been fixed, which is how it was noticed at all. A measurement that silently
+    picks its own subject is worse than one that refuses to start.
+
+    Order: `$CAIRN_BIN`, then a release build from this checkout, then the container's.
+    Nothing else, and whatever is chosen is printed with its age.
+    """
+    here = pathlib.Path(__file__).resolve().parent.parent
+    for cand in (
+        os.environ.get("CAIRN_BIN"),
+        here / "target/release/cairn",
+        "/target/release/cairn",
+    ):
+        if cand and pathlib.Path(cand).exists():
+            return str(cand)
+    raise SystemExit(
+        "no cairn binary: set CAIRN_BIN, or `cargo build --release --bin cairn` first.\n"
+        "This used to fall back to a fixed path outside the repository and measure "
+        "whatever happened to be there."
+    )
+
+
+def _age(path: str) -> str:
+    import datetime
+
+    ts = pathlib.Path(path).stat().st_mtime
+    return datetime.datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+
+
+BIN = _binary()
 
 
 def run(db, *args):
@@ -996,6 +1031,7 @@ def main():
     picks = sample(db, n)
     shared = shared_names(db, n)
     print(
+        f"measuring {BIN} (built {_age(BIN)})\n"
         f"{len(picks)} symbols and {len(shared)} shared names, stratified and seeded\n"
     )
     # Whole-tool checks, once rather than per symbol.
