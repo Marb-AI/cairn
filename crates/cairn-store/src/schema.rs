@@ -260,6 +260,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS occ_unique
     ON occurrences(symbol_id, file_id, line, col_start, role);
 CREATE INDEX IF NOT EXISTS occ_by_symbol ON occurrences(symbol_id, role);
 CREATE INDEX IF NOT EXISTS occ_by_file   ON occurrences(file_id, line);
+-- The handler-method join in `affects`: every symbol sharing a file with a type that
+-- serves an RPC. Without it SQLite scans all 71k symbols and builds an automatic index at
+-- run time. Measured inside the process, on the real path: 187 ms to 31 ms for that query,
+-- and `affects` as a whole from ~190 ms to ~32 ms.
+--
+-- No schema bump. This is a pure performance object: an index built before it exists is
+-- still correct, just slower, and forcing every user to reindex for a speed-up is a worse
+-- trade than letting them have it at the next build.
+CREATE INDEX IF NOT EXISTS sym_by_kind_file ON symbols(kind, def_file_id);
 CREATE INDEX IF NOT EXISTS sym_by_name   ON symbols(name_id);
 CREATE INDEX IF NOT EXISTS sym_rank       ON symbols(name_id, def_generated, ref_count DESC);
 CREATE INDEX IF NOT EXISTS sym_by_module ON symbols(module_id);

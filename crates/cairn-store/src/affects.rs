@@ -82,6 +82,19 @@ const MAX_HOPS: usize = 4;
 impl Store {
     /// Every deployed service a change to this symbol would affect.
     pub fn affects(&self, symbol_id: i64, depth: usize, fanout: usize) -> Result<Affects> {
+        // Kept, because measuring this from outside the process was wrong twice in one
+        // afternoon: an isolated query said 2,976 ms where the command paid none of it,
+        // and a later reading said an index changed nothing when in fact it was worth 6x.
+        // `CAIRN_PROFILE=1 cairn affects <h>` prints the breakdown that settled it.
+        let _t0 = std::time::Instant::now();
+        let _prof = std::env::var_os("CAIRN_PROFILE").is_some();
+        macro_rules! mark {
+            ($l:expr) => {
+                if _prof {
+                    eprintln!("  {:>7.1} ms  {}", _t0.elapsed().as_secs_f64() * 1000.0, $l);
+                }
+            };
+        }
         let mut out = Affects {
             blind: self.services_without_entrypoint()?,
             ..Default::default()
@@ -100,6 +113,7 @@ impl Store {
         } else {
             self.reachable_by_service(depth)?
         };
+        mark!("blind + sets");
         let mut runs_memo: HashMap<i64, Vec<String>> = HashMap::new();
         let mut runs = |store: &Store, id: i64| -> Result<Vec<String>> {
             if let Some(hit) = runs_memo.get(&id) {
@@ -139,6 +153,7 @@ impl Store {
         // the file and marking it `~`, and the same weaker claim is worth far more here
         // than a confident zero: the agent that got the zero rebuilt the whole chain by
         // hand, which cost more round trips than the question was worth.
+        mark!("runs(symbol)");
         let mut direct = runs(self, symbol_id)?;
         let by_file = direct.is_empty();
         if by_file {
@@ -158,12 +173,14 @@ impl Store {
         // builds changes what that service receives - and every cairn arm missed it,
         // because `affects` only ever looked at who reaches the symbol, never at what the
         // symbol reaches.
+        mark!("in_process rows");
         out.outgoing = self.outgoing_services(symbol_id, &sets)?;
 
         // Only symbols that implement an RPC can start a hop, and there are far fewer of
         // them than there are callers of a repository function. Testing membership in a
         // set built once is what keeps this a single query per hop rather than one per
         // caller.
+        mark!("outgoing_services");
         let handlers = self.rpc_handler_methods()?;
 
         // A handler class is asked about at least as often as one of its methods - it is
@@ -177,6 +194,7 @@ impl Store {
         let mut frontier = vec![symbol_id];
         frontier.extend(self.own_handler_members(symbol_id, &handlers)?);
         let mut seen_calls: HashSet<i64> = HashSet::new();
+        mark!("rpc_handler_methods");
         let mut walked: HashSet<i64> = HashSet::new();
         let mut hop_count = 0usize;
 
@@ -235,6 +253,7 @@ impl Store {
             }
             frontier = next;
         }
+        mark!("caller walk (total)");
         Ok(out)
     }
 
