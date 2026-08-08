@@ -37,7 +37,11 @@ import sys
 import os
 
 BIN = os.environ.get("CAIRN_BIN", "/home/workspaces/cairn/bin/cairn-bin")
-LINE = re.compile(r"\s+(\S+\.(?:py|go)):(\d+)")
+# The languages cairn indexes, not the two it was written against. Pointed at a
+# TypeScript repository the old pattern matched no line and no file, so every symbol
+# scored zero mentions and the run reported nothing rather than reporting a gap.
+EXTS = ("py", "pyi", "go", "ts", "tsx", "js", "jsx")
+LINE = re.compile(r"\s+(\S+\.(?:" + "|".join(EXTS) + r")):(\d+)")
 
 
 def run(db, *args):
@@ -88,7 +92,7 @@ def classify(db, repo, name, handle):
     out = {"accounted": 0, "string": 0, "attribute": 0, "unexplained": 0}
     lost = []
     grep = subprocess.run(
-        ["grep", "-rnw", "--include=*.py", "--include=*.go", name, repo],
+        ["grep", "-rnw", *[f"--include=*.{e}" for e in EXTS], "--exclude-dir=node_modules", name, repo],
         capture_output=True,
         text=True,
     ).stdout
