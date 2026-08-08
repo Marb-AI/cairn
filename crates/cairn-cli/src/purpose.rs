@@ -610,6 +610,24 @@ pub fn understand(store: &Store, symbol_id: i64, budget: &mut Budget) -> Result<
 
     // 3. Which processes this runs in. One line, and it is the frame the two blocks above
     //    are read against: "where does this land" means little without "land from where".
+    // The two layers this block answers from, declared before it answers. `for understand`
+    // is where the guide sends an agent first, and on a repository with neither a service
+    // graph nor a resolved deployment it printed "calls nothing across a service boundary"
+    // and "no deployed service is known to run this" with `unknown: none` and exit 0 -
+    // while `reaches` and `runs`, the two commands it names in those very lines, had
+    // already learned to answer UNCHECKED and exit 3. The entry point contradicted its own
+    // citations, in the direction of false confidence.
+    if let Some(note) = crate::deployment_gap(store) {
+        unknown.push(note);
+    }
+    if let Some(note) = cairn_store::LayerCounts::unchecked(
+        store.layer_counts().service_links,
+        "service links",
+        "Nothing here can say what this calls across a boundary. A repository with no \
+         .proto files, or none this index could read, is not one where nothing does.",
+    ) {
+        unknown.push(note);
+    }
     let (services, via) = store.services_running_attributed(symbol_id, 12)?;
     if services.is_empty() {
         let _ = writeln!(

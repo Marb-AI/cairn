@@ -75,6 +75,15 @@ impl Envelope {
         self
     }
 
+    /// Does any `unknown` line say a layer was not checked?
+    ///
+    /// The exit code and the text have to agree. They did not: `for understand` printed
+    /// two UNCHECKED lines and exited 0, and a caller that branches on the code rather
+    /// than reading the page saw a clean answer. One wording, one test for it.
+    pub fn has_unchecked(&self) -> bool {
+        self.unknown.iter().any(|u| u.contains("UNCHECKED"))
+    }
+
     pub fn suppressed(mut self, msg: impl Into<String>) -> Self {
         self.suppressed.push(msg.into());
         self
@@ -3041,5 +3050,25 @@ mod unreached_header {
             "claimed full coverage while withholding a row:\n{withheld}"
         );
         assert!(withheld.contains("could not be checked"));
+    }
+}
+
+#[cfg(test)]
+mod exit_agrees_with_text {
+    use super::*;
+
+    #[test]
+    fn an_envelope_that_says_unchecked_reports_itself_as_such() {
+        // The page and the exit code are two answers to one question and they disagreed:
+        // `for understand` printed two UNCHECKED lines and exited 0, so a caller branching
+        // on the code rather than reading the text saw a clean answer. Every command that
+        // degrades now asks this, so the wording and the code cannot drift apart.
+        assert!(!Envelope::new("b".into()).has_unchecked());
+        assert!(!Envelope::new("b".into())
+            .unknown("the search stopped at its limit")
+            .has_unchecked());
+        let gap = cairn_store::LayerCounts::unchecked(0, "service links", "Reindex.")
+            .expect("an empty layer yields a note");
+        assert!(Envelope::new("b".into()).unknown(gap).has_unchecked());
     }
 }

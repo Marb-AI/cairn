@@ -1155,8 +1155,18 @@ fn run() -> Result<u8> {
                         .unwrap_or_else(|| PathBuf::from("."));
                     let (env, found) =
                         purpose::find(&store, &root, &subj, limit, all, &mut budget)?;
+                    // A declared gap degrades the exit, as it does in every command that
+                    // reads the same layers. It did not here, so `for understand` printed
+                    // UNCHECKED twice and still exited 0 while `runs` and `affects` exited
+                    // 3 on the same symbol - a caller reading the code rather than the text
+                    // would have seen a clean answer.
+                    let degraded = env.has_unchecked();
                     emit(env);
-                    Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+                    Ok(match (found, degraded) {
+                        (_, true) => exit::DEGRADED,
+                        (true, false) => exit::FOUND,
+                        (false, false) => exit::NOT_FOUND,
+                    })
                 }
                 // Both symbol purposes take the same road to a symbol - the spoken
                 // redirect, the ranked choice for an ambiguous name, the tree fallback
@@ -1189,8 +1199,17 @@ fn run() -> Result<u8> {
                         }
                         _ => purpose::understand(&store, symbol_id, &mut budget)?,
                     };
+                    // Same rule as every command that reads these layers: a declared gap
+                    // degrades the exit. Without it `for understand` printed UNCHECKED
+                    // twice and exited 0, while `runs` and `affects` - the two commands it
+                    // cites in those very lines - exited 3 on the same symbol.
+                    let degraded = env.has_unchecked();
                     emit(env);
-                    Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
+                    Ok(match (found, degraded) {
+                        (_, true) => exit::DEGRADED,
+                        (true, false) => exit::FOUND,
+                        (false, false) => exit::NOT_FOUND,
+                    })
                 }
             }
         }
@@ -2504,7 +2523,7 @@ fn make_source(detail: Detail, repo: Option<PathBuf>) -> Result<Option<Source>> 
 /// it)" and exiting 1. A repository with no compose file cairn can read is not one where
 /// nothing is deployed, and saying so in one place is what stops the next command that
 /// reads this layer from having to remember.
-fn deployment_gap(store: &Store) -> Option<String> {
+pub fn deployment_gap(store: &Store) -> Option<String> {
     cairn_store::LayerCounts::unchecked(
         store.layer_counts().deploy_entrypoints,
         "deployment entrypoints",
