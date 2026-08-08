@@ -97,3 +97,54 @@ fn staleness_covers_changed_and_deleted_files_but_not_new_ones() {
     assert!(!dirty.is_empty());
     assert!(DirtySet::default().is_empty());
 }
+
+#[test]
+fn an_idle_daemon_stops_itself() {
+    // Thirty minutes is right in use and untestable in CI, so the watchdog had nothing
+    // defending it. 102 daemons were found alive on one machine holding 19.1 GB - all on
+    // binaries that predated this code or had defects injected, which proved nothing about
+    // whether it works now. With the window overridable, it can be asked directly.
+    let dir = scratch("idle-exit");
+    let repo = dir.join("repo");
+    std::fs::create_dir_all(&repo).expect("repo dir");
+    let socket = dir.join("idle.sock");
+    std::env::set_var("CAIRN_IDLE_TIMEOUT_SECS", "1");
+    std::env::set_var("CAIRN_IDLE_POLL_SECS", "1");
+    let d = cairn_daemon::Daemon::new(&repo, &socket, Default::default(), &[], None);
+    let t = std::thread::spawn(move || d.run());
+    // Long enough for one poll to see the window has passed, short enough to fail fast.
+    std::thread::sleep(std::time::Duration::from_secs(6));
+    assert!(
+        t.is_finished(),
+        "an idle daemon was still serving after six times its own window"
+    );
+    std::env::remove_var("CAIRN_IDLE_TIMEOUT_SECS");
+    std::env::remove_var("CAIRN_IDLE_POLL_SECS");
+}
+
+#[test]
+fn a_daemon_refuses_a_filesystem_root() {
+    // On a thread with a deadline, because without the guard `run` does not return at
+    // all - it binds and starts watching every mount. Asserted directly, the test hung
+    // instead of failing, which in CI is a timeout nobody reads as this defect.
+    let socket = scratch("root-refusal").join("root.sock");
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let d = cairn_daemon::Daemon::new(
+            std::path::Path::new("/"),
+            &socket,
+            Default::default(),
+            &[],
+            None,
+        );
+        let _ = tx.send(d.run().map_err(|e| e.to_string()));
+    });
+    match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+        Ok(Err(e)) => assert!(
+            e.contains("filesystem root"),
+            "refused for the wrong reason: {e}"
+        ),
+        Ok(Ok(())) => panic!("watching / was allowed and returned cleanly"),
+        Err(_) => panic!("watching / was allowed: the daemon is still running on it"),
+    }
+}

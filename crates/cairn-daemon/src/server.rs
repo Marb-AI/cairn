@@ -25,6 +25,38 @@ use crate::{DaemonStatus, Request, Response};
 pub(crate) const IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 pub(crate) const IDLE_POLL: Duration = Duration::from_secs(60);
 
+/// The idle window and its poll, overridable for tests.
+///
+/// Thirty minutes is right in use and untestable in CI, so the guarantee had nothing
+/// defending it: 102 daemons were found alive on this machine, all of them on binaries
+/// that predated the watchdog or had defects injected, which proves nothing either way
+/// about whether it works now. A window that cannot be shortened cannot be checked.
+fn idle_window() -> (Duration, Duration) {
+    let secs = |k: &str, d: Duration| {
+        std::env::var(k)
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .map(Duration::from_secs)
+            .unwrap_or(d)
+    };
+    (
+        secs("CAIRN_IDLE_TIMEOUT_SECS", IDLE_TIMEOUT),
+        secs("CAIRN_IDLE_POLL_SECS", IDLE_POLL),
+    )
+}
+
+/// Is this path a filesystem root rather than a repository?
+///
+/// Checked by the daemon itself, not only by whoever starts one. `--db /w/x.sqlite`
+/// derives `/` under the `<repo>/.cairn/index.sqlite` convention, and two daemons started
+/// that way walked the whole filesystem and reached 9.6 GB each - 18.8 GB of the 19.1 GB
+/// held by every cairn process on this machine. They did not fail; they grew. The caller
+/// was taught to corroborate its root, but nothing stopped a daemon already given a bad
+/// one, and `cairn daemon --repo /` by hand still ran.
+fn is_filesystem_root(p: &std::path::Path) -> bool {
+    p.parent().is_none() || p.as_os_str() == "/"
+}
+
 pub struct Daemon {
     repo: PathBuf,
     socket: PathBuf,
@@ -76,6 +108,19 @@ impl Daemon {
 
     /// Serve until shutdown. Blocks.
     pub fn run(self) -> Result<()> {
+        // Before anything expensive. A watcher pointed at `/` walks every mount on the
+        // machine, and it does not fail while doing it - it grows: two such processes held
+        // 18.8 GB here and survived SIGTERM because they were inside a container. Refusing
+        // costs the caller an answer about freshness; not refusing costs the machine.
+        if is_filesystem_root(&self.repo) {
+            anyhow::bail!(
+                "refusing to watch {} - that is a filesystem root, not a repository. \
+                 A daemon started there walks every mount on this machine. This usually \
+                 means --db points somewhere the `<repo>/.cairn/index.sqlite` convention \
+                 does not hold; pass --repo explicitly.",
+                self.repo.display()
+            );
+        }
         // A socket left by a crashed daemon would make bind fail; taking it over is
         // safe here because the caller has already failed to connect to it.
         let _ = std::fs::remove_file(&self.socket);
@@ -132,11 +177,12 @@ impl Daemon {
         // that leaves those behind has moved the leak rather than fixed it.
         let idle_socket = self.socket.clone();
         let idle_repo = self.repo.clone();
+        let (idle_timeout, idle_poll) = idle_window();
         let seen = Arc::clone(&self.last_request);
         std::thread::spawn(move || loop {
-            std::thread::sleep(IDLE_POLL);
+            std::thread::sleep(idle_poll);
             let quiet = seen.lock().unwrap().elapsed();
-            if quiet < IDLE_TIMEOUT && idle_repo.exists() {
+            if quiet < idle_timeout && idle_repo.exists() {
                 continue;
             }
             let why = if idle_repo.exists() {
