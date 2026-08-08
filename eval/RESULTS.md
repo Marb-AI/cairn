@@ -2567,3 +2567,37 @@ quality. On this evidence cairn's frontend case does not rest on the call graph 
 which is the opposite of where it was expected to rest.
 
 **Not yet measured:** rounds two and three. Every number above is one draw.
+
+## Frontend, round two — 2026-08-08
+
+Round one was the favourable draw, which is what a second round is for.
+
+| | r1 cairn/grep | r2 cairn/grep | r1 | r2 |
+|---|---|---|---|---|
+| F1 generated-code trace | 15/19 | 16/12 | 0.79 | **1.33** |
+| F2 translation key | 2/7 | 5/8 | 0.29 | 0.62 |
+| F3 ordinary reference | 9/10 | 5/5 | 0.90 | 1.00 |
+
+**Median of the six ratios: 0.84.** F1 — the scenario cairn was predicted to win and
+which round one scored 0.79 — came back at 1.33, cairn costing *more* than grep. The
+between-round swing on one scenario is 0.79 to 1.33, which is the 1.8x baseline variance
+this file has recorded before, arriving on schedule.
+
+**Answer quality was correct in all twelve runs, on both arms.** Cairn was never worse; it
+was sometimes dearer.
+
+### What this settles
+
+Under the goal as stated — *replace grep, and add value where the index knows something* —
+the frontend is **parity, with one winning class**:
+
+- `for find` with the enclosing symbol attached wins in both rounds (0.29, 0.62). The value
+  is the attribution, not the graph.
+- Everything else is within noise of grep, and the generated-code trace is worse.
+
+The acceptance rule (≤0.50 at equal answers) is **not met on this corpus**. On the backend
+it was met by three scenarios of six. The difference between the two corpora is the thing
+predicted before any of these runs: both classes cairn wins on need a service boundary.
+
+Round three is not run. Two rounds already disagree by more than the effect being measured,
+so a third would narrow the estimate rather than change the conclusion.
