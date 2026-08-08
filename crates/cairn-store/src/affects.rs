@@ -93,26 +93,38 @@ impl Store {
         // One walk per service, then set membership — not one walk per symbol. The
         // difference stopped mattering when membership edges made the walks large enough
         // that a measured run gave up waiting (the measurement record, task E).
-        let sets = self.reachable_by_service(depth)?;
+        // Only when the table is not there. With it, every question below is a keyed
+        // lookup and the map is pure cost.
+        let sets = if self.deploy_reach_materialised()? {
+            Vec::new()
+        } else {
+            self.reachable_by_service(depth)?
+        };
         let mut runs_memo: HashMap<i64, Vec<String>> = HashMap::new();
         let mut runs = |store: &Store, id: i64| -> Result<Vec<String>> {
             if let Some(hit) = runs_memo.get(&id) {
                 return Ok(hit.clone());
             }
-            let mut found: Vec<String> = sets
-                .iter()
-                .filter(|(_, reach)| reach.contains(&id))
-                .map(|(n, _)| n.clone())
-                .collect();
+            let mut found: Vec<String> = match store.services_reaching(id)? {
+                Some(v) => v,
+                None => sets
+                    .iter()
+                    .filter(|(_, reach)| reach.contains(&id))
+                    .map(|(n, _)| n.clone())
+                    .collect(),
+            };
             // A dispatched method with nothing reaching it directly is attributed to the
             // type that owns it, exactly as `runs` does.
             if found.is_empty() {
                 if let Some(owner) = store.enclosing_type(id)? {
-                    found = sets
-                        .iter()
-                        .filter(|(_, reach)| reach.contains(&owner.id))
-                        .map(|(n, _)| n.clone())
-                        .collect();
+                    found = match store.services_reaching(owner.id)? {
+                        Some(v) => v,
+                        None => sets
+                            .iter()
+                            .filter(|(_, reach)| reach.contains(&owner.id))
+                            .map(|(n, _)| n.clone())
+                            .collect(),
+                    };
                 }
             }
             runs_memo.insert(id, found.clone());
@@ -272,9 +284,16 @@ impl Store {
             let mut served_by: Vec<String> = Vec::new();
             for id in ids {
                 let id = id?;
-                for (name, reach) in sets {
-                    if reach.contains(&id) && !served_by.contains(name) {
-                        served_by.push(name.clone());
+                for name in match self.services_reaching(id)? {
+                    Some(v) => v,
+                    None => sets
+                        .iter()
+                        .filter(|(_, reach)| reach.contains(&id))
+                        .map(|(n, _)| n.clone())
+                        .collect(),
+                } {
+                    if !served_by.contains(&name) {
+                        served_by.push(name);
                     }
                 }
             }
