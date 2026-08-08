@@ -2750,6 +2750,17 @@ fn unindexed_prefix_note(store: &Store, prefix: &str, root: Option<&Path>) -> Op
 }
 
 /// Files under a directory an indexer could have read, counted from the tree.
+/// How many files under this directory an indexer could read.
+///
+/// Two things were wrong here and the slow one was the lesser. The walk recursed into
+/// every directory, so on a repository with 1.3 GB of `node_modules` a prefix that matched
+/// nothing cost 358 ms against 21 ms elsewhere - the whole difference was dependencies.
+///
+/// The other was an answer, not a delay: the extension list was `py|pyi|go`, so on a
+/// TypeScript repository this reported "the working tree holds 0 indexable file(s) there"
+/// about a directory full of `.ts`. That is the one sentence whose job is to say what the
+/// index missed, and it said nothing was there. The list now comes from the languages
+/// cairn actually indexes, so adding one cannot leave this behind.
 fn count_indexable(dir: &Path) -> usize {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return 0;
@@ -2757,13 +2768,19 @@ fn count_indexable(dir: &Path) -> usize {
     let mut n = 0;
     for e in entries.flatten() {
         let p = e.path();
+        let name = e.file_name();
+        let name = name.to_string_lossy();
         if p.is_dir() {
-            n += count_indexable(&p);
-        } else if p
-            .extension()
-            .and_then(|x| x.to_str())
-            .is_some_and(|x| matches!(x, "py" | "pyi" | "go"))
-        {
+            // The same skip list the tree search and the watcher use: a dependency tree is
+            // not code this index was ever going to hold.
+            if !cairn_daemon::watch::is_ignored(&format!("{name}/")) {
+                n += count_indexable(&p);
+            }
+        } else if p.extension().and_then(|x| x.to_str()).is_some_and(|x| {
+            crate::index::LANGUAGES
+                .iter()
+                .any(|l| l.extensions.contains(&x))
+        }) {
             n += 1;
         }
     }
@@ -3013,5 +3030,35 @@ mod tests {
             Some(Path::new("/home/work/repo"))
         );
         assert!(!is_filesystem_root(Path::new("/home/work/repo")));
+    }
+}
+
+#[cfg(test)]
+mod indexable_count {
+    use super::*;
+
+    #[test]
+    fn every_indexed_language_counts_and_dependencies_do_not() {
+        // Two defects in one function, and the wrong answer was the worse of them: the
+        // extension list was `py|pyi|go`, so on a TypeScript repository the one sentence
+        // whose job is to say what the index missed reported zero files in a directory
+        // full of `.ts`. And the walk recursed into `node_modules`, which on that
+        // repository was 1.3 GB and the whole difference between 358 ms and 12 ms.
+        let dir = std::env::temp_dir().join("cairn-count-indexable");
+        let _ = std::fs::remove_dir_all(&dir);
+        for lang in crate::index::LANGUAGES {
+            let ext = lang.extensions[0];
+            std::fs::create_dir_all(dir.join("src")).unwrap();
+            std::fs::write(dir.join("src").join(format!("a.{ext}")), "").unwrap();
+            // The same extension inside a dependency tree, which must not be counted.
+            std::fs::create_dir_all(dir.join("node_modules/pkg")).unwrap();
+            std::fs::write(dir.join("node_modules/pkg").join(format!("b.{ext}")), "").unwrap();
+        }
+        assert_eq!(
+            count_indexable(&dir),
+            crate::index::LANGUAGES.len(),
+            "expected one file per indexed language, and nothing from node_modules"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
