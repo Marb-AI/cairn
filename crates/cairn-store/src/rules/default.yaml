@@ -14,7 +14,11 @@ generated:
   path_suffixes: [".pb.go", "_pb2.py", "_pb2_grpc.py", "_pb2.pyi"]
 
 tests:
-  path_contains: ["/tests/", "/testdata/"]
+  # `__tests__/` is JavaScript's directory convention, and the suffixes below only catch
+  # the spec files inside it. Stubs, fixtures and helpers that live there are named like
+  # ordinary modules, so they were counted as production code: on one workspace, 5 such
+  # files kept 55 symbols looking alive whose only caller was a test.
+  path_contains: ["/tests/", "/testdata/", "/__tests__/", "/__mocks__/"]
   path_prefixes: ["tests/"]
   file_prefixes: ["test_"]
   file_suffixes: ["_test.go", "_test.py", ".test.ts", ".spec.ts"]

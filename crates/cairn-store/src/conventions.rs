@@ -32,7 +32,13 @@ pub fn is_test_path(path: &str) -> bool {
     }
     // Directory conventions, checked last: a helper inside a tests/ tree is still
     // test-only code even when its own name says nothing.
-    path.contains("/tests/") || path.starts_with("tests/") || path.contains("/testdata/")
+    //
+    // The list is the rule pack's, not a second copy of it. It was a second copy, and the
+    // two drifted the moment a JavaScript repository arrived: the pack could be taught
+    // `/__tests__/` and this could not, so stubs and fixtures under it stayed production
+    // code and kept 55 symbols looking alive whose only caller was a test.
+    let dirs = &crate::rules::Rules::default().tests.path_contains;
+    dirs.iter().any(|d| path.contains(d.as_str())) || path.starts_with("tests/")
 }
 
 #[cfg(test)]
@@ -57,5 +63,25 @@ mod tests {
         // A word that merely contains "test" is not a convention.
         assert!(!is_test_path("srcpy/domains/x/latest.py"));
         assert!(!is_test_path("srcpy/domains/x/protest.py"));
+    }
+}
+
+#[cfg(test)]
+mod pack_backed {
+    use super::*;
+
+    #[test]
+    fn a_directory_convention_added_to_the_pack_takes_effect_here() {
+        // The two lists were separate and drifted: the pack learned `/__tests__/` and this
+        // function did not, so a stub beside a spec file counted as production code. What
+        // is asserted is not the contents of the list but that this reads it.
+        for d in &crate::rules::Rules::default().tests.path_contains {
+            let path = format!("apps/web/components{d}helper.ts");
+            assert!(
+                is_test_path(&path),
+                "the pack names {d} as a test directory and {path} was not treated as one"
+            );
+        }
+        assert!(!is_test_path("apps/web/components/helper.ts"));
     }
 }
