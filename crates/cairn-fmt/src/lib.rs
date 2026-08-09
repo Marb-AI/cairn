@@ -12,7 +12,7 @@
 //! * **`unknown:`, `suppressed:` and `stale:` are always printed.** A missing section
 //!   reads as "this is everything", and that is the silent error the design avoids.
 
-use cairn_store::{EdgeSource, Occurrence, PathHop, SymbolRow, Walk};
+use cairn_store::{EdgeSource, Lang, Occurrence, PathHop, SymbolRow, Walk};
 use std::fmt::Write;
 
 pub mod budget;
@@ -1364,8 +1364,22 @@ pub fn concentration_note(paths: &[&str], complete: bool, noun: &str) -> Option<
 /// So for symbols the resolver is known to under-report, the answer leads with the
 /// recommendation and includes the command, and the partial list is kept short. One
 /// cheap call that routes correctly beats an expensive one that has to be redone.
+/// Python only, and the restriction is the honest part rather than an oversight.
+///
+/// The measurement behind this note is a Django model field: the resolver reported a
+/// fraction of the uses because the holder is an ORM instance whose type is not known at
+/// the access. Nothing of the kind has been measured for TypeScript, where the holder's
+/// type usually *is* known, and a `USE GREP FOR THIS ONE` printed over a list that happens
+/// to be complete buys the agent a grep it did not need. That is the same overstatement
+/// this note exists to prevent, pointing the other way.
+///
+/// It was language-blind before, and on a TypeScript property it printed the ORM
+/// explanation with `--include='*.py'` attached — a command that cannot match the file the
+/// symbol is defined in.
 pub fn routing_note(sym: &SymbolRow) -> Option<String> {
-    if !cairn_store::query::is_under_resolved_attribute(sym.kind, sym.container.as_deref()) {
+    if !cairn_store::query::is_under_resolved_attribute(sym.kind, sym.container.as_deref())
+        || sym.lang != Lang::Python
+    {
         return None;
     }
     Some(format!(
@@ -1379,13 +1393,24 @@ pub fn routing_note(sym: &SymbolRow) -> Option<String> {
 }
 
 /// Note added when the index is likely to under-report a symbol's uses.
+///
+/// Unlike the routing note this stays for every language, because the mechanism does: a use
+/// is resolved where the holder's type is known and not where it is not. What differs is
+/// which shapes lose the type, so the examples follow the language rather than naming
+/// Python's for all of them.
 fn attribute_caveat(sym: &SymbolRow) -> Option<String> {
     cairn_store::query::is_under_resolved_attribute(sym.kind, sym.container.as_deref()).then(|| {
+        let loses_the_type = match sym.lang {
+            Lang::TypeScript => {
+                "values typed `any`, index signatures and objects built dynamically"
+            }
+            Lang::Go => "values reached through an interface or `any`",
+            _ => "ORM models, dicts-as-records and dynamically built objects",
+        };
         format!(
             "`{}` is an attribute on a type. Uses are only resolved where the holder's \
-             type is known, which for ORM models, dicts-as-records and dynamically built \
-             objects it often is not - so this list is a lower bound. Cross-check with \
-             grep before treating it as the blast radius.",
+             type is known, which for {loses_the_type} it often is not - so this list is a \
+             lower bound. Cross-check with grep before treating it as the blast radius.",
             sym.qualified()
         )
     })
@@ -2736,6 +2761,57 @@ mod tests {
         assert!(out.contains("suppressed: none"));
         assert!(out.contains("unknown: none"));
         assert!(out.contains("stale: none"));
+    }
+
+    /// A property on a type, in each language, so the note that fires can be read.
+    fn attribute_on_a_type(lang: cairn_store::Lang) -> SymbolRow {
+        SymbolRow {
+            id: 1,
+            handle: "abc".into(),
+            name: "email".into(),
+            container: Some("Credentials#".into()),
+            module: None,
+            kind: cairn_store::SymbolKind::Term,
+            lang,
+            def: None,
+            def_end_line: None,
+            ref_count: 1,
+        }
+    }
+
+    #[test]
+    fn the_grep_that_is_recommended_can_match_the_language_it_is_recommended_for() {
+        // It could not. The note was language-blind, so a TypeScript property was handed
+        // the Django explanation and `--include='*.py'` - a command that cannot match the
+        // file the symbol is defined in, printed in capitals above a list that was
+        // probably complete.
+        let py = routing_note(&attribute_on_a_type(cairn_store::Lang::Python))
+            .expect("the measured case still routes");
+        assert!(py.contains("--include='*.py'"));
+
+        assert!(
+            routing_note(&attribute_on_a_type(cairn_store::Lang::TypeScript)).is_none(),
+            "nothing has been measured about TypeScript under-reporting, and USE GREP FOR \
+             THIS ONE over a complete list is the same overstatement pointing the other way"
+        );
+        assert!(routing_note(&attribute_on_a_type(cairn_store::Lang::Go)).is_none());
+    }
+
+    #[test]
+    fn the_caveat_names_the_shapes_that_lose_the_type_in_this_language() {
+        // The caveat stays for every language - the mechanism is the same - but naming
+        // ORM models and dicts-as-records to a TypeScript reader describes a language
+        // they are not in.
+        let ts = attribute_caveat(&attribute_on_a_type(cairn_store::Lang::TypeScript))
+            .expect("a property on a type is still under-resolved sometimes");
+        assert!(ts.contains("any"), "{ts}");
+        assert!(
+            !ts.contains("ORM"),
+            "Python's shapes, in a TypeScript answer: {ts}"
+        );
+
+        let py = attribute_caveat(&attribute_on_a_type(cairn_store::Lang::Python)).unwrap();
+        assert!(py.contains("ORM"), "{py}");
     }
 
     #[test]

@@ -206,16 +206,21 @@ PROSE = ("answered for the", "via:", "every RPC this", "this RPC only", "where t
 
 
 def handles_in(text):
-    """Handles a listing printed as result rows, as `[abc]`. Prose lines excluded."""
+    """Handles a listing printed as result rows, as `[abc]`. Prose lines excluded.
+
+    The brackets have to stand alone. Taking any `[...]` in the line read the `[id]` out of
+    `app/(protected)/chat/[id]/index.tsx` - an Expo dynamic route, and a Next.js one looks
+    the same - as a handle, then asked `usage` about the unrelated symbol that happens to
+    hold it. That produced a contradiction between two commands neither of which had said
+    anything about the same symbol, which is a check reporting its own parsing.
+    """
     out = set()
     for line in text.splitlines():
         stripped = line.strip()
         if any(stripped.startswith(p) for p in PROSE):
             continue
-        for part in line.split("["):
-            end = part.find("]")
-            if 0 < end <= 6 and part[:end].isalnum():
-                out.add(part[:end])
+        for m in re.finditer(r"(?:^|\s)\[([A-Za-z0-9]{1,6})\](?=\s|$)", line):
+            out.add(m.group(1))
     return out
 
 
