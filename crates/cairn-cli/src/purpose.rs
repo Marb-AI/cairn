@@ -78,6 +78,43 @@ pub fn looks_like_text(subject: &str) -> bool {
                 .all(|c| c.is_ascii_uppercase() || c == '_' || c.is_ascii_digit()))
 }
 
+/// Does this line use the name as a name, rather than merely contain the letters?
+///
+/// A plain `contains` was enough while the corpus was Python and Go, where the names that
+/// reach this block are long: `mortgage_term_months` is a substring of nothing. It is not
+/// enough anywhere else. On a TypeScript repository it claimed that `@ts-expect-error`
+/// names `expect`, that `toBeGreaterThan` names `toBe`, and that `screenOptions` names
+/// `screen` - 151 lines for one symbol, each one asserted as a line a rename would break.
+///
+/// The test is the one a rename actually obeys: an identifier is bounded by something that
+/// cannot be part of an identifier.
+fn names_it(line: &str, name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    // `-` counts as part of the token even though no language allows it in an identifier.
+    // The question here is not "is this a valid identifier" but "would a rename touch this
+    // line", and a hyphenated compound is never the symbol: `@ts-expect-error`,
+    // `data-testid`, `screen-reader`. Renaming `expect` leaves every one of them alone.
+    let ident = |c: char| c.is_alphanumeric() || c == '_' || c == '$' || c == '-';
+    let bytes = line.as_bytes();
+    let mut from = 0;
+    while let Some(at) = line[from..].find(name) {
+        let start = from + at;
+        let end = start + name.len();
+        let before_ok = start == 0 || !line[..start].chars().next_back().is_some_and(ident);
+        let after_ok = end >= bytes.len() || !line[end..].chars().next().is_some_and(ident);
+        if before_ok && after_ok {
+            return true;
+        }
+        from = start + 1;
+        if from >= line.len() {
+            break;
+        }
+    }
+    false
+}
+
 /// `for change`: what a modification to this symbol reaches, assembled.
 ///
 /// Four blocks, and each one is here because a measured run asked for it separately after
@@ -188,10 +225,21 @@ pub fn change(
             .iter()
             .map(|r| (r.path.clone(), r.line + 1))
             .collect();
+        // From the languages cairn indexes, plus protobuf, rather than a list written when
+        // there were two of them. It was `py|pyi|go|proto`, so on a TypeScript repository
+        // the residue was empty for every symbol — and an empty residue reads as "the
+        // graph resolved everything", which is the one thing this block exists to deny.
+        // The same list, spelled by hand, had already been found wrong twice elsewhere.
         let code = |p: &str| {
-            p.rsplit('.')
-                .next()
-                .is_some_and(|e| matches!(e, "py" | "pyi" | "go" | "proto"))
+            p.rsplit('.').next().is_some_and(|e| {
+                e == "proto"
+                    || crate::index::LANGUAGES
+                        .iter()
+                        .any(|l| l.extensions.contains(&e))
+                    // `.pyi` marks a stub rather than a language of its own, so it is not
+                    // in the survey's extension list and still holds names that break.
+                    || e == "pyi"
+            })
         };
         if namesakes <= 1 {
             let mut found = treefind::search(root, &sym.name, 200);
@@ -203,16 +251,76 @@ pub fn change(
             // certain.
             found.hits.retain(|h| {
                 code(&h.path)
-                    && h.text.contains(sym.name.as_str())
+                    && names_it(&h.text, &sym.name)
                     && !known.contains(&(h.path.clone(), h.line as i64))
             });
+            // Split by whether the index ever read the file at all, because those are
+            // two different facts wearing one sentence.
+            //
+            // A line in a file the index holds is what this block was built for: the file
+            // was read, the graph did not link this line, and a rename breaks it. A line
+            // in a file the index has never seen is not evidence about the graph — that
+            // project was not indexed, so *every* line in it is unresolved by
+            // construction, and counting them as "the graph missed these" reports a
+            // failure of the build as a property of the code. On the frontend one app of
+            // three fails to index on a broken lockfile, and it supplied most of the
+            // residue for names like `client` (70 lines against 5 references) and
+            // `UseMutationOptions` (57 against none).
+            //
+            // This is the same distinction the whole tool turns on, one level down:
+            // looked and found nothing, against never looked.
+            let mut unread: Vec<String> = Vec::new();
+            {
+                let mut seen_paths: std::collections::HashMap<String, bool> =
+                    std::collections::HashMap::new();
+                let mut in_index = Vec::new();
+                for h in std::mem::take(&mut found.hits) {
+                    let known_file = match seen_paths.get(&h.path) {
+                        Some(v) => *v,
+                        None => {
+                            let v = store.file_id_for_path(&h.path)?.is_some();
+                            seen_paths.insert(h.path.clone(), v);
+                            v
+                        }
+                    };
+                    if known_file {
+                        in_index.push(h);
+                    } else {
+                        unread.push(h.path.clone());
+                    }
+                }
+                found.hits = in_index;
+            }
+            if !unread.is_empty() {
+                unread.sort();
+                unread.dedup();
+                let shown: Vec<&str> = unread.iter().take(3).map(String::as_str).collect();
+                unknown.push(format!(
+                    "`{}` is also named in {} file(s) the index has never read ({}{}). \
+                     Nothing there is resolved or unresolved - it was not indexed, so those \
+                     lines say nothing about this symbol either way. `cairn status` reports \
+                     which projects failed to index.",
+                    sym.name,
+                    unread.len(),
+                    shown.join(", "),
+                    if unread.len() > 3 { ", …" } else { "" }
+                ));
+            }
             if !found.hits.is_empty() {
                 let _ = writeln!(
                     body,
-                    "{} line(s) name `{}` that the graph did not resolve. No other symbol \
-                     has this name, so each one is about this symbol - a keyword argument, \
-                     a proto field, a re-export, a docstring. A rename breaks them; the \
-                     list above does not contain them:",
+                    // What the index can actually say is that *it* holds one symbol by
+                    // this name. It said "no other symbol has this name", which is a claim
+                    // about the world, and the world includes the dependencies nothing
+                    // here indexes: on a TypeScript repository this attributed every
+                    // `expect(` in the test suite to a local symbol, because jest's is not
+                    // in the index and so does not count as a namesake.
+                    "{} line(s) name `{}` that the graph did not resolve. This index holds \
+                     one symbol by that name, so these are most likely about it - a keyword \
+                     argument, a proto field, a re-export, a docstring - though a name a \
+                     dependency also exports would look the same from here, and \
+                     dependencies are not indexed. A rename breaks the ones that are about \
+                     it; the list above does not contain them:",
                     found.hits.len(),
                     sym.name
                 );
@@ -726,5 +834,50 @@ mod tests {
         assert!(!looks_like_text("get_quota_status"));
         assert!(!looks_like_text("d95"));
         assert!(!looks_like_text("NewFolderService"));
+    }
+}
+
+#[cfg(test)]
+mod residue {
+    use super::names_it;
+
+    #[test]
+    fn a_name_inside_a_longer_identifier_is_not_that_name() {
+        // Each of these shipped as a line "a rename breaks". None of them is about the
+        // symbol: they are longer identifiers that happen to contain it, and on a
+        // TypeScript repository they were most of the block.
+        assert!(!names_it("  // @ts-expect-error", "expect"));
+        assert!(!names_it("expect(size).toBeGreaterThan(20);", "toBe"));
+        assert!(!names_it(
+            "<Stack screenOptions={{ headerShown: false }} />",
+            "screen"
+        ));
+        assert!(!names_it(
+            "const useResultFiltersInner = 1",
+            "useResultFilters"
+        ));
+        assert!(!names_it("id_of_thing = 2", "id"));
+
+        // And the uses that are real still are.
+        assert!(names_it("expect(result).toEqual([", "expect"));
+        assert!(names_it("  screen: Home,", "screen"));
+        assert!(names_it(
+            "from \"@/hooks/useResultFilters\";",
+            "useResultFilters"
+        ));
+        assert!(names_it("value = quota_headroom(x)", "quota_headroom"));
+        assert!(names_it("quota_headroom", "quota_headroom"));
+    }
+
+    #[test]
+    fn the_boundary_is_the_one_a_rename_obeys() {
+        // `$` is an identifier character in JavaScript and `_` everywhere, so neither
+        // bounds a name; punctuation and quotes do.
+        assert!(!names_it("let x$id = 1", "x"));
+        assert!(!names_it("_total = 1", "total"));
+        assert!(names_it("obj.total = 1", "total"));
+        assert!(names_it("\"total\": 1", "total"));
+        assert!(!names_it("", "total"));
+        assert!(!names_it("total", ""));
     }
 }

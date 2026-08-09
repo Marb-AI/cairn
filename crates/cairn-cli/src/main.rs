@@ -2493,7 +2493,19 @@ fn run() -> Result<u8> {
                             d.removed.len(),
                             d.generation
                         );
-                        for p in d.modified.iter().chain(&d.removed).take(8) {
+                        // Created ones included, and first. They were counted and never
+                        // named, which is the wrong way round: a modified file is one the
+                        // index knows and answers about slightly out of date, while a
+                        // created one is a file **nothing** in the index has ever seen —
+                        // the case where an answer is not stale but absent, and the reader
+                        // has no way to guess which file it was.
+                        for p in d
+                            .created
+                            .iter()
+                            .chain(&d.modified)
+                            .chain(&d.removed)
+                            .take(8)
+                        {
                             println!("       {p}");
                         }
                     }

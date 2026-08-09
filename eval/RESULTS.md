@@ -2704,3 +2704,88 @@ roughly 900 of them. Making that faster means fetching a whole breadth-first lev
 query with a per-parent limit, which is a window function and a real change to the fanout
 semantics. It is the next thing, and it is worth doing only if 200 ms of tool latency ever
 shows up against a round trip that costs seconds.
+
+## Asking one question of the whole codebase: what did Python and Go leave behind? — 2026-08-09
+
+Today's earlier fix — a routing note that recommended `grep --include='*.py'` for a
+TypeScript symbol — was one instance of a class, not a bug. The class is **a rule written
+when there were two languages, applied as though there were still two**. Put as a question
+to the whole tree, the way "which derived layer can be empty without anyone noticing"
+was put in August and returned five, it returns four more. Three of them are silence.
+
+**1. The daemon watched nothing at all when started as `cairn daemon --repo .`** `notify`
+reports the path it was given to watch, which is absolute; the tracker held `"."`; every
+`strip_prefix` failed and every event was dropped. The daemon ran, answered on its socket,
+and printed `stale: none` while the tree changed underneath it. Measured on the frontend
+repository: one modified indexed file and two new ones, all invisible, and the same test
+with an absolute path reported them within two seconds. **Nothing in the output could tell
+that state from a clean tree** — the worst shape there is, and it had nothing to do with
+languages; it was found by testing the language gap and having the test come back negative
+for the wrong reason.
+
+**2. A new `.ts` module was `0 created` on a repository indexed for TypeScript.** The
+watcher's extension list was `["py","pyi","go"]`, above a comment reading *update this when
+a language is added, or the watcher will go quiet about whole new modules in it*. A
+language was added and it was not updated. The list now comes off the index — the index
+knows which kinds of file it holds, and asking it cannot fall behind. The comment predicted
+its own failure, which is the argument against notes that have to be obeyed.
+
+**3. Created files were counted and never named.** `stale: 0 modified, 1 created` and no
+path. A modified file is one the index knows and answers about slightly stale; a created
+one is a file **nothing in the index has ever seen**, which is the case where an answer is
+not stale but absent — and it was the one the reader could not identify.
+
+**4. The graph+grep residue was empty for every symbol on TypeScript**, because its
+extension list was `py|pyi|go|proto` too. An empty residue reads as *the graph resolved
+everything*, which is the one thing that block exists to deny.
+
+### Turning it on found two more, and the second is the interesting one
+
+Enabling the residue for TypeScript immediately produced **1293 lines across 27 of 120
+symbols** — against the backend's measured 42 lines across 30, median one. Two causes,
+both wrong, and neither visible until a corpus with short names existed:
+
+- **The lexical match had no word boundary.** It claimed `@ts-expect-error` names `expect`,
+  `toBeGreaterThan` names `toBe`, `screenOptions` names `screen`. Harmless while the names
+  were `mortgage_term_months`; on TypeScript it was most of the block. The test is now the
+  one a rename obeys, with `-` counted as part of the token: renaming `expect` does not
+  touch `@ts-expect-error`.
+- **Most of the rest was a project the index never read.** One app of three fails to index
+  on a broken lockfile, and every line in it is unresolved *by construction*. Counting
+  those as "the graph did not resolve" reports a failure of the build as a property of the
+  code. They are now separated and named as what they are.
+
+| | before | after |
+|---|---|---|
+| symbols listing a residue | 27 of 120 | **16 of 120** |
+| residue lines claimed | 1293 | **91** |
+| symbols naming unread files instead | 0 | **26** |
+
+The sentence above the list also overclaimed. It said *no other symbol has this name* — a
+statement about the world, from an index that holds one repository. On TypeScript that
+attributed the test suite's every `expect(` to a local symbol, because jest's is not
+indexed and so does not count as a namesake. It now says what it can support: this index
+holds one symbol by that name.
+
+**A guard was written and then removed.** The first attempt suppressed the residue when it
+was large relative to resolved references. It never fired once across 120 symbols, and the
+threshold could not be justified from anything measured — a check nobody has seen fail is
+not evidence, by this file's own rule. The read/never-read split replaced it because it is
+categorical rather than tuned.
+
+### And a flake, which matters more than it looks
+
+`config::a_partial_file_leaves_the_rest_at_its_default` fails about one run in four:
+`CAIRN_CONFIG` is process-global, `cargo test` runs the module's tests on threads of one
+process, and one test's `remove_var` lands between the other's `set_var` and its load. The
+acceptance rule here is **two clean runs**; a suite that is clean three times in four makes
+a clean run mean nothing. Serialised, then run four times to show it.
+
+### Verdict for `1a9c47b`
+
+One frozen binary, both nets wide, twice each: `stress.py … 40` (160 symbols) on the
+backend **16/17 checks reaching an assertion, no contradictions**, twice; on the frontend
+**10/17, no contradictions**, twice — the seven that never reach a guard are service
+topology, which a frontend does not have. `CAIRN_SWEEP_SAMPLE=400 cargo test --test sweep`
+passed twice. 204 tests, 11/11 mutations caught, fmt and clippy clean on the Linux and
+Windows targets.

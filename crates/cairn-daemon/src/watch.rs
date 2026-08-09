@@ -73,14 +73,26 @@ struct State {
     /// Directories the indexers were actually pointed at, e.g. `srcpy`, `srcgo`. Empty
     /// when the index recorded none, in which case the extension filter stands alone.
     roots: Vec<String>,
+    /// Extensions the index actually holds documents for, taken from the index itself.
+    indexable: std::collections::HashSet<String>,
 }
 
 impl DirtyTracker {
     /// `indexed` is the state to compare against: path -> content hash from the store.
     pub fn new(repo: &Path, indexed: HashMap<String, [u8; 16]>) -> DirtyTracker {
+        // Absolute, because every path this tracker sees afterwards is absolute. `notify`
+        // reports the path it watched, so a tracker built from `--repo .` compared
+        // `/home/…/apps/a.ts` against `.`, `strip_prefix` failed, and **every event was
+        // dropped**. The daemon ran, the socket answered, `status` said `stale: none`, and
+        // the tree had changed underneath it. Nothing in the output could tell that state
+        // from a clean one, which makes it the worst kind: a confident negative from a
+        // component that never looked.
+        let repo = std::fs::canonicalize(repo).unwrap_or_else(|_| repo.to_path_buf());
+        let indexable = extensions_of(&indexed);
         DirtyTracker {
             inner: Arc::new(Mutex::new(State {
-                repo: repo.to_path_buf(),
+                repo,
+                indexable,
                 indexed,
                 dirty: DirtySet {
                     complete: false,
@@ -156,6 +168,9 @@ impl DirtyTracker {
         };
         let stale: Vec<String> = {
             let mut st = self.inner.lock().unwrap();
+            // The set follows the index: a reindex that adds a language must not leave
+            // the watcher judging new files by the languages of the previous build.
+            st.indexable = extensions_of(&fresh);
             st.indexed = fresh;
             st.index_stamp = now;
             let d = &st.dirty;
@@ -205,12 +220,22 @@ impl DirtyTracker {
         self.inner.lock().unwrap().indexed.len()
     }
 
+    #[cfg(test)]
+    fn repo_root(&self) -> PathBuf {
+        self.inner.lock().unwrap().repo.clone()
+    }
+
     /// Full comparison of the working tree against the index. Run once at start so the
     /// set is correct before any event arrives, and marked `complete` when done.
     pub fn initial_scan(&self) {
-        let (repo, indexed, roots) = {
+        let (repo, indexed, roots, indexable) = {
             let st = self.inner.lock().unwrap();
-            (st.repo.clone(), st.indexed.clone(), st.roots.clone())
+            (
+                st.repo.clone(),
+                st.indexed.clone(),
+                st.roots.clone(),
+                st.indexable.clone(),
+            )
         };
         let mut modified = Vec::new();
         let mut removed = Vec::new();
@@ -229,7 +254,7 @@ impl DirtyTracker {
         // the last build stayed invisible until something happened to touch it again —
         // `stale:` would say nothing while a whole new module sat there unindexed.
         let mut created = Vec::new();
-        walk_new(&repo, &repo, &indexed, &roots, &mut created);
+        walk_new(&repo, &repo, &indexed, &roots, &indexable, &mut created);
 
         modified.sort();
         removed.sort();
@@ -266,7 +291,9 @@ impl DirtyTracker {
             (Some(_), None) => st.dirty.removed.push(rel.to_string()),
             // Same filter as the initial scan, for the same reason: a live event for a
             // file the index could never have held is not news about the index.
-            (None, Some(_)) if covered(rel, &st.roots) => st.dirty.created.push(rel.to_string()),
+            (None, Some(_)) if covered(rel, &st.roots, &st.indexable) => {
+                st.dirty.created.push(rel.to_string())
+            }
             (None, Some(_)) => {}
             (None, None) => {}
         }
@@ -363,6 +390,7 @@ fn walk_new(
     dir: &Path,
     indexed: &HashMap<String, [u8; 16]>,
     roots: &[String],
+    indexable: &std::collections::HashSet<String>,
     out: &mut Vec<String>,
 ) {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -378,18 +406,34 @@ fn walk_new(
             continue;
         }
         if path.is_dir() {
-            walk_new(root, &path, indexed, roots, out);
-        } else if covered(&rel, roots) && !indexed.contains_key(&rel) {
+            walk_new(root, &path, indexed, roots, indexable, out);
+        } else if covered(&rel, roots, indexable) && !indexed.contains_key(&rel) {
             out.push(rel);
         }
     }
 }
 
-/// Extensions the indexers actually produce documents for.
+/// Extensions the index actually holds documents for, read off the index.
 ///
-/// **Update this when a language is added**, or the watcher will go quiet about whole new
-/// modules in it.
-const INDEXABLE_EXTENSIONS: &[&str] = &["py", "pyi", "go"];
+/// This was a list with a comment above it saying **update this when a language is
+/// added**. TypeScript was added and it was not updated, so on a repository whose index
+/// is 25 053 TypeScript symbols a brand-new `.ts` module was reported as `0 created` —
+/// the watcher going quiet about a whole new module, which is precisely what the comment
+/// predicted. A note that has to be obeyed is not a mechanism. The index knows which
+/// kinds of file it holds, and asking it cannot fall behind the thing it describes.
+fn extensions_of(indexed: &HashMap<String, [u8; 16]>) -> std::collections::HashSet<String> {
+    indexed
+        .keys()
+        .filter_map(|p| Path::new(p).extension().and_then(|e| e.to_str()))
+        .map(str::to_string)
+        .collect()
+}
+
+/// What to fall back on when the index holds no files at all.
+///
+/// Only reachable with an empty index, where every question about staleness is moot. It
+/// exists so that case degrades to the old behaviour rather than to silence.
+const FALLBACK_EXTENSIONS: &[&str] = &["py", "pyi", "go", "ts", "tsx", "js", "jsx"];
 
 /// Could the index have held this file at all?
 ///
@@ -400,11 +444,17 @@ const INDEXABLE_EXTENSIONS: &[&str] = &["py", "pyi", "go"];
 /// ignore, which is worse than not having it: the one real edit that follows is buried in
 /// it. `cairn verify --repo .` was exact throughout, which is what made the daemon's
 /// number visibly wrong rather than merely unexplained.
-pub fn is_indexable(rel: &str) -> bool {
+pub fn is_indexable(rel: &str, indexable: &std::collections::HashSet<String>) -> bool {
     Path::new(rel)
         .extension()
         .and_then(|e| e.to_str())
-        .is_some_and(|e| INDEXABLE_EXTENSIONS.contains(&e))
+        .is_some_and(|e| {
+            if indexable.is_empty() {
+                FALLBACK_EXTENSIONS.contains(&e)
+            } else {
+                indexable.contains(e)
+            }
+        })
 }
 
 /// Could the index have held this path at all: right extension, and inside a directory
@@ -415,8 +465,8 @@ pub fn is_indexable(rel: &str) -> bool {
 /// calling a markdown file created — just harder to spot, because the extension is right.
 /// With no roots recorded the extension test stands alone, so an older index degrades to
 /// the previous behaviour rather than to silence.
-fn covered(rel: &str, roots: &[String]) -> bool {
-    if !is_indexable(rel) {
+fn covered(rel: &str, roots: &[String], indexable: &std::collections::HashSet<String>) -> bool {
+    if !is_indexable(rel, indexable) {
         return false;
     }
     if roots.is_empty() {
@@ -482,16 +532,57 @@ mod tests {
         // --repo` called the same tree clean. A staleness number nobody can act on is the
         // one people learn to skip past.
         let roots = vec!["srcpy".to_string(), "srcgo".to_string()];
-        assert!(covered("srcpy/domains/orders/x.py", &roots));
-        assert!(covered("srcgo/cmd/main.go", &roots));
-        assert!(!covered("tools/eval/run_eval.py", &roots));
-        assert!(!covered("infra/sentinel/main.go", &roots));
+        let exts = exts(&["py", "go"]);
+        assert!(covered("srcpy/domains/orders/x.py", &roots, &exts));
+        assert!(covered("srcgo/cmd/main.go", &roots, &exts));
+        assert!(!covered("tools/eval/run_eval.py", &roots, &exts));
+        assert!(!covered("infra/sentinel/main.go", &roots, &exts));
         // A directory whose name merely starts the same way is not inside it.
-        assert!(!covered("srcpython/x.py", &roots));
+        assert!(!covered("srcpython/x.py", &roots, &exts));
         // Still not indexable whatever the roots say.
-        assert!(!covered("srcpy/README.md", &roots));
+        assert!(!covered("srcpy/README.md", &roots, &exts));
         // No roots recorded: the extension test stands alone, as it did before.
-        assert!(covered("tools/eval/run_eval.py", &[]));
+        assert!(covered("tools/eval/run_eval.py", &[], &exts));
+    }
+
+    fn exts(list: &[&str]) -> std::collections::HashSet<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn a_new_file_in_a_language_the_index_holds_is_news_whatever_that_language_is() {
+        // The defect: the list was `py`, `pyi`, `go`, written when those were the only
+        // languages, with a comment saying to update it when one was added. TypeScript
+        // was added and it was not, so a brand-new `.ts` module on a repository indexed
+        // for TypeScript was reported as `0 created` - the watcher silent about exactly
+        // the thing it exists to report. Reading the set off the index cannot fall behind
+        // the index.
+        let indexed = HashMap::from([
+            ("apps/web/hooks/useThing.ts".to_string(), [0u8; 16]),
+            ("apps/web/app/page.tsx".to_string(), [0u8; 16]),
+        ]);
+        let exts = extensions_of(&indexed);
+        assert!(covered("apps/web/hooks/useOther.ts", &[], &exts));
+        assert!(covered("apps/web/app/other.tsx", &[], &exts));
+        // A language this index does not hold is still not news about this index.
+        assert!(!covered("tools/gen.py", &[], &exts));
+        assert!(!covered("apps/web/README.md", &[], &exts));
+
+        // And the same index rebuilt for Python answers the other way round.
+        let repython = HashMap::from([("srcpy/a.py".to_string(), [0u8; 16])]);
+        let exts = extensions_of(&repython);
+        assert!(covered("srcpy/b.py", &[], &exts));
+        assert!(!covered("apps/web/hooks/useOther.ts", &[], &exts));
+    }
+
+    #[test]
+    fn an_empty_index_falls_back_rather_than_going_silent() {
+        // Nothing indexed means every extension question is moot, but answering "no" to
+        // all of them would be the silent failure again, one layer down.
+        let exts = std::collections::HashSet::new();
+        assert!(covered("srcpy/a.py", &[], &exts));
+        assert!(covered("apps/web/a.tsx", &[], &exts));
+        assert!(!covered("README.md", &[], &exts));
     }
 
     #[test]
@@ -575,19 +666,39 @@ mod tests {
     }
 
     #[test]
+    fn a_relative_repo_root_is_made_absolute_before_anything_is_compared_against_it() {
+        // `notify` reports the path it was told to watch, which is absolute. Started as
+        // `cairn daemon --repo .` the tracker held ".", every `strip_prefix` failed, and
+        // every event was dropped in silence: the daemon ran, answered on its socket, and
+        // reported `stale: none` while the tree changed underneath it. Measured on the
+        // frontend repository - a modified indexed file and two new ones, all invisible,
+        // and the same test with an absolute path reported them within two seconds.
+        assert!(
+            relativise(Path::new("."), Path::new("/repo/apps/a.ts")).is_none(),
+            "this is the comparison that was silently failing"
+        );
+        let t = DirtyTracker::new(Path::new("."), HashMap::new());
+        assert!(
+            t.repo_root().is_absolute(),
+            "a tracker must not keep a root that can never match an event"
+        );
+    }
+
+    #[test]
     fn a_file_no_indexer_reads_is_not_a_new_file() {
         // The daemon reported 590 created on a tree nobody had touched: docs, compose
         // files and protos are not in the index because nothing indexes them, and the
         // walk read that as new work. The signal has to be quiet when the tree is clean,
         // or the one edit that matters arrives inside a crowd.
-        assert!(is_indexable("srcpy/domains/orders/repo.py"));
-        assert!(is_indexable("srcgo/cmd/server/main.go"));
-        assert!(is_indexable("srcpy/schema/x.pyi"));
-        assert!(!is_indexable("docs/architecture.md"));
-        assert!(!is_indexable("compose.yaml"));
-        assert!(!is_indexable("proto/api/service.proto"));
-        assert!(!is_indexable("tools/sql/01_ranked.sql"));
-        assert!(!is_indexable("Makefile"));
+        let e = exts(&["py", "pyi", "go"]);
+        assert!(is_indexable("srcpy/domains/orders/repo.py", &e));
+        assert!(is_indexable("srcgo/cmd/server/main.go", &e));
+        assert!(is_indexable("srcpy/schema/x.pyi", &e));
+        assert!(!is_indexable("docs/architecture.md", &e));
+        assert!(!is_indexable("compose.yaml", &e));
+        assert!(!is_indexable("proto/api/service.proto", &e));
+        assert!(!is_indexable("tools/sql/01_ranked.sql", &e));
+        assert!(!is_indexable("Makefile", &e));
     }
 
     #[test]

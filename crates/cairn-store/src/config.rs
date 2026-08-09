@@ -287,9 +287,18 @@ fn total_ram_bytes() -> Option<u64> {
 mod tests {
     use super::*;
 
+    /// `CAIRN_CONFIG` is process-global and `cargo test` runs these on threads of one
+    /// process, so two tests setting it race: one's `remove_var` lands between the other's
+    /// `set_var` and its `Config::load`, and the loser reads the default it was asserting
+    /// against. Measured as one failure in four full runs of the suite - which is worse
+    /// than a broken test, because the acceptance rule here is *two clean runs* and a
+    /// flake makes a clean run mean nothing.
+    static ENV: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn no_file_means_defaults_rather_than_an_error() {
         // The normal state of a fresh install.
+        let _serial = ENV.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("CAIRN_CONFIG", "/nonexistent/cairn.yaml");
         let c = Config::load().expect("a missing config is not an error");
         assert!(
@@ -310,6 +319,7 @@ mod tests {
 
     #[test]
     fn a_partial_file_leaves_the_rest_at_its_default() {
+        let _serial = ENV.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join("cairn-config-test");
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("cairn.yaml");
