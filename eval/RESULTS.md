@@ -2781,7 +2781,7 @@ process, and one test's `remove_var` lands between the other's `set_var` and its
 acceptance rule here is **two clean runs**; a suite that is clean three times in four makes
 a clean run mean nothing. Serialised, then run four times to show it.
 
-### Verdict for `1a9c47b`
+### Verdict for `431d883`
 
 One frozen binary, both nets wide, twice each: `stress.py … 40` (160 symbols) on the
 backend **16/17 checks reaching an assertion, no contradictions**, twice; on the frontend
