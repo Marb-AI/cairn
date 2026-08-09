@@ -112,6 +112,50 @@ impl Store {
         Ok(walk)
     }
 
+    /// The same walk, returning only the symbol ids it reached.
+    ///
+    /// `walk` builds a `SymbolRow` per node, and a row is three queries: the symbol, its
+    /// persistent handle, and its definition site. That is the right shape for a command
+    /// that prints the nodes. It is the wrong shape for one that tests them against a set
+    /// and keeps a handful — `affects` was building 922 rows to look at 120 of them, which
+    /// measured at 130 ms of a 190 ms command.
+    ///
+    /// Traversal order, the fanout cut and the revisit rule are the walk's, so the set of
+    /// ids is the same set. Only `truncated` is not reported, because a caller that does
+    /// not render the nodes has nothing to say about the ones that were cut.
+    pub fn walk_ids(
+        &self,
+        root: i64,
+        kind: EdgeKind,
+        dir: Direction,
+        depth: usize,
+        fanout: usize,
+        exclude_tests: bool,
+    ) -> Result<Vec<i64>> {
+        let mut seen: HashSet<i64> = HashSet::from([root]);
+        let mut reached = vec![root];
+        let mut frontier = vec![root];
+
+        for _ in 1..=depth {
+            let mut next = Vec::new();
+            for parent_id in frontier {
+                let (rows, _) = self.neighbours(parent_id, kind, dir, fanout, exclude_tests)?;
+                for (sym_id, _, _) in rows {
+                    if !seen.insert(sym_id) {
+                        continue;
+                    }
+                    reached.push(sym_id);
+                    next.push(sym_id);
+                }
+            }
+            if next.is_empty() {
+                break;
+            }
+            frontier = next;
+        }
+        Ok(reached)
+    }
+
     /// Direct neighbours plus the total, so truncation can be reported.
     ///
     /// One row per neighbour, so a caller that references the same symbol several times
@@ -432,5 +476,94 @@ impl Store {
             out.push(r?);
         }
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::EdgeKind;
+    use rusqlite::params;
+
+    /// A chain a -> b -> c and a second caller d of b, so the walk has a level to widen on
+    /// and a node reachable two ways.
+    fn call_chain(store: &Store) -> Vec<i64> {
+        let c = &store.conn;
+        let sid = |s: &str| -> i64 {
+            c.execute("INSERT OR IGNORE INTO strings(s) VALUES (?1)", params![s])
+                .unwrap();
+            c.query_row("SELECT id FROM strings WHERE s = ?1", params![s], |r| {
+                r.get(0)
+            })
+            .unwrap()
+        };
+        c.execute(
+            "INSERT INTO files(path_id, lang, is_test, generated) VALUES (?1, 1, 0, 0)",
+            params![sid("w.py")],
+        )
+        .unwrap();
+        let file = c.last_insert_rowid();
+        let add = |name: &str, hash: u8| -> i64 {
+            c.execute(
+                "INSERT INTO symbols(hash, name_id, kind, lang, ref_count, def_file_id)
+                 VALUES (?1, ?2, 2, 1, 0, ?3)",
+                params![vec![hash; 16], sid(name), file],
+            )
+            .unwrap();
+            c.last_insert_rowid()
+        };
+        let ids: Vec<i64> = ["a", "b", "c", "d"]
+            .iter()
+            .enumerate()
+            .map(|(i, n)| add(n, i as u8 + 1))
+            .collect();
+        // Calls edges: a->b, b->c, d->b. Walking *in* from c finds b, then a and d.
+        for (src, dst) in [(ids[0], ids[1]), (ids[1], ids[2]), (ids[3], ids[1])] {
+            c.execute(
+                "INSERT INTO edges(src_symbol, dst_symbol, kind, file_id, line, confidence,
+                                   source)
+                 VALUES (?1, ?2, 0, ?3, 1, 1.0, 0)",
+                params![src, dst, file],
+            )
+            .unwrap();
+        }
+        ids
+    }
+
+    #[test]
+    fn the_id_walk_reaches_exactly_what_the_row_walk_reaches() {
+        // The whole justification for the second walk is that it costs less for the same
+        // set. If the two ever disagree, `affects` silently answers about a different
+        // graph than every command that renders one - so the equivalence is the test, at
+        // every depth including the one that stops early.
+        let store = Store::open_in_memory().unwrap();
+        let ids = call_chain(&store);
+        for depth in 0..=3 {
+            let rows = store
+                .walk(ids[2], EdgeKind::Calls, Direction::In, depth, 50, true)
+                .unwrap();
+            let from_rows: Vec<i64> = rows.nodes.iter().map(|n| n.symbol.id).collect();
+            let from_ids = store
+                .walk_ids(ids[2], EdgeKind::Calls, Direction::In, depth, 50, true)
+                .unwrap();
+            assert_eq!(from_rows, from_ids, "depth {depth}");
+        }
+    }
+
+    #[test]
+    fn the_fanout_cut_applies_to_both_walks_alike() {
+        // A limit that drops a caller has to drop it from both, or the cheaper walk
+        // answers a question the expensive one would have refused.
+        let store = Store::open_in_memory().unwrap();
+        let ids = call_chain(&store);
+        let rows = store
+            .walk(ids[1], EdgeKind::Calls, Direction::In, 2, 1, true)
+            .unwrap();
+        let from_rows: Vec<i64> = rows.nodes.iter().map(|n| n.symbol.id).collect();
+        let from_ids = store
+            .walk_ids(ids[1], EdgeKind::Calls, Direction::In, 2, 1, true)
+            .unwrap();
+        assert_eq!(from_rows, from_ids);
+        assert_eq!(from_ids.len(), 2, "the root and one of its two callers");
     }
 }

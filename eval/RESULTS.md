@@ -2655,3 +2655,52 @@ Two smaller things fell out of doing this in the open:
 Gates: fmt, clippy (including the Windows target), 195 tests, 11/11 mutations caught, and
 the invariant harness twice on each of the backend and fixture corpora — 16/17 checks
 reaching an assertion, no contradictions.
+
+## Where the rest of `affects` goes, and what merging the walks would not buy — 2026-08-09
+
+`affects` was left at ~290 ms with roughly 211 ms of it inside one profile line that said
+`caller walk (total)` and nothing else. A line that names where to look and not what to do
+is where three afternoons went the last time, so the first change was to break it open.
+
+On the three slowest symbols of a fifty-symbol sample of the backend index:
+
+| | walk | rpc_callers | runs | by-file | walks | nodes | handlers |
+|---|---|---|---|---|---|---|---|
+| slowest | 130 ms | 24 ms | 5 ms | 8 ms | 104 | 922 | 120 |
+| second | 152 ms | 23 ms | 5 ms | 8 ms | 115 | 975 | 123 |
+| third | 130 ms | 4 ms | 2 ms | 3 ms | 24 | 768 | 30 |
+
+**The walk was building a row for every node and using one in eight.** A `SymbolRow` is
+three queries — the symbol, its persistent handle, its definition site — and this loop
+tests a node for membership in the handler set and drops it. `walk_ids` returns the ids
+and the handful that survive are hydrated after the test.
+
+Measured as an A/B differing only in that call, three runs each, on the same binary
+otherwise:
+
+| symbol | rows | ids | ratio |
+|---|---|---|---|
+| slowest | 215 ms | 202 ms | 0.94 |
+| second | 239 ms | 216 ms | 0.90 |
+| third | 173 ms | 146 ms | 0.84 |
+| fourth | 117 ms | 89 ms | 0.76 |
+| fifth | 81 ms | 71 ms | 0.88 |
+
+Five interleaved runs on two of them put the spread at 211–249 ms against 184–236 ms for
+the slowest — **overlapping, so the effect there is inside the noise this file has recorded
+before** — and 101–156 against 74–106 on the mid-sized one, where it is not. So: a clear
+win on mid-sized symbols, unmeasurable on the largest, and free either way. `affects`
+output is byte-identical across the fifty sampled symbols.
+
+**The obvious next optimisation was measured and does not exist.** 104 walks visiting 922
+nodes looks like heavy overlap, and merging them into one breadth-first walk per hop level
+would collapse it. Counting the unique ids across all walks of a command: **856 of 922**.
+Seven per cent. The walks barely overlap, so merging saves the queries for 66 nodes and
+adds a shared-visited-set subtlety across hop levels for them. Not done, and the counter
+that says why is left in the profile.
+
+What remains is ~110 ms of `neighbours` queries — one per node, about 0.12 ms each, and
+roughly 900 of them. Making that faster means fetching a whole breadth-first level in one
+query with a per-parent limit, which is a window function and a real change to the fanout
+semantics. It is the next thing, and it is worth doing only if 200 ms of tool latency ever
+shows up against a round trip that costs seconds.

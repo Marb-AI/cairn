@@ -198,6 +198,25 @@ impl Store {
         let mut walked: HashSet<i64> = HashSet::new();
         let mut hop_count = 0usize;
 
+        // The walk was 80% of this command with nothing inside it named. One line saying
+        // "caller walk (total)" tells you where to look and not what to do, and guessing
+        // what is inside it is how three afternoons were spent on the wrong thing.
+        let (mut walk_ms, mut callers_ms, mut runs_ms, mut file_ms) = (0.0f64, 0.0, 0.0, 0.0);
+        let (mut walks, mut nodes_seen, mut handler_hits) = (0usize, 0usize, 0usize);
+        let mut unique_nodes: HashSet<i64> = HashSet::new();
+        macro_rules! timed {
+            ($acc:expr, $e:expr) => {{
+                if _prof {
+                    let t = std::time::Instant::now();
+                    let v = $e;
+                    $acc += t.elapsed().as_secs_f64() * 1000.0;
+                    v
+                } else {
+                    $e
+                }
+            }};
+        }
+
         while !frontier.is_empty() {
             if hop_count >= MAX_HOPS {
                 out.truncated_hops = true;
@@ -215,17 +234,33 @@ impl Store {
                 }
                 // Everything that reaches this symbol inside its own process. The hop
                 // starts wherever that closure meets an RPC handler.
-                let walk = self.walk(root, EdgeKind::Calls, Direction::In, depth, fanout, true)?;
-                for node in &walk.nodes {
-                    if !handlers.contains(&node.symbol.id) {
+                // Ids, not rows. What this loop does with a node is test it for membership
+                // in `handlers` and drop it - eight of every nine - so building the row
+                // first pays for a handle and a definition site that are thrown away. The
+                // handful that survive are hydrated below.
+                let reached = timed!(
+                    walk_ms,
+                    self.walk_ids(root, EdgeKind::Calls, Direction::In, depth, fanout, true)
+                )?;
+                walks += 1;
+                nodes_seen += reached.len();
+                if _prof {
+                    unique_nodes.extend(reached.iter().copied());
+                }
+                for node_id in reached {
+                    if !handlers.contains(&node_id) {
                         continue;
                     }
-                    let to = runs(self, node.symbol.id)?;
-                    for caller in self.rpc_callers(node.symbol.id)? {
+                    handler_hits += 1;
+                    let Some(node_sym) = self.symbol(node_id)? else {
+                        continue;
+                    };
+                    let to = timed!(runs_ms, runs(self, node_id))?;
+                    for caller in timed!(callers_ms, self.rpc_callers(node_id))? {
                         if !seen_calls.insert(caller.symbol.id) {
                             continue;
                         }
-                        let mut from = runs(self, caller.symbol.id)?;
+                        let mut from = timed!(runs_ms, runs(self, caller.symbol.id))?;
                         let mut from_by_file = false;
                         if from.is_empty() {
                             // Against the precomputed sets, not a fresh walk per symbol in
@@ -234,7 +269,10 @@ impl Store {
                             // twenty-seven of the twenty-nine seconds `affects` took on a
                             // hot symbol were here, and profiling found it only after three
                             // wrong guesses.
-                            from = self.services_running_file_in(caller.symbol.id, &sets)?;
+                            from = timed!(
+                                file_ms,
+                                self.services_running_file_in(caller.symbol.id, &sets)
+                            )?;
                             from_by_file = !from.is_empty();
                         }
                         out.hops.push(Hop {
@@ -245,13 +283,24 @@ impl Store {
                             service: caller.service,
                             rpc: caller.rpc,
                             call_site: caller.symbol.clone(),
-                            handler: node.symbol.clone(),
+                            handler: node_sym.clone(),
                         });
                         next.push(caller.symbol.id);
                     }
                 }
             }
             frontier = next;
+        }
+        if _prof {
+            eprintln!(
+                "           unique nodes across all walks: {}",
+                unique_nodes.len()
+            );
+            eprintln!(
+                "           of which: {walk_ms:.1} ms walk ({walks} walks, {nodes_seen} nodes, \
+                 {handler_hits} handlers), {callers_ms:.1} ms rpc_callers, {runs_ms:.1} ms runs, \
+                 {file_ms:.1} ms by-file"
+            );
         }
         mark!("caller walk (total)");
         Ok(out)
