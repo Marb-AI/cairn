@@ -714,7 +714,7 @@ mod tests {
         assert!(looks_like_text("MCP_SERVER_PORT"));
         // Scenario 7: a header name.
         assert!(looks_like_text("X-Api-Key"));
-        assert!(looks_like_text("tools/sql/geoplatform"));
+        assert!(looks_like_text("tools/sql/geo"));
         assert!(looks_like_text("the folder client"));
     }
 

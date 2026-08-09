@@ -244,7 +244,7 @@ like the acceptance rule's half.
 **Scenario 7 is the clean case of the pilot's original claim.** `cairn literal "X-Api-Key"`
 returned the line, the enclosing function and its handle **in turn 1**, complete. The
 remaining six turns were elaboration — `outline`, `usage`, `refs`, then the same question
-twice more as `literal "KONTOMATIK_API_KEY"` and `symbol KONTOMATIK_API_KEY`. The tool won
+twice more as `literal "BANK_API_KEY"` and `symbol BANK_API_KEY`. The tool won
 the question and the run lost it. Grep took 4.
 
 **Scenario 8 is repetition of a different kind: probing a stated miss.** `literal
@@ -1193,8 +1193,8 @@ says what it was for:
 
 That is a description of the `link_services` collision fixed above. The filter was a
 workaround for it — and it was suppressing, along with the phantom rows, **every case of one
-Python service calling another**. The `assistant` CLI commands reaching `dataplatform-grpc`
-over `dataplatform_api.EstateProviderService` are exactly that: the incoming direction listed
+Python service calling another**. The `assistant` CLI commands reaching `data-grpc`
+over `data_api.EstateProviderService` are exactly that: the incoming direction listed
 nine of them, the outgoing direction returned zero for each, and a zero is indistinguishable
 from a service nothing calls.
 
@@ -1231,7 +1231,7 @@ synthetic gateway. But "no repository-specific strings in the code" is not the s
 as "no repository-specific influence on a result", and three places remain where it is:
 
 1. **`stress.py` hardcoded a word from the private checkout.** The envelope check ran
-   `for find Kontomatik`. On the fixture corpus — the one CI runs — that string does not
+   `for find BankClient`. On the fixture corpus — the one CI runs — that string does not
    exist, `for find` exits 1, and the assertion's `if code != 0: continue` skipped. So the
    only command that reads the working tree was unchecked exactly where the check runs
    automatically. Now the needle is drawn from the corpus's own literals; both corpora
@@ -2070,7 +2070,7 @@ that read it then claim.
 | layer emptied | what the command said |
 |---|---|
 | `doc_sections` | `0 sections for "quota": 0 are about it, 0 mention it` **[L0-M, exact]** |
-| `literals` | `0 literals containing "Kontomatik", 0 inside a function` **[L0, exact]** |
+| `literals` | `0 literals containing "BankClient", 0 inside a function` **[L0, exact]** |
 | `deploy_services` | unaffected — `affects` still answered 4 services |
 
 Two more, and both labelled their empty answer **exact**. That makes five instances of one
@@ -2541,8 +2541,8 @@ Median 0.79, mean 0.66. Round trips reconstructed from the hook log at a 1.5 s g
 first turn is each arm reading its own instructions and is excluded from both.
 
 **Both arms answered correctly on all three**, and both went past the key: each
-independently found that `ChatSummaryAside` receives an `onStartNewChat` prop it never
-calls, and that three of the nine values `useChatFilters` returns have no consumer. Those
+independently found that `ResultSummaryAside` receives an `onStartNewChat` prop it never
+calls, and that three of the nine values `useResultFilters` returns have no consumer. Those
 are findings about the repository, not about either tool.
 
 ### The prediction was wrong twice, in opposite directions
@@ -2601,3 +2601,57 @@ predicted before any of these runs: both classes cairn wins on need a service bo
 
 Round three is not run. Two rounds already disagree by more than the effect being measured,
 so a third would narrow the estimate rather than change the conclusion.
+
+## cairn provides the dependency tree, and provably does not touch the working copy — 2026-08-09
+
+The TypeScript indexer cannot read a `tsconfig` that extends a package without the
+project's dependencies on disk, so cairn installs them itself: from the repository's own
+lockfile, into a Docker volume, never resolving a version of its own. The measurement that
+matters here is not a token ratio; it is whether the claim in that sentence survives being
+checked. Three parts of it did not.
+
+**1.3 GB went into the working copy on the first repository this was tried on.** The
+volumes covered each indexed project — `apps/a`, `apps/b`, `apps/c` — and a pnpm workspace
+install does not run in a project. It runs once at the lockfile and writes a `node_modules`
+into the workspace **root** as well as into every member, and the root had no volume over
+it. The previous session recorded this run as "verified, no `node_modules` on the host";
+the directory was 1.3 GB, dated, and sitting there. **Verifying the mechanism fired is not
+verifying the thing it exists to prevent did not happen**, and only the second one is the
+claim. The volume set is now every directory holding a `package.json`, which is what a
+workspace install actually writes to.
+
+**Yarn 1 was being asked to honour a flag it does not have.** `yarn install --immutable` is
+Yarn 2+; handed to the Yarn 1 in the image it ignores the unknown flag, resolves fresh
+versions, and reports `success Saved lockfile` — cairn modifying a file in the repository
+it was asked to read. Measured on a two-line project. Yarn 1 now gets `--frozen-lockfile`,
+which it refuses correctly and which leaves the file byte-identical; a Yarn 2+ lockfile is
+detected by its `__metadata:` block and declined rather than guessed at.
+
+**A leftover container was reused without the volumes.** The comment said it would be
+removed and remade. The code returned early on any running container, so the one path that
+silently reproduced the first failure was the ordinary one: run `cairn index` twice.
+
+Verified after the fixes, on a three-app pnpm workspace with no host dependencies at all:
+four volumes, every `node_modules` in the working copy empty, both lockfiles unmodified,
+**841 files / 25 053 symbols** — the same index as before. The retired app's
+`package-lock.json` is genuinely out of sync with its `package.json`; that now reads
+
+> `package-lock.json in apps/web_legacy` is out of sync with its package.json, so
+> installing from it was refused. cairn installs only what a lockfile pins and never
+> resolves a version of its own. Run `npm install` there to bring the lockfile up to date
+
+instead of `npm error code EUSAGE`, which names nothing. The other two apps index anyway.
+
+Two smaller things fell out of doing this in the open:
+
+- **The install ran once per project, not once per lockfile.** Two members of one workspace
+  resolve through the same file, so the second install was 4.6 s spent arriving where the
+  tree already was. Now keyed by lock root: 8.1 s once.
+- **"typescript is not in the index" was said of a repository with 24 889 TypeScript symbols
+  in its index.** One project of three had failed. A language every project of which failed
+  is absent; a language that lost one of three is not, and the warning that conflated them
+  was telling the reader to distrust two indexes that were fine.
+
+Gates: fmt, clippy (including the Windows target), 195 tests, 11/11 mutations caught, and
+the invariant harness twice on each of the backend and fixture corpora — 16/17 checks
+reaching an assertion, no contradictions.

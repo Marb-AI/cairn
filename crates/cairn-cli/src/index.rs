@@ -143,6 +143,16 @@ pub struct Survey {
     /// is the only way to tell "this repository has no gRPC" from "the cross-language
     /// pass found nothing", and those two readings of an empty answer are opposites.
     pub protos: usize,
+    /// Every directory holding a `package.json`, relative to the repository root, sorted.
+    ///
+    /// Not a marker for anything — a workspace root's `package.json` configures no
+    /// TypeScript project. It is collected because these are exactly the directories a
+    /// package manager creates a `node_modules` in, and cairn has to cover each of them
+    /// with a volume of its own **before** any install runs. One that is missed is not a
+    /// smaller failure: the tree lands in the user's working copy instead, which is the
+    /// thing managing dependencies here exists to prevent. A workspace install writes to
+    /// every member, not only the project being indexed, so the list is the whole tree's.
+    pub package_dirs: Vec<PathBuf>,
 }
 
 /// Walk the tree once, counting files per extension.
@@ -159,6 +169,7 @@ pub fn scan(repo: &Path) -> Result<Survey> {
     let mut markers: HashMap<&'static str, PathBuf> = HashMap::new();
     let mut depth_of_marker: HashMap<&'static str, usize> = HashMap::new();
     let mut all_markers: HashMap<&'static str, Vec<PathBuf>> = HashMap::new();
+    let mut package_dirs: Vec<PathBuf> = Vec::new();
 
     walk(
         repo,
@@ -167,7 +178,15 @@ pub fn scan(repo: &Path) -> Result<Survey> {
         &mut markers,
         &mut depth_of_marker,
         &mut all_markers,
+        &mut package_dirs,
     )?;
+    // Relative to the repository, because that is how they are used: a path inside the
+    // container and a key for the volume that covers it.
+    let mut package_dirs: Vec<PathBuf> = package_dirs
+        .iter()
+        .filter_map(|d| d.strip_prefix(repo).ok().map(|p| p.to_path_buf()))
+        .collect();
+    package_dirs.sort();
 
     // Only extensions we can name count towards the total. Otherwise a repository full of
     // .json fixtures would drag every real language under the threshold.
@@ -255,6 +274,7 @@ pub fn scan(repo: &Path) -> Result<Survey> {
         unsupported,
         total,
         protos: counts.get("proto").copied().unwrap_or(0),
+        package_dirs,
     })
 }
 
@@ -266,6 +286,7 @@ fn walk(
     markers: &mut HashMap<&'static str, PathBuf>,
     depth_of_marker: &mut HashMap<&'static str, usize>,
     all_markers: &mut HashMap<&'static str, Vec<PathBuf>>,
+    package_dirs: &mut Vec<PathBuf>,
 ) -> Result<()> {
     if depth > MAX_DEPTH {
         return Ok(());
@@ -296,10 +317,14 @@ fn walk(
                 markers,
                 depth_of_marker,
                 all_markers,
+                package_dirs,
             )?;
             continue;
         }
 
+        if name == "package.json" {
+            package_dirs.push(dir.to_path_buf());
+        }
         for lang in LANGUAGES {
             if lang.markers.contains(&name.as_str()) {
                 // Shallowest wins: in a monorepo the root module is the one that sees
@@ -320,6 +345,216 @@ fn walk(
         }
     }
     Ok(())
+}
+
+/// How a project's dependencies get installed, decided by the lockfile it commits.
+pub enum Install {
+    /// The manager and the flags that install exactly what the lockfile pins.
+    Frozen {
+        lock: &'static str,
+        argv: Vec<&'static str>,
+    },
+    /// A lockfile cairn recognises and cannot install from, with the reason to say so.
+    Unsupported {
+        lock: &'static str,
+        why: &'static str,
+    },
+}
+
+/// The package manager a project declares, and the command that installs from its lockfile.
+///
+/// Read from the lockfile rather than from `packageManager` in package.json or from what
+/// happens to be on PATH: the lockfile is the file the project actually resolves against,
+/// and installing with the wrong manager produces a different tree from the one the app
+/// runs on.
+///
+/// `--frozen-lockfile` and its equivalents throughout: cairn installs what the repository
+/// declares and never resolves a new version. An index is a projection of the code as it
+/// is, and a dependency tree it invented would make it a projection of something else.
+pub fn install_command(root: &Path) -> Option<Install> {
+    let frozen = |lock, argv: &[&'static str]| {
+        Some(Install::Frozen {
+            lock,
+            argv: argv.to_vec(),
+        })
+    };
+
+    if root.join("pnpm-lock.yaml").is_file() {
+        return frozen(
+            "pnpm-lock.yaml",
+            &["pnpm", "install", "--frozen-lockfile", "--ignore-scripts"],
+        );
+    }
+    if root.join("yarn.lock").is_file() {
+        // Yarn 1 and Yarn 2+ are different programs reading different formats out of the
+        // same filename, and Yarn 1 does not say when it is handed the wrong one. Given
+        // `--immutable`, which only Yarn 2+ knows, it ignores the unknown flag, resolves
+        // fresh versions and writes the lockfile back — measured on an empty project,
+        // where it reported "success Saved lockfile". Modifying the working tree is the
+        // one thing indexing must never do, so the format is read rather than assumed.
+        let berry = std::fs::read_to_string(root.join("yarn.lock"))
+            .map(|s| s.contains("__metadata:"))
+            .unwrap_or(false);
+        return if berry {
+            Some(Install::Unsupported {
+                lock: "yarn.lock",
+                why: "this is a Yarn 2+ (Berry) lockfile and the indexer image ships Yarn 1, \
+                      which would resolve its own versions rather than install what the file \
+                      pins. Install this project's dependencies yourself and run `cairn index` \
+                      again",
+            })
+        } else {
+            frozen(
+                "yarn.lock",
+                &["yarn", "install", "--frozen-lockfile", "--ignore-scripts"],
+            )
+        };
+    }
+    for lock in ["bun.lock", "bun.lockb"] {
+        if root.join(lock).is_file() {
+            return frozen(
+                lock,
+                &["bun", "install", "--frozen-lockfile", "--ignore-scripts"],
+            );
+        }
+    }
+    if root.join("package-lock.json").is_file() {
+        return frozen("package-lock.json", &["npm", "ci", "--ignore-scripts"]);
+    }
+    // A workspace member usually has no lockfile of its own; the root holds it.
+    None
+}
+
+/// What to say when a package manager refuses to install.
+///
+/// One failure here is neither cairn's fault nor a broken machine, and is common enough to
+/// be worth naming: the lockfile no longer agrees with `package.json`. cairn installs only
+/// what the lockfile pins, so it cannot resolve its way past it, and the fix is one command
+/// in the project. Every manager reports it in its own words and buries the sentence that
+/// matters — npm's first line is `npm error code EUSAGE`, which names nothing — so the
+/// diagnosis is written here rather than quoted from them.
+fn install_complaint(lock: &str, dir: &Path, stderr: &str, log: &Path) -> String {
+    let where_ = if dir.as_os_str().is_empty() {
+        "the repository root".to_string()
+    } else {
+        dir.display().to_string()
+    };
+    // Each manager's own wording for one condition, taken from a run of each rather than
+    // from its documentation.
+    let out_of_sync = [
+        "ERR_PNPM_OUTDATED_LOCKFILE",
+        "can only install packages when your package.json",
+        "lockfile needs to be updated",
+        "lockfile had changes, but lockfile is frozen",
+    ]
+    .iter()
+    .any(|m| stderr.contains(m));
+
+    if out_of_sync {
+        let refresh = match lock {
+            "pnpm-lock.yaml" => "pnpm install",
+            "yarn.lock" => "yarn install",
+            "bun.lock" | "bun.lockb" => "bun install",
+            _ => "npm install",
+        };
+        return format!(
+            "{lock} in {where_} is out of sync with its package.json, so installing from it \
+             was refused. cairn installs only what a lockfile pins and never resolves a \
+             version of its own. Run `{refresh}` there to bring the lockfile up to date, then \
+             `cairn index` again (full output in {})",
+            log.display()
+        );
+    }
+
+    // Anything else: the first line that reads like a complaint, with the rest kept.
+    let lines: Vec<&str> = stderr
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    let complaint = lines
+        .iter()
+        .find(|l| {
+            let l = l.to_ascii_lowercase();
+            l.contains("error") || l.contains("failed") || l.contains("cannot")
+        })
+        .copied()
+        .or_else(|| lines.first().copied())
+        .unwrap_or("");
+    if complaint.is_empty() {
+        format!(
+            "installing from {lock} in {where_} failed (output in {})",
+            log.display()
+        )
+    } else {
+        format!(
+            "installing from {lock} in {where_} failed: {complaint} (full output in {})",
+            log.display()
+        )
+    }
+}
+
+/// The nearest directory at or above `root`, and never above `repo`, that commits a
+/// lockfile.
+///
+/// Node resolution walks up and workspaces hoist to the repository root, so a member
+/// legitimately has no lockfile of its own. The install belongs wherever the lockfile is,
+/// which is the same place the package manager would put the tree.
+pub fn lock_root(root: &Path, repo: &Path) -> Option<PathBuf> {
+    root.ancestors()
+        .take_while(|d| d.starts_with(repo) || *d == repo)
+        .find(|d| install_command(d).is_some())
+        .map(|d| d.to_path_buf())
+}
+
+/// Install one lockfile's dependencies inside the container, into the volume cairn owns.
+///
+/// Returns how long it took, or what to tell the user about why it did not happen. The
+/// whole output is kept in a file either way: a diagnosis worth printing is one sentence,
+/// and the hundred lines behind it are worth keeping but not worth showing.
+pub fn install_dependencies(repo: &Path, lock_root: &Path, out_rel: &Path) -> Result<f64, String> {
+    let rel = lock_root.strip_prefix(repo).unwrap_or(Path::new(""));
+    let (lock, argv) = match install_command(lock_root).ok_or("no lockfile here")? {
+        Install::Frozen { lock, argv } => (lock, argv),
+        Install::Unsupported { lock, why } => {
+            return Err(format!("{lock} in {}: {why}", rel.display()))
+        }
+    };
+    let started = std::time::Instant::now();
+    match crate::docker::exec(repo, lock_root, &argv) {
+        Ok(o) if o.status.success() => Ok(started.elapsed().as_secs_f64()),
+        Ok(o) => {
+            let err = String::from_utf8_lossy(&o.stderr);
+            let slug = rel.to_string_lossy().replace(['/', '\\'], "-");
+            let name = if slug.is_empty() {
+                "install.log".to_string()
+            } else {
+                format!("install-{slug}.log")
+            };
+            let log = repo.join(out_rel).join(name);
+            let _ = std::fs::write(&log, err.as_bytes());
+            Err(install_complaint(lock, rel, &err, &log))
+        }
+        Err(e) => Err(format!("installing dependencies: {e:#}")),
+    }
+}
+
+/// Can anything be resolved from this project, seen from where the indexer stands?
+///
+/// Asked inside the container on purpose. Node walks `node_modules` upwards from the
+/// project, and the directories cairn covers are volumes — so the host sees empty mount
+/// points where the container sees the tree, and a check on the host would answer about a
+/// filesystem no indexer reads.
+fn dependencies_present(repo: &Path, root: &Path) -> bool {
+    // Emptiness matters as much as existence: an empty `node_modules` is what a skipped
+    // install leaves behind, and it is indistinguishable from a real one to a test for the
+    // directory alone.
+    let script = "p=$PWD; while [ \"$p\" != / ]; do \
+                  if [ -n \"$(ls -A \"$p/node_modules\" 2>/dev/null | head -1)\" ]; then exit 0; fi; \
+                  p=$(dirname \"$p\"); done; exit 1";
+    crate::docker::exec(repo, root, &["sh", "-c", script])
+        .map(|o| o.status.success())
+        .unwrap_or(false)
 }
 
 /// What happened when one language was indexed.
@@ -367,20 +602,19 @@ pub fn run_indexer(found: &Found, root: &Path, tag: &str, repo: &Path, out_rel: 
             // out is not a smaller index but `no files got indexed` — an empty index that
             // every later answer would report as a fact about the code. Refusing here,
             // naming the directory and the command, is the whole difference.
-            // Node resolution walks up, and pnpm/yarn workspaces hoist most packages to
-            // the repository root, so a workspace member legitimately has no `node_modules`
-            // of its own. Checking only the project directory refused two of three apps
-            // that would have indexed fine.
-            let installed = root
-                .ancestors()
-                .take_while(|d| d.starts_with(repo) || *d == repo)
-                .any(|d| d.join("node_modules").is_dir());
-            if !installed {
+            // The install has already run, once per lockfile, before any of this. What is
+            // left is to check it arrived — and to check it where the indexer will look,
+            // which is inside the container. On the host the answer is now always yes and
+            // always meaningless: every directory cairn covers has an empty `node_modules`
+            // mount point sitting in it, and a test for one would pass on the exact tree
+            // that produces `no files got indexed`.
+            if !dependencies_present(repo, root) {
                 return Outcome::Failed(format!(
-                    "{} has no node_modules, and scip-typescript resolves nothing without \
-                     them - a tsconfig that extends a package cannot even be read, and the \
-                     index would come out empty rather than partial. Install the \
-                     dependencies there (npm/pnpm/yarn install) and run `cairn index` again",
+                    "no dependencies are resolvable from {}, and scip-typescript resolves \
+                     nothing without them - a tsconfig that extends a package cannot even be \
+                     read, and the index would come out empty rather than partial. There is \
+                     no lockfile at or above it for cairn to install from; commit one, or \
+                     install the dependencies there, and run `cairn index` again",
                     root.display()
                 ));
             }
@@ -645,5 +879,150 @@ mod tests {
         let survey = scan(&dir).unwrap();
         assert!(survey.found.is_empty());
         assert!(survey.unsupported.is_empty());
+    }
+
+    #[test]
+    fn every_package_json_directory_is_collected_not_only_the_projects() {
+        // The workspace root has no tsconfig and is indexed as nothing, but a workspace
+        // install writes a `node_modules` there all the same. Missing it put 1.3 GB into a
+        // working copy, so the root has to appear here even though no indexer runs in it.
+        let mut files = vec![
+            ("package.json".to_string(), "{}".to_string()),
+            ("apps/live/package.json".to_string(), "{}".to_string()),
+            ("apps/live/tsconfig.json".to_string(), "{}".to_string()),
+            ("packages/ui/package.json".to_string(), "{}".to_string()),
+        ];
+        files.extend(many("apps/live", "ts", 20));
+        let dir = tree("package-dirs", &refs(&files));
+        let survey = scan(&dir).unwrap();
+        assert_eq!(
+            survey.package_dirs,
+            vec![
+                PathBuf::from(""),
+                PathBuf::from("apps/live"),
+                PathBuf::from("packages/ui"),
+            ],
+            "the root and every member, relative and sorted"
+        );
+    }
+
+    #[test]
+    fn a_lockfile_inside_node_modules_is_not_a_project() {
+        let mut files = many(".", "ts", 10);
+        files.push(("tsconfig.json".to_string(), "{}".to_string()));
+        files.push(("package.json".to_string(), "{}".to_string()));
+        files.push((
+            "node_modules/dep/package.json".to_string(),
+            "{}".to_string(),
+        ));
+        let dir = tree("package-dirs-noise", &refs(&files));
+        assert_eq!(scan(&dir).unwrap().package_dirs, vec![PathBuf::from("")]);
+    }
+
+    #[test]
+    fn the_lockfile_picks_the_manager_and_the_flags_freeze_it() {
+        let dir = tree("lock-pnpm", &[("pnpm-lock.yaml", "lockfileVersion: '9.0'")]);
+        let Some(Install::Frozen { lock, argv }) = install_command(&dir) else {
+            panic!("pnpm's lockfile should be installable");
+        };
+        assert_eq!(lock, "pnpm-lock.yaml");
+        assert_eq!(argv[0], "pnpm");
+        assert!(argv.contains(&"--frozen-lockfile"));
+
+        let dir = tree("lock-npm", &[("package-lock.json", "{}")]);
+        let Some(Install::Frozen { lock, argv }) = install_command(&dir) else {
+            panic!("npm's lockfile should be installable");
+        };
+        assert_eq!(lock, "package-lock.json");
+        assert_eq!(argv[..2], ["npm", "ci"], "not `npm install`");
+
+        let dir = tree("lock-bun", &[("bun.lock", "{}")]);
+        let Some(Install::Frozen { argv, .. }) = install_command(&dir) else {
+            panic!("bun's lockfile should be installable");
+        };
+        assert_eq!(argv[0], "bun");
+
+        // Nothing to install from is not a failure: a workspace member's dependencies are
+        // resolved from the lockfile at the root, which the caller looks for next.
+        let dir = tree("lock-none", &[("package.json", "{}")]);
+        assert!(install_command(&dir).is_none());
+    }
+
+    #[test]
+    fn a_berry_lockfile_is_refused_rather_than_handed_to_yarn_1() {
+        // Yarn 1 does not reject a Yarn 2+ lockfile, and does not reject `--immutable`
+        // either: it ignores the flag it does not know, resolves fresh versions and writes
+        // the lockfile back. Measured. Refusing is the only behaviour here that leaves the
+        // working tree as it was found.
+        let berry =
+            "# This file is generated by running \"yarn install\"\n\n__metadata:\n  version: 6\n";
+        let dir = tree("lock-berry", &[("yarn.lock", berry)]);
+        let Some(Install::Unsupported { lock, why }) = install_command(&dir) else {
+            panic!("a Berry lockfile must not be installed by Yarn 1");
+        };
+        assert_eq!(lock, "yarn.lock");
+        assert!(why.contains("Yarn 2+"), "the reason has to name the format");
+
+        let classic = "# THIS IS AN AUTOGENERATED FILE. DO NOT EDIT THIS FILE DIRECTLY.\n# yarn lockfile v1\n";
+        let dir = tree("lock-classic", &[("yarn.lock", classic)]);
+        let Some(Install::Frozen { argv, .. }) = install_command(&dir) else {
+            panic!("a Yarn 1 lockfile is installable");
+        };
+        assert!(
+            argv.contains(&"--frozen-lockfile") && !argv.contains(&"--immutable"),
+            "the flag Yarn 1 actually honours, or it saves the lockfile: {argv:?}"
+        );
+    }
+
+    #[test]
+    fn a_lockfile_out_of_sync_is_named_as_that_and_not_as_an_error_code() {
+        // One line of each manager's own output, from a run of each.
+        let cases = [
+            (
+                "package-lock.json",
+                "npm error code EUSAGE\nnpm error `npm ci` can only install packages when your \
+                 package.json and package-lock.json are in sync.",
+                "npm install",
+            ),
+            (
+                "pnpm-lock.yaml",
+                "[ERR_PNPM_OUTDATED_LOCKFILE] Cannot install with \"frozen-lockfile\"",
+                "pnpm install",
+            ),
+            (
+                "yarn.lock",
+                "error Your lockfile needs to be updated, but yarn was run with \
+                 `--frozen-lockfile`.",
+                "yarn install",
+            ),
+            (
+                "bun.lock",
+                "error: lockfile had changes, but lockfile is frozen",
+                "bun install",
+            ),
+        ];
+        for (lock, stderr, refresh) in cases {
+            let said = install_complaint(lock, Path::new("apps/legacy"), stderr, Path::new("/l"));
+            assert!(said.contains("out of sync"), "{lock}: {said}");
+            assert!(said.contains("apps/legacy"), "which project: {said}");
+            assert!(said.contains(refresh), "what to run about it: {said}");
+            assert!(
+                !said.contains("EUSAGE") && !said.contains("ERR_PNPM"),
+                "the code is in the log, not in the sentence: {said}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_install_failure_that_is_not_the_lockfile_still_says_something() {
+        let said = install_complaint(
+            "package-lock.json",
+            Path::new(""),
+            "npm warn deprecated x\nnpm error network ETIMEDOUT\nnpm error at Socket",
+            Path::new("/tmp/i.log"),
+        );
+        assert!(said.contains("ETIMEDOUT"), "the complaint itself: {said}");
+        assert!(said.contains("the repository root"), "where: {said}");
+        assert!(said.contains("/tmp/i.log"), "and the rest is kept: {said}");
     }
 }

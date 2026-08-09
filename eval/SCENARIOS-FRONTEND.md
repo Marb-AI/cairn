@@ -33,7 +33,7 @@ obvious edge. The split is deliberate.
 
 ### F1 — a multi-hop trace through generated code (cairn expected)
 
-> In the rixby app, the API call that deletes a chat: what wraps it, and where in the UI is
+> In the web app, the API call that deletes a chat: what wraps it, and where in the UI is
 > it used?
 
 **Why cairn might win.** Three things have to go right at once. The call is defined in
@@ -45,18 +45,18 @@ once. This is the frontend's nearest thing to the gRPC boundary the tool wins on
 
 | step | where |
 |---|---|
-| the call | `apps/rixby/api/sdk.gen.ts:2363` — `deleteChat`, generated |
-| the wrapper | `apps/rixby/api/@tanstack/react-query.gen.ts:2692` — `deleteChatMutation`, generated, calls `deleteChat` at :2705 |
-| the use | `apps/rixby/components/chat/Chat.tsx:589` — `...deleteChatMutation()`, imported at :4 |
+| the call | `apps/web/api/sdk.gen.ts:2363` — `deleteThread`, generated |
+| the wrapper | `apps/web/api/@tanstack/react-query.gen.ts:2692` — `deleteThreadMutation`, generated, calls `deleteThread` at :2705 |
+| the use | `apps/web/components/chat/Chat.tsx:589` — `...deleteThreadMutation()`, imported at :4 |
 
-An answer that names `apps/marb_old` as though it were part of this app's flow is **worse**,
-not merely longer: `marb_old` is a retired app, excluded from the workspace, and a change
+An answer that names `apps/web_legacy` as though it were part of this app's flow is **worse**,
+not merely longer: `web_legacy` is a retired app, excluded from the workspace, and a change
 made there does nothing. An answer that stops at the generated wrapper without reaching
-`Chat.tsx` is worse. Naming all three, in the rixby app, is *same*.
+`Chat.tsx` is worse. Naming all three, in the web app, is *same*.
 
 ### F2 — a string that is not a symbol (grep expected)
 
-> What does the help button in the Intercom bubble say in English and Czech, and which
+> What does the help button in the support bubble say in English and Czech, and which
 > component renders it?
 
 **Why grep should win.** The subject is a translation key. It lives in a JSON file no
@@ -68,17 +68,17 @@ find it; it is not obvious what the index adds, and the guide tells the agent as
 
 | | |
 |---|---|
-| key | `intercom.openLabel` |
-| English | `Help & bug reports` — `apps/rixby/locales/en/translation.json` |
-| Czech | `Nápověda a hlášení chyb` — `apps/rixby/locales/cs/translation.json` |
-| rendered by | `apps/rixby/components/Intercom/IntercomBubble.tsx:169` |
+| key | `support.openLabel` |
+| English | `Help & bug reports` — `apps/web/locales/en/translation.json` |
+| Czech | `Nápověda a hlášení chyb` — `apps/web/locales/cs/translation.json` |
+| rendered by | `apps/web/components/support/SupportBubble.tsx:169` |
 
-Naming the sibling key `intercom.openLabelUnread` (:165) as well is *same*, not better —
+Naming the sibling key `support.openLabelUnread` (:165) as well is *same*, not better —
 it is adjacent and either arm trips over it.
 
 ### F3 — an ordinary reference question (neither expected)
 
-> I want to change what the `useChatFilters` hook returns. Which components would I have to
+> I want to change what the `useResultFilters` hook returns. Which components would I have to
 > update?
 
 **Why it is here.** This is the bulk of what anyone actually asks a code-navigation tool,
@@ -86,18 +86,18 @@ and the name is distinctive enough that a single `grep -rn` answers it. It is in
 because a set of only edge cases says nothing about the ordinary day, and because s01 —
 the same shape on the backend — is the scenario cairn loses.
 
-**Key.** Defined at `apps/rixby/hooks/useChatFilters.ts:22`. Four components destructure
+**Key.** Defined at `apps/web/hooks/useResultFilters.ts:22`. Four components destructure
 its return value:
 
 | component | call |
 |---|---|
 | `components/chat/Chat.tsx` | :887 |
-| `components/chat/ChatWidget.tsx` | :533 |
-| `components/chat/ChatSearch.tsx` | :40 |
-| `components/chat/ChatSummaryAside.tsx` | :521 |
+| `components/chat/ResultWidget.tsx` | :533 |
+| `components/chat/ResultSearch.tsx` | :40 |
+| `components/chat/ResultSummaryAside.tsx` | :521 |
 
 Listing the import lines as well is *same*. Missing any of the four is **worse**. Including
-`apps/marb_old` is worse for the reason given in F1.
+`apps/web_legacy` is worse for the reason given in F1.
 
 ## Prediction, recorded before the runs
 

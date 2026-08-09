@@ -202,7 +202,7 @@ records for the ranking fix.
 
 > Where is the `X-Api-Key` header set, and which client sends it?
 
-**Key.** `srcpy/libs/kontomatik/client.py:87`, in `KontomatikClient._headers`. Seven
+**Key.** `srcpy/libs/bank/client.py:87`, in `BankClient._headers`. Seven
 occurrences in total, the rest in tests.
 
 **Prediction.** grep 2 (find the line, read around it for the enclosing function), cairn
@@ -257,11 +257,11 @@ on. That symmetry is the point of the rewording: the old form warned both arms.
 
 ### 10 — nothing indexed for it (grep expected)
 
-> Which SQL under `tools/sql/geoplatform/estate_ranking` produces the ranked results, and
-> what does `04_rank_distance_inversions.sql` measure?
+> Which SQL under `tools/sql/geo/ranking` produces the ranked results, and
+> what does `04_rank_inversions.sql` measure?
 
 **Key.** `01_ranked_results_single_criterion.sql` produces the ranking;
-`04_rank_distance_inversions.sql` is read to answer the second half. No SQL is indexed —
+`04_rank_inversions.sql` is read to answer the second half. No SQL is indexed —
 cairn covers Python and Go only.
 
 **Key amended 2026-08-05, and the amendment is retroactive — see the note.** An answer is
@@ -355,7 +355,7 @@ a claim to be falsified, not an estimate to be confirmed.
   hiding the gaps its blocks used to state.
 - **The attribution being wrong rather than absent.** Only 25 616 of 66 296 definitions
   carry a body extent, so a hit inside a function without one is attributed to the
-  enclosing class. That is a silent downgrade — the row says "in KontomatikClient" and
+  enclosing class. That is a silent downgrade — the row says "in BankClient" and
   means "somewhere in it" — and it is the next thing to fix if a run trips on it.
 
 ## Not built, and named so the absence is not read as a finding
@@ -649,7 +649,7 @@ instructions, not whether the arm could find the shape.
 | 4 | "…what serves it, **and where does that land**?" | states that the chain has more than one hop, so depth is supplied rather than discovered | "The Python endpoint `get_shared_object` — trace what happens when it is called." |
 | 6 | "Which **deployed services** does that touch?" | uses the tool's own vocabulary; the grep arm has to invent the notion of deployment from compose files | "I am changing `FolderServiceHandler`. What else is affected?" |
 | 9 | "*(added before the run)* **I just added** `quota_headroom`" | hands over the diagnosis — that the index may be behind the tree — which is the whole thing being tested | "Is anything calling `quota_headroom` yet?" |
-| 10 | names `04_rank_distance_inversions.sql` | the file the arm is supposed to locate | "Which SQL under `tools/sql/geoplatform/estate_ranking` produces the ranked results, and what does the last stage measure?" |
+| 10 | names `04_rank_inversions.sql` | the file the arm is supposed to locate | "Which SQL under `tools/sql/geo/ranking` produces the ranked results, and what does the last stage measure?" |
 
 Scenario 4 is the sharpest case, because it is the one this round built a command for. Its
 prediction of 3 round trips is a prediction about a question that already tells the arm the

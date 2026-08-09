@@ -17,8 +17,10 @@
 //! per cairn release and then reused — the second repository you index pays nothing.
 
 use anyhow::{bail, Context, Result};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{Mutex, OnceLock};
 
 const DOCKERFILE: &str = include_str!("../assets/indexers.Dockerfile");
 
@@ -128,6 +130,43 @@ fn running(name: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// A volume name for one project's dependencies, stable across runs.
+///
+/// Keyed on the repository path and the project's path within it, so two checkouts and two
+/// workspace members never share a tree.
+pub fn deps_volume(repo: &Path, rel: &Path) -> String {
+    let key = format!("{}::{}", repo.display(), rel.display());
+    format!(
+        "cairn-deps-{}",
+        &blake3::hash(key.as_bytes()).to_hex()[..12]
+    )
+}
+
+/// The dependency roots a repository's container must carry, remembered for this process.
+///
+/// `exec` restarts the container when it has gone, and has no survey to hand. Without this
+/// it would recreate one with no volumes at all, and the next install would write the
+/// dependency tree into the user's working copy — the failure this whole mechanism exists
+/// to prevent, arriving by the one path that does not go through `index`.
+static DEP_ROOTS: OnceLock<Mutex<HashMap<String, Vec<PathBuf>>>> = OnceLock::new();
+
+fn remembered(name: &str) -> Vec<PathBuf> {
+    DEP_ROOTS
+        .get_or_init(Default::default)
+        .lock()
+        .map(|m| m.get(name).cloned().unwrap_or_default())
+        .unwrap_or_default()
+}
+
+/// Start the repository's container carrying a volume for each of `dep_roots`, and return
+/// its name.
+///
+/// The roots are relative to the repository root, and they are passed here rather than
+/// arranged later because a volume cannot be added to a running container.
+pub fn ensure_container_with_deps(repo: &Path, dep_roots: &[PathBuf]) -> Result<String> {
+    ensure_container_inner(repo, dep_roots)
+}
+
 /// Start the repository's container if it is not already up, and return its name.
 ///
 /// One container per repository, started once and left running — **not** a fresh
@@ -139,23 +178,86 @@ fn running(name: &str) -> bool {
 /// It holds no state of its own. The repository is a mount and the process inside is a
 /// sleep, so losing the container costs a restart and nothing else.
 pub fn ensure_container(repo: &Path) -> Result<String> {
+    ensure_container_inner(repo, &[])
+}
+
+/// The named volumes a container carries, or `None` if there is no such container.
+///
+/// The two have to be distinguishable. A container from before this mechanism carries no
+/// named volumes at all, and reading that as "nothing is there" is the one mistake that
+/// silently reuses it — which is exactly the container that must not be reused. Binds
+/// report an empty name and drop out; only the volumes cairn manages are of interest.
+fn mounted_volumes(name: &str) -> Option<Vec<String>> {
+    let out = Command::new("docker")
+        .args([
+            "inspect",
+            "--format",
+            "{{range .Mounts}}{{.Name}}\n{{end}}",
+            name,
+        ])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+            .map(str::to_string)
+            .collect(),
+    )
+}
+
+fn ensure_container_inner(repo: &Path, dep_roots: &[PathBuf]) -> Result<String> {
     let repo =
         std::fs::canonicalize(repo).with_context(|| format!("resolving {}", repo.display()))?;
     let name = container_name(&repo);
-    if running(&name) {
-        return Ok(name);
-    }
-    // Present but stopped: start it rather than rebuilding. It holds no state, but
-    // recreating it would throw away whatever the language servers have cached.
-    if Command::new("docker")
-        .args(["start", &name])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
-    {
-        return Ok(name);
+
+    let dep_roots: Vec<PathBuf> = if dep_roots.is_empty() {
+        remembered(&name)
+    } else {
+        if let Ok(mut m) = DEP_ROOTS.get_or_init(Default::default).lock() {
+            m.insert(name.clone(), dep_roots.to_vec());
+        }
+        dep_roots.to_vec()
+    };
+    let wanted: Vec<String> = dep_roots
+        .iter()
+        .map(|rel| deps_volume(repo.as_ref(), rel.as_path()))
+        .collect();
+
+    // A container that predates these volumes, or that was started for a repository whose
+    // workspace has grown a member since, is missing at least one of them - and a missing
+    // volume is not a smaller version of the same thing, it is the install landing in the
+    // working copy. Reuse is conditional on carrying every one of them.
+    match mounted_volumes(&name) {
+        Some(existing) if wanted.iter().all(|v| existing.contains(v)) => {
+            if running(&name) {
+                return Ok(name);
+            }
+            // Present but stopped: start it rather than rebuilding. It holds no state, but
+            // recreating it would throw away whatever the language servers have cached.
+            if Command::new("docker")
+                .args(["start", &name])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+            {
+                return Ok(name);
+            }
+        }
+        Some(_) => {
+            let _ = Command::new("docker")
+                .args(["rm", "--force", &name])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+        }
+        None => {}
     }
 
     let mut cmd = Command::new("docker");
@@ -164,6 +266,45 @@ pub fn ensure_container(repo: &Path) -> Result<String> {
         .arg(format!("{}:{MOUNT}", repo.display()))
         .arg("--workdir")
         .arg(MOUNT);
+
+    // A volume over each project's `node_modules`, so the dependency tree lives where node
+    // resolution needs it and nowhere on the host.
+    //
+    // Reading the user's own `node_modules` was the alternative and it is not one: a team
+    // that builds its frontend in Docker has none, and a team that has them today can stop
+    // tomorrow. A tool whose index depends on a directory it does not own breaks quietly
+    // when that directory goes. cairn declares one dependency - Docker - and everything
+    // else it needs, it provides.
+    //
+    // Docker creates a named volume owned by root, and this container runs as the caller,
+    // so the first `mkdir` inside one fails with EACCES and the install dies a line into
+    // resolving. Ownership is set first, by a throwaway root container - one for all of
+    // them, because a monorepo has a volume per workspace member and a container each would
+    // be most of the first run's wall clock.
+    #[cfg(unix)]
+    if !wanted.is_empty() {
+        let (uid, gid) = unsafe { (libc::getuid(), libc::getgid()) };
+        let mut chown = Command::new("docker");
+        chown.args(["run", "--rm", "--user", "0:0"]);
+        let mut targets = Vec::new();
+        for (n, vol) in wanted.iter().enumerate() {
+            chown.arg("--volume").arg(format!("{vol}:/v{n}"));
+            targets.push(format!("/v{n}"));
+        }
+        let _ = chown
+            .arg(image_tag())
+            .args(["chown", "-R", &format!("{uid}:{gid}")])
+            .args(&targets)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    for (rel, vol) in dep_roots.iter().zip(&wanted) {
+        cmd.arg("--volume").arg(format!(
+            "{vol}:{}",
+            Path::new(MOUNT).join(rel).join("node_modules").display()
+        ));
+    }
 
     // Run as the caller, so files written inside belong to them rather than to root.
     #[cfg(unix)]

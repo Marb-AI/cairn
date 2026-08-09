@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 use cairn_fmt::{Budget, Detail, Source, View};
 use cairn_store::{ingest, Direction, EdgeKind, Store};
 use clap::{Parser, Subcommand};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
@@ -791,8 +792,99 @@ fn produce_indexes(repo: &Path, out_rel: &Path, survey: &index::Survey) -> Resul
         );
     }
 
+    // The container is created with a volume over each `node_modules` cairn is going to
+    // fill, so it has to know all of them before anything execs into it: a volume cannot be
+    // added to a running container. A container left from an earlier run without them is
+    // removed and remade rather than reused, because reusing it would put the dependency
+    // tree in the user's working copy, which is the thing this exists to avoid.
+    //
+    // Every `package.json` directory, not only the projects being indexed. A workspace
+    // install runs once at the lockfile and writes a `node_modules` into the root **and**
+    // into every member, so covering the three apps and not the root put 1.3 GB in the
+    // working copy on the first repository this was tried on.
+    let dep_roots: Vec<PathBuf> = if survey.found.iter().any(|f| f.language.name == "typescript") {
+        survey.package_dirs.clone()
+    } else {
+        Vec::new()
+    };
+    // A bound on it. The volumes are created before a single file is indexed, so a wrong
+    // list is paid for up front: a dependency tree checked in under a name the scan does
+    // not skip turned four of these into 1429, one per package inside it. No workspace has
+    // that many members, and mounting a volume for each is not a smaller version of the
+    // right thing - it is minutes of Docker before an index that was never going to be
+    // about the repository. Refusing says which directories, so the answer is a `.gitignore`
+    // away rather than a mystery.
+    const MAX_DEP_ROOTS: usize = 64;
+    if dep_roots.len() > MAX_DEP_ROOTS {
+        let deepest: Vec<String> = {
+            let mut d = dep_roots.clone();
+            d.sort_by_key(|p| std::cmp::Reverse(p.components().count()));
+            d.iter().take(3).map(|p| p.display().to_string()).collect()
+        };
+        anyhow::bail!(
+            "{} directories here hold a package.json, and cairn covers each with a \
+             dependency volume of its own before it indexes anything - more than {} means a \
+             dependency tree is checked into the repository rather than installed into it. \
+             The deepest are {}. cairn's scan skips `node_modules` and `vendor` by name; \
+             anything else holding one has to be excluded before this can run.",
+            dep_roots.len(),
+            MAX_DEP_ROOTS,
+            deepest.join(", ")
+        );
+    }
+    if !dep_roots.is_empty() {
+        docker::ensure_container_with_deps(repo, &dep_roots)?;
+    }
+
+    // A project's path as the reader knows it: relative to the repository, and `.` for the
+    // repository itself rather than the empty string that is technically correct.
+    let where_of = |p: &Path| {
+        p.strip_prefix(repo)
+            .ok()
+            .filter(|r| !r.as_os_str().is_empty())
+            .map(|r| r.display().to_string())
+            .unwrap_or_else(|| ".".to_string())
+    };
+
+    // One install per lockfile, before any indexing. Two members of one workspace resolve
+    // from the same lockfile at the root, so installing per project installed the same tree
+    // twice - 7.9 s and then 4.6 s to arrive where it already was. Keyed by lock root, and
+    // the outcome is remembered: when a lockfile cannot be installed, every project that
+    // resolves through it is unindexable for the same reason, and saying so once per
+    // project beats letting each discover it separately.
+    let mut installs: HashMap<PathBuf, Result<f64, String>> = HashMap::new();
+    for f in &survey.found {
+        if f.language.name != "typescript" {
+            continue;
+        }
+        for root in &f.roots {
+            let Some(lock_root) = index::lock_root(root, repo) else {
+                continue;
+            };
+            if installs.contains_key(&lock_root) {
+                continue;
+            }
+            print!(
+                "  {:<10} installing {}  ",
+                f.language.name,
+                where_of(&lock_root)
+            );
+            let _ = std::io::stdout().flush();
+            let outcome = index::install_dependencies(repo, &lock_root, out_rel);
+            match &outcome {
+                Ok(seconds) => println!("{seconds:.1}s"),
+                Err(_) => println!("failed"),
+            }
+            installs.insert(lock_root, outcome);
+        }
+    }
+
     let mut produced = Vec::new();
-    let mut failed = Vec::new();
+    // Which projects failed, per language, rather than which languages had a failure. A
+    // workspace where one member of three cannot be indexed is not a repository with no
+    // TypeScript in its index, and the warning that said so was telling the reader to
+    // distrust two indexes that are fine.
+    let mut failed: HashMap<&'static str, Vec<String>> = HashMap::new();
     for f in &survey.found {
         // One run per project root. A Go module's root sees every package inside it, so
         // there is one; a JavaScript workspace has one per member, because `apps/a` and
@@ -807,14 +899,19 @@ fn produce_indexes(repo: &Path, out_rel: &Path, survey: &index::Survey) -> Resul
                 // ingest would read one of them as the whole language.
                 format!("{}-{n}", f.language.name)
             };
-            let where_ = root
-                .strip_prefix(repo)
-                .ok()
-                .filter(|p| !p.as_os_str().is_empty())
-                .map(|p| format!(" {}", p.display()))
-                .unwrap_or_default();
-            print!("  {:<10} indexing{where_}  ", f.language.name);
+            print!("  {:<10} indexing {}  ", f.language.name, where_of(root));
             let _ = std::io::stdout().flush();
+            // A project whose lockfile would not install is not one to hand to an indexer:
+            // the run would take minutes and produce an empty index, which is worse than
+            // the failure it already has.
+            if let Some(Err(why)) = index::lock_root(root, repo).map(|l| &installs[&l]) {
+                println!("failed: {why}");
+                failed
+                    .entry(f.language.name)
+                    .or_default()
+                    .push(where_of(root));
+                continue;
+            }
             match index::run_indexer(f, root, &tag, repo, out_rel) {
                 index::Outcome::Indexed { scip, seconds } => {
                     println!("{seconds:.1}s");
@@ -822,9 +919,10 @@ fn produce_indexes(repo: &Path, out_rel: &Path, survey: &index::Survey) -> Resul
                 }
                 index::Outcome::Failed(e) => {
                     println!("failed: {e}");
-                    if !failed.contains(&f.language.name) {
-                        failed.push(f.language.name);
-                    }
+                    failed
+                        .entry(f.language.name)
+                        .or_default()
+                        .push(where_of(root));
                 }
             }
         }
@@ -836,12 +934,40 @@ fn produce_indexes(repo: &Path, out_rel: &Path, survey: &index::Survey) -> Resul
 
     // The warning is loud on purpose. Everything downstream reports what it cannot see,
     // and a whole language missing from the index is the largest thing it cannot see.
+    //
+    // A language every project of which failed is absent; a language that lost one project
+    // of three is not, and the two deserve different sentences. Saying "typescript is not
+    // in the index" of a workspace whose other two members indexed 24 889 symbols is
+    // the same overstatement in the other direction.
     let mut absent: Vec<String> = survey
         .unsupported
         .iter()
         .map(|(l, _, _)| l.to_string())
         .collect();
-    absent.extend(failed.iter().map(|s| s.to_string()));
+    let mut partial: Vec<String> = Vec::new();
+    for f in &survey.found {
+        let Some(bad) = failed.get(f.language.name) else {
+            continue;
+        };
+        if bad.len() >= f.roots.len() {
+            absent.push(f.language.name.to_string());
+        } else {
+            partial.push(format!(
+                "{} of the {} {} projects ({})",
+                bad.len(),
+                f.roots.len(),
+                f.language.name,
+                bad.join(", ")
+            ));
+        }
+    }
+    if !partial.is_empty() {
+        println!(
+            "\nWARNING: {} could not be indexed. Answers about that code will be\n\
+             \x20        incomplete rather than empty - nothing here can see it.",
+            partial.join("; ")
+        );
+    }
     if !absent.is_empty() {
         println!(
             "\nWARNING: {} is in this repository and is not in the index. Answers will be\n\

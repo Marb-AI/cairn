@@ -8,5 +8,5 @@
   "7": "Where is the X-Api-Key header set, and which client sends it?",
   "8": "Which services publish MCP_SERVER_PORT, and what is the default?",
   "9": "I just added a function called quota_headroom to the quota repository (srcpy/domains/assistant/repository/quota.py). Is anything calling it yet?",
-  "10": "Which SQL under tools/sql/geoplatform/estate_ranking produces the ranked results, and what does 04_rank_distance_inversions.sql measure?"
+  "10": "Which SQL under tools/sql/geo/ranking produces the ranked results, and what does 04_rank_inversions.sql measure?"
 }
