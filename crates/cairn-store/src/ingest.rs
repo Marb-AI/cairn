@@ -624,10 +624,10 @@ fn detect_lang(doc: &cairn_scip::Document) -> Lang {
             .extension()
             .and_then(|e| e.to_str())
         {
-            Some("py") | Some("pyi") => Lang::Python,
-            Some("go") => Lang::Go,
-            Some("ts") | Some("tsx") | Some("js") | Some("jsx") => Lang::TypeScript,
-            _ => Lang::Unknown,
+            // The shared mapping, so this cannot disagree with the watcher or the
+            // renderer about what counts as code.
+            Some(ext) => Lang::of_extension(ext),
+            None => Lang::Unknown,
         },
     }
 }

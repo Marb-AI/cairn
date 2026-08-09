@@ -115,6 +115,38 @@ impl Lang {
         }
     }
 
+    /// Which language a path is, by extension — **the one place that mapping lives**.
+    ///
+    /// It lived in four places, spelled by hand, and the copies drifted the moment a third
+    /// language arrived: the ingest knew about `.ts`, the daemon's watcher did not and went
+    /// silent about new TypeScript modules, the residue filter did not and was empty for
+    /// every TypeScript symbol, and `for find` did not and so never said "not in the index"
+    /// about a TypeScript file the index had missed. Each was a separate silence and each
+    /// looked like a clean answer. One home, so the next language cannot leave three of
+    /// them behind.
+    pub fn of_path(path: &str) -> Lang {
+        match path.rsplit('.').next() {
+            Some(ext) if !ext.is_empty() && ext.len() < path.len() => Lang::of_extension(ext),
+            _ => Lang::Unknown,
+        }
+    }
+
+    /// The same mapping given the extension alone, for the ingest, which already has it
+    /// and would otherwise build a path to ask about.
+    pub fn of_extension(ext: &str) -> Lang {
+        match ext {
+            "py" | "pyi" => Lang::Python,
+            "go" => Lang::Go,
+            "ts" | "tsx" | "js" | "jsx" => Lang::TypeScript,
+            _ => Lang::Unknown,
+        }
+    }
+
+    /// Is this a file some indexer here could have read?
+    pub fn is_code_path(path: &str) -> bool {
+        Lang::of_path(path) != Lang::Unknown
+    }
+
     /// Derived from the SCIP tool name, not from file extensions.
     pub fn from_scip_scheme(scheme: &str) -> Lang {
         match scheme {
@@ -429,6 +461,52 @@ impl LayerCounts {
                  than empty - nothing has been ruled out. {how}"
             )
         })
+    }
+}
+
+#[cfg(test)]
+mod lang_paths {
+    use super::Lang;
+
+    #[test]
+    fn every_language_the_index_holds_is_a_code_path() {
+        // Four hand-written copies of this mapping drifted when TypeScript arrived, and
+        // each one failed silently: no "created" for a new module, an empty residue, an
+        // untagged hit in a file the index never read. The property is that a language
+        // cairn indexes is code everywhere, not only where somebody remembered.
+        for p in [
+            "srcpy/a.py",
+            "srcpy/a.pyi",
+            "srcgo/a.go",
+            "apps/web/a.ts",
+            "apps/web/a.tsx",
+            "apps/web/a.js",
+            "apps/web/a.jsx",
+        ] {
+            assert!(Lang::is_code_path(p), "{p} is a file an indexer here reads");
+            assert_ne!(Lang::of_path(p), Lang::Unknown, "{p}");
+        }
+        for p in [
+            "compose.yaml",
+            "docs/x.md",
+            "tools/q.sql",
+            "Makefile",
+            "proto/a.proto",
+        ] {
+            assert!(!Lang::is_code_path(p), "{p} is not indexed as source");
+        }
+    }
+
+    #[test]
+    fn the_language_of_a_path_is_the_language_the_indexer_gave_it() {
+        assert_eq!(Lang::of_path("a/b.py"), Lang::Python);
+        assert_eq!(Lang::of_path("a/b.pyi"), Lang::Python);
+        assert_eq!(Lang::of_path("a/b.go"), Lang::Go);
+        assert_eq!(Lang::of_path("a/b.tsx"), Lang::TypeScript);
+        assert_eq!(Lang::of_path("a/b.jsx"), Lang::TypeScript);
+        // A path with no extension must not fall through to some language by accident.
+        assert_eq!(Lang::of_path("Makefile"), Lang::Unknown);
+        assert_eq!(Lang::of_path(""), Lang::Unknown);
     }
 }
 

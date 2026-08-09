@@ -2647,10 +2647,15 @@ pub fn found(
             if h.context.is_test {
                 tags.push("test");
             }
-            // Only worth a tag where the absence is news: a `.py` or `.go` file the
-            // index has not got is a gap, a `.yaml` never could be. Said per file it was
-            // ten identical lines of noise; the general case belongs in the envelope.
-            let code = h.path.ends_with(".py") || h.path.ends_with(".go");
+            // Only worth a tag where the absence is news: a code file the index has not
+            // got is a gap, a `.yaml` never could be. Said per file it was ten identical
+            // lines of noise; the general case belongs in the envelope.
+            //
+            // From the shared mapping, not two extensions written here. It was `.py` or
+            // `.go`, so on the frontend every hit in the one app that fails to index was
+            // shown untagged - identical to a hit in a file the index knows - and the
+            // reader had no way to learn that no symbol command can see that code.
+            let code = Lang::is_code_path(&h.path);
             if code && !h.context.indexed {
                 tags.push("not in the index - a code file the last index run missed");
             }
