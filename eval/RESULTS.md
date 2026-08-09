@@ -2789,3 +2789,31 @@ backend **16/17 checks reaching an assertion, no contradictions**, twice; on the
 topology, which a frontend does not have. `CAIRN_SWEEP_SAMPLE=400 cargo test --test sweep`
 passed twice. 204 tests, 11/11 mutations caught, fmt and clippy clean on the Linux and
 Windows targets.
+
+### The fourth copy, and the verdict for `5293b76`
+
+The same mapping — which extension is which language — turned out to have a fourth
+hand-written copy, in the renderer: `for find` tags a hit as *not in the index - a code
+file the last index run missed*, and the test for "is this code" was `.py` or `.go`. On the
+frontend, where one app of three fails to index, **every hit in that app was shown
+untagged** — identical in the output to a hit in a file the index knows, with nothing to
+say that no symbol command can see it. That is the same silence as the other three, in the
+command the frontend measurement says is cairn's one winning class.
+
+Four copies, four identical failures on the arrival of a third language. `Lang::of_path`
+is the mapping now, and the test asserts the property rather than the list: a language the
+index holds is code everywhere, not only where somebody remembered. The ingest was
+re-run against the fixture corpus to confirm the refactor changed nothing — 16 files, 490
+symbols, as before.
+
+**Verdict, one frozen binary, both nets wide, twice each.** `stress.py … 40` (160 symbols):
+backend **16/17 reaching an assertion, no contradictions** twice; frontend **10/17, no
+contradictions** twice. `CAIRN_SWEEP_SAMPLE=400 cargo test --test sweep` passed twice.
+206 tests, 11/11 mutations, fmt and clippy clean on both targets.
+
+**What the frontend's 10/17 is, said plainly:** seven checks never reach a guard there, and
+all seven are about service topology — `reaches`, `runs agrees with affects`, `chain
+followed to where it says`. A frontend has no gRPC and no compose file, so those are facts
+about the question, not about cairn. The reading that would be wrong is "cairn is 59 %
+checked on TypeScript"; the reading that is right is "ten of the ten checks that apply,
+pass". It is worth restating because the number invites the first reading.
