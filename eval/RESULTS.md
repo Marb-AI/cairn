@@ -2817,3 +2817,60 @@ followed to where it says`. A frontend has no gRPC and no compose file, so those
 about the question, not about cairn. The reading that would be wrong is "cairn is 59 %
 checked on TypeScript"; the reading that is right is "ten of the ten checks that apply,
 pass". It is worth restating because the number invites the first reading.
+
+## The index did not record that it was built incompletely — 2026-08-10
+
+Yesterday's seven defects were all *unread files*: a residue that counted an unindexed
+project's lines as the graph's misses, a `for find` hit shown untagged. Both fixes told the
+reader about one file at a time. The question that follows is the one above them: **does
+the index record that it is partial at all, or does that die with the index run?**
+
+It died with the run. `cairn index` printed
+
+> `typescript indexing apps/marb_old  failed: package-lock.json … is out of sync`
+
+and nothing kept it. Every later answer came from an index holding 841 of the repository's
+1079 files and said nothing, because nothing had recorded that anything was missing.
+
+`status` went further and made the claim outright:
+
+```
+  typescript     indexed       25053 symbols from 1079 files
+```
+
+Both halves are wrong. `State::Indexed` is documented in the source as *"the pass ran and
+what it produced matches the tree it was built from … a claim about two counts agreeing"* —
+and the code never compared them: any language with one symbol was `Indexed`. The detail
+then quoted **1079**, the tree's count, as the number of files those symbols came from; the
+index holds 841. `State::Partial` — *"it produced output, and something named is missing
+from it"* — already existed for exactly this and was unreachable for a language.
+
+Now:
+
+```
+! typescript     partial       25053 symbols from 841 of 1079 files - apps/marb_old did not
+                 index, so answers about that code are absent rather than empty
+  -> answers that rest on typescript are incomplete or empty, and will not say so
+```
+
+and `typescript` joins the envelope's list of mechanisms that did not complete.
+
+**Recorded, not inferred.** The obvious alternative is to flag a language when its indexed
+file count falls short of the tree's. Measured, that threshold cannot be defended: the
+backend indexes **1169 of 1184** Python files and **514 of 516** Go files — files holding no
+symbol, and 23 documents whose paths escaped the workspace root — against the frontend's
+841 of 1079. One is noise and one is a missing app, and no percentage separates them
+honestly. The index run *knows* which project failed; that is the fact worth persisting.
+The backend, where nothing failed, still reads `indexed` — now against the indexed count
+rather than the tree's.
+
+**The schema version goes to 19 with no table changed.** An index written before this has
+no `index.failed` rows, and their absence reads as "nothing failed" — the same confident
+negative one level down, in the one place that would be invisible. It costs one reindex.
+
+### Verdict for `a27e588`
+
+One frozen binary, all three indexes rebuilt at v19, both nets wide, twice each: backend
+**16/17 reaching an assertion, no contradictions** twice; frontend **10/17, no
+contradictions** twice; `CAIRN_SWEEP_SAMPLE=400 cargo test --test sweep` twice. 208 tests,
+11/11 mutations, fmt and clippy clean on both targets.
