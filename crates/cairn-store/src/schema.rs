@@ -15,7 +15,14 @@ use rusqlite::Connection;
 /// Bumped whenever the schema changes in a way that invalidates existing databases.
 /// The ingest path drops and rebuilds rather than migrating: the store is a projection,
 /// never a source of truth.
-pub const SCHEMA_VERSION: i64 = 18;
+///
+/// v19 adds no table and no column. It is bumped because an index written before it
+/// **cannot answer a question later versions ask of it**: which projects failed to build,
+/// recorded under `index.failed.*`. An older index has no such rows, and their absence
+/// reads as "nothing failed" — a confident negative from a database that was never asked.
+/// Invalidating it costs one `cairn index` and buys back the one guarantee that matters
+/// here: an answer knows the shape of its own gaps.
+pub const SCHEMA_VERSION: i64 = 19;
 
 pub const SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (

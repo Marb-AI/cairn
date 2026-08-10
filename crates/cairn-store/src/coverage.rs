@@ -173,6 +173,70 @@ impl Store {
         Ok(())
     }
 
+    /// Record the projects an indexer could not build, so later answers can say so.
+    ///
+    /// `cairn index` printed which project failed and the fact went no further. Every
+    /// command afterwards read an index missing a fifth of the repository and reported it
+    /// as an index of the repository — the failure was known, once, by the only process
+    /// that never gets asked a question. An index has to carry the shape of its own gaps
+    /// or nothing downstream can.
+    ///
+    /// Cleared first, so a run that fixes a project stops reporting it as broken.
+    pub fn set_failed_projects(&self, failed: &[(String, String)]) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM meta WHERE key LIKE 'index.failed.%'", [])?;
+        let mut by_lang: std::collections::HashMap<&str, Vec<&str>> =
+            std::collections::HashMap::new();
+        for (lang, project) in failed {
+            by_lang.entry(lang).or_default().push(project);
+        }
+        for (lang, mut projects) in by_lang {
+            projects.sort();
+            self.set_meta(&format!("index.failed.{lang}"), &projects.join("\n"))?;
+        }
+        Ok(())
+    }
+
+    /// Projects that failed to index, by language.
+    pub fn failed_projects(&self) -> Result<std::collections::HashMap<String, Vec<String>>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT key, value FROM meta WHERE key LIKE 'index.failed.%'")?;
+        let rows = stmt.query_map([], |r| {
+            let key: String = r.get(0)?;
+            let value: String = r.get(1)?;
+            Ok((
+                key.trim_start_matches("index.failed.").to_string(),
+                value.lines().map(str::to_string).collect::<Vec<String>>(),
+            ))
+        })?;
+        let mut out = std::collections::HashMap::new();
+        for r in rows {
+            let (k, v) = r?;
+            out.insert(k, v);
+        }
+        Ok(out)
+    }
+
+    /// Files in the index, per language tag.
+    fn indexed_files_by_lang(&self) -> Result<std::collections::HashMap<String, i64>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT lang, count(*) FROM files GROUP BY lang")?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                crate::Lang::from_i64(r.get::<_, i64>(0)?).tag().to_string(),
+                r.get::<_, i64>(1)?,
+            ))
+        })?;
+        let mut out = std::collections::HashMap::new();
+        for r in rows {
+            let (k, v) = r?;
+            *out.entry(normalise_lang(&k)).or_insert(0) += v;
+        }
+        Ok(out)
+    }
+
     /// What the tree held, or an empty list when nothing was recorded.
     ///
     /// Empty is normal: `cairn index <file.scip>` ingests a SCIP file somebody else
@@ -417,6 +481,8 @@ impl Store {
             }
         }
         let tree = self.tree_survey()?;
+        let failed = self.failed_projects()?;
+        let indexed_files = self.indexed_files_by_lang()?;
         let mut out = Vec::new();
 
         for l in &tree {
@@ -442,11 +508,41 @@ impl Store {
                         l.files
                     ),
                 },
-                (true, n) => Area {
-                    name: l.name.clone(),
-                    state: State::Indexed,
-                    detail: format!("{n} symbols from {} files", l.files),
-                },
+                // `Indexed` is documented as two counts agreeing, and nothing compared
+                // them. A workspace whose retired app fails on a broken lockfile read
+                // `indexed  25053 symbols from 1079 files` — the file count being the
+                // tree's, so the sentence claimed the symbols came from files the index
+                // had never opened, and the state claimed a match that had not been
+                // checked. `Partial` already existed for exactly this and was unreachable.
+                //
+                // Which projects failed is recorded by the index run rather than inferred
+                // from a shortfall: counts differ a little for honest reasons — 15 of the
+                // backend's 1184 Python files hold no symbol — and a threshold over that
+                // noise would be a number nobody could defend.
+                (true, n) => {
+                    let held = indexed_files
+                        .get(&normalise_lang(&l.name))
+                        .copied()
+                        .unwrap_or(0);
+                    match failed.get(&normalise_lang(&l.name)) {
+                        Some(projects) if !projects.is_empty() => Area {
+                            name: l.name.clone(),
+                            state: State::Partial,
+                            detail: format!(
+                                "{n} symbols from {held} of {} files - {} did not index, so \
+                                 answers about that code are absent rather than empty; \
+                                 re-run `cairn index` and read what it prints",
+                                l.files,
+                                projects.join(", ")
+                            ),
+                        },
+                        _ => Area {
+                            name: l.name.clone(),
+                            state: State::Indexed,
+                            detail: format!("{n} symbols from {held} files"),
+                        },
+                    }
+                }
             });
         }
 
@@ -614,5 +710,94 @@ mod tests {
         let area = store.cross_api_coverage().unwrap();
         assert_eq!(area.state, State::Failing);
         assert!(area.detail.contains("3 .proto files"));
+    }
+}
+
+#[cfg(test)]
+mod partial_index {
+    use super::*;
+
+    #[test]
+    fn a_project_that_failed_to_index_makes_the_language_partial_not_indexed() {
+        // `Indexed` is documented as "the pass ran and what it produced matches the tree
+        // it was built from", and nothing compared the two. A workspace whose retired app
+        // fails on a broken lockfile reported `indexed  25053 symbols from 1079 files`
+        // while the index held 841 - the state asserting a match nobody checked, and the
+        // sentence quoting the tree's file count as though the symbols came from it.
+        let store = Store::open_in_memory().unwrap();
+        store
+            .set_tree_survey(
+                &[TreeLanguage {
+                    name: "typescript".into(),
+                    files: 1079,
+                    indexable: true,
+                }],
+                0,
+            )
+            .unwrap();
+        store.set_meta("tree.protos", "0").unwrap();
+        seed_files(&store, 841);
+
+        // Clean first: nothing recorded as failed.
+        let areas = store.coverage(None).unwrap();
+        let ts = areas.iter().find(|a| a.name == "typescript").unwrap();
+        assert_eq!(ts.state, State::Indexed);
+
+        store
+            .set_failed_projects(&[("typescript".into(), "apps/web_legacy".into())])
+            .unwrap();
+        let areas = store.coverage(None).unwrap();
+        let ts = areas.iter().find(|a| a.name == "typescript").unwrap();
+        assert_eq!(ts.state, State::Partial, "{}", ts.detail);
+        assert!(ts.state.is_trouble());
+        assert!(ts.detail.contains("apps/web_legacy"), "{}", ts.detail);
+        assert!(
+            ts.detail.contains("841 of 1079"),
+            "both counts, so the gap is visible: {}",
+            ts.detail
+        );
+    }
+
+    #[test]
+    fn a_run_that_fixes_the_project_stops_reporting_it() {
+        // The record has to be cleared, or an index rebuilt successfully goes on
+        // advertising a failure that is over - which teaches the reader to ignore it.
+        let store = Store::open_in_memory().unwrap();
+        store
+            .set_failed_projects(&[("typescript".into(), "apps/web_legacy".into())])
+            .unwrap();
+        assert!(!store.failed_projects().unwrap().is_empty());
+        store.set_failed_projects(&[]).unwrap();
+        assert!(store.failed_projects().unwrap().is_empty());
+    }
+
+    fn seed_files(store: &Store, n: i64) {
+        let c = &store.conn;
+        for i in 0..n {
+            c.execute(
+                "INSERT OR IGNORE INTO strings(s) VALUES (?1)",
+                rusqlite::params![format!("apps/web/f{i}.ts")],
+            )
+            .unwrap();
+            let sid: i64 = c
+                .query_row(
+                    "SELECT id FROM strings WHERE s = ?1",
+                    rusqlite::params![format!("apps/web/f{i}.ts")],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            c.execute(
+                "INSERT INTO files(path_id, lang, is_test, generated) VALUES (?1, 3, 0, 0)",
+                rusqlite::params![sid],
+            )
+            .unwrap();
+        }
+        // One symbol, so the language counts as produced at all.
+        c.execute(
+            "INSERT INTO symbols(hash, name_id, kind, lang, ref_count, def_file_id)
+             VALUES (?1, 1, 2, 3, 0, 1)",
+            rusqlite::params![vec![7u8; 16]],
+        )
+        .unwrap();
     }
 }

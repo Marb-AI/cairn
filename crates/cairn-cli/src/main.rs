@@ -744,7 +744,19 @@ fn index_dir_rel(db: &Path, repo: &Path) -> PathBuf {
 /// Reports per language rather than stopping at the first gap, and says plainly when a
 /// language is present that cairn cannot read — an index that silently covers half a
 /// repository is the same confident incompleteness every answer here is built to avoid.
-fn produce_indexes(repo: &Path, out_rel: &Path, survey: &index::Survey) -> Result<Vec<PathBuf>> {
+/// The SCIP files produced, and the projects that could not be indexed.
+///
+/// The failures are returned rather than only printed. `cairn index` said which project
+/// failed and then the fact died with the command: every later answer was assembled from
+/// an index missing a fifth of the repository and said nothing, because nothing had
+/// recorded that anything was missing. An index has to carry the shape of its own gaps.
+struct Produced {
+    scips: Vec<PathBuf>,
+    /// (language, project path relative to the repository).
+    failed: Vec<(String, String)>,
+}
+
+fn produce_indexes(repo: &Path, out_rel: &Path, survey: &index::Survey) -> Result<Produced> {
     use std::io::Write;
 
     if survey.found.is_empty() && survey.unsupported.is_empty() {
@@ -931,6 +943,10 @@ fn produce_indexes(repo: &Path, out_rel: &Path, survey: &index::Survey) -> Resul
     if produced.is_empty() {
         anyhow::bail!("no language could be indexed");
     }
+    let failed_projects: Vec<(String, String)> = failed
+        .iter()
+        .flat_map(|(lang, roots)| roots.iter().map(move |r| (lang.to_string(), r.clone())))
+        .collect();
 
     // The warning is loud on purpose. Everything downstream reports what it cannot see,
     // and a whole language missing from the index is the largest thing it cannot see.
@@ -975,7 +991,10 @@ fn produce_indexes(repo: &Path, out_rel: &Path, survey: &index::Survey) -> Resul
             absent.join(", ")
         );
     }
-    Ok(produced)
+    Ok(Produced {
+        scips: produced,
+        failed: failed_projects,
+    })
 }
 
 /// Make the index directory, and make it uncommittable.
@@ -1059,13 +1078,16 @@ fn run() -> Result<u8> {
             // kept: what the tree held is half of every coverage answer, and re-walking
             // it at query time would answer about the tree as it is now rather than the
             // one this index was built from.
-            let (indexes, survey) = if indexes.is_empty() {
+            let (indexes, survey, failed_projects) = if indexes.is_empty() {
                 let repo = repo.as_deref().unwrap();
                 let survey = index::scan(repo)?;
                 let produced = produce_indexes(repo, &index_dir_rel(&db, repo), &survey)?;
-                (produced, Some(survey))
+                (produced.scips, Some(survey), produced.failed)
             } else {
-                (indexes, None)
+                // An ingest of SCIP somebody else produced. No project ran here, so there
+                // is nothing to say about what failed - which is different from saying
+                // nothing failed, and `set_failed_projects` is simply not called.
+                (indexes, None, Vec::new())
             };
             let started = Instant::now();
             // Build beside the live index, then swap. Measured: while `index` ran, twelve
@@ -1142,6 +1164,10 @@ fn run() -> Result<u8> {
                     )
                     .collect();
                 store.set_tree_survey(&langs, s.protos as i64)?;
+                // Written after the ingest, which drops and rebuilds the schema, and
+                // written unconditionally so a run that fixes a project clears the record
+                // of it having been broken.
+                store.set_failed_projects(&failed_projects)?;
             }
 
             // Literals: the pass the weak layer was already making, kept this time.
