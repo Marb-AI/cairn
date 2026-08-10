@@ -2874,3 +2874,40 @@ One frozen binary, all three indexes rebuilt at v19, both nets wide, twice each:
 **16/17 reaching an assertion, no contradictions** twice; frontend **10/17, no
 contradictions** twice; `CAIRN_SWEEP_SAMPLE=400 cargo test --test sweep` twice. 208 tests,
 11/11 mutations, fmt and clippy clean on both targets.
+
+### Recording it fixed `status` and nothing else — 2026-08-10
+
+The obvious follow-up, and it was worth checking rather than assuming: does the partiality
+reach every answer, or only the command that reports coverage? Only `status`. `for change`
+and `unreached` on the frontend answered from an index missing 238 of 1079 files and said
+nothing.
+
+`unreached` is the one that matters. Its purpose is finding code safe to delete, and a
+caller living in a project that was never indexed cannot be seen — so the symbol reads as
+dead. That is the worst direction for this particular error: the answer is not merely
+incomplete, it is an invitation to act.
+
+The note now hangs off the single place every answer is emitted, rather than the seventeen
+sites that build one. Remembering to ask in seventeen places is exactly how the extension
+list came to be wrong in four, and this is the same shape of mistake waiting to be made.
+The backend and the fixture corpus, where nothing failed, stay silent — the half that keeps
+the note worth reading rather than something to skip past.
+
+Three corpus cases pin it, including the silent one: a fixture with a recorded failure must
+say so, and a corpus without one must not. Adding them found a third instance: an index
+ingested straight from SCIP dropped the failure record entirely, because that branch had no
+tree survey to compare counts against and reported `indexed` — reading *I could not
+compare* as *nothing failed*. The failure is a fact the index run wrote down; it needs no
+tree walk to be true.
+
+**One thing deliberately not done.** A declared gap degrading the exit code to 3 is the
+convention in this codebase, and it was itself a defect when `for understand` did not
+follow it. This gap does not degrade the exit, because it would return 3 from every command
+on a repository with one broken lockfile, and I have not measured what that costs an agent
+that reads exit codes. It is the open question, not a decision.
+
+### Verdict for `7698737`
+
+One frozen binary, both nets wide, twice each: backend **16/17, no contradictions** twice;
+frontend **10/17, no contradictions** twice; sweep at 400 twice. 208 tests, 58 corpus
+cases, 11/11 mutations, fmt and clippy clean on both targets.
