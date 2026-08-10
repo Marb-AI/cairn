@@ -113,6 +113,24 @@ fn make_fixtures(real: &Path) -> std::collections::HashMap<String, PathBuf> {
     drop(conn);
     out.insert("old_schema".to_string(), old);
 
+    // An index one of whose projects failed to build. The commonest real shape of it is
+    // a workspace member with a broken lockfile, and the whole point is that every answer
+    // says so - the index run knew, printed it once, and nothing kept it. Without this
+    // fixture the branch has nothing to exercise it on a corpus where everything indexes.
+    let partial = dir.join("partial.sqlite");
+    std::fs::copy(real, &partial).expect("copying the index to make a partial fixture");
+    {
+        let conn = rusqlite::Connection::open(&partial).expect("opening the fixture");
+        let changed = conn
+            .execute(
+                "INSERT OR REPLACE INTO meta(key, value) VALUES ('index.failed.python', 'srcpy/retired')",
+                [],
+            )
+            .expect("recording a failed project in the fixture");
+        assert_eq!(changed, 1, "the fixture must really record a failure");
+    }
+    out.insert("partial".to_string(), partial);
+
     // An index moved or copied without the sidecar beside it. Authored knowledge is
     // optional; its absence used to make every command fail.
     let lone = dir.join("no-sidecar.sqlite");

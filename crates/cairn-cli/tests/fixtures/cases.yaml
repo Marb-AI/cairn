@@ -502,3 +502,27 @@
   exit: 3
   contains: ["UNCHECKED rather than empty", "deployment entrypoints"]
   max_seconds: 5
+
+# `cairn index` printed which project failed to build and the fact died with the command.
+# Every answer afterwards came from an index missing that code and said nothing about it -
+# and `unreached`, whose whole purpose is finding code safe to delete, cannot see a caller
+# in a project that was never indexed. The gap belongs on every answer, not only `status`.
+- name: an answer from a partial index says which project is missing from it
+  args: [unreached, srcpy]
+  db: partial
+  contains: ["this index is PARTIAL", "srcpy/retired", "absent from the index"]
+  max_seconds: 10
+
+- name: status names the project that failed rather than calling the language indexed
+  args: [status]
+  db: partial
+  contains: ["partial", "srcpy/retired", "did not index"]
+  not_contains: ["python         indexed"]
+  max_seconds: 10
+
+# The other half of the same fact: a corpus where everything indexed must stay quiet, or
+# the note is noise that teaches the reader to skip past it.
+- name: an index with nothing failed says nothing about being partial
+  args: [unreached, srcpy]
+  not_contains: ["this index is PARTIAL"]
+  max_seconds: 10

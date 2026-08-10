@@ -548,12 +548,32 @@ impl Store {
 
         // Indexed without a survey behind it: a SCIP file ingested directly. Real, and
         // there is nothing to check it against, so it is reported as what it is.
+        //
+        // A recorded failure still counts here. It was dropped: this branch reported
+        // `indexed` for a language whose project had failed, because the *comparison*
+        // was unavailable — but "I could not compare the counts" and "nothing failed" are
+        // different statements, and the second one was being made from the absence of the
+        // first. The failure is a fact the index run wrote down; it does not need a tree
+        // walk to be true.
         for (name, n) in indexed {
-            out.push(Area {
-                name,
-                state: State::Indexed,
-                detail: format!("{n} symbols, ingested from SCIP with no tree walk to compare"),
-            });
+            let key = normalise_lang(&name);
+            match failed.get(&key) {
+                Some(projects) if !projects.is_empty() => out.push(Area {
+                    name,
+                    state: State::Partial,
+                    detail: format!(
+                        "{n} symbols, ingested from SCIP with no tree walk to compare - and \
+                         {} did not index, so answers about that code are absent rather \
+                         than empty",
+                        projects.join(", ")
+                    ),
+                }),
+                _ => out.push(Area {
+                    name,
+                    state: State::Indexed,
+                    detail: format!("{n} symbols, ingested from SCIP with no tree walk to compare"),
+                }),
+            }
         }
 
         if tree.is_empty() && out.is_empty() {

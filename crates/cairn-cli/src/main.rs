@@ -601,7 +601,39 @@ fn envelope_tail(store: &Store) {
     }
 }
 
-fn emit(env: cairn_fmt::Envelope) {
+/// Languages this index covers only in part, remembered for the process.
+///
+/// Every answer has to carry it, not only `status`. A repository whose retired app fails
+/// to index answers `for change` and `unreached` from an index missing a fifth of the
+/// tree, and both said nothing - and `unreached` is the command whose whole purpose is
+/// finding code safe to delete. A caller in a project that was never indexed cannot be
+/// seen, so the symbol looks dead. The gap belongs on the answer, next to every other
+/// thing the answer could not see.
+static PARTIAL: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// Read once, after the store is open, so the note costs one query per process.
+fn note_partial_index(store: &Store) {
+    let langs = store.failed_projects().map(|f| {
+        let mut v: Vec<String> = f
+            .into_iter()
+            .filter(|(_, projects)| !projects.is_empty())
+            .map(|(lang, projects)| format!("{lang} ({})", projects.join(", ")))
+            .collect();
+        v.sort();
+        v
+    });
+    let _ = PARTIAL.set(langs.unwrap_or_default());
+}
+
+fn emit(mut env: cairn_fmt::Envelope) {
+    if let Some(partial) = PARTIAL.get().filter(|p| !p.is_empty()) {
+        env.unknown.push(format!(
+            "this index is PARTIAL: {} did not index, so code there is invisible to every \
+             answer here - not absent from the repository, absent from the index. `cairn \
+             status` says why, and `cairn index` prints it again.",
+            partial.join("; ")
+        ));
+    }
     track::observe(env.rows, env.truncated());
     print!("{}", env.render());
 }
@@ -3142,6 +3174,10 @@ fn open(db: &Path) -> Result<Store> {
             cairn_store::knowledge_path(db).display()
         );
     }
+    // Here, because every command that answers a question goes through this and the
+    // alternative is remembering to ask in seventeen places - which is how the extension
+    // list came to be wrong in four.
+    note_partial_index(&store);
     Ok(store)
 }
 
