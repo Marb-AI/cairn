@@ -13,6 +13,7 @@
 //!   reads as "this is everything", and that is the silent error the design avoids.
 
 use cairn_store::{EdgeSource, Lang, Occurrence, PathHop, SymbolRow, Walk};
+use std::collections::HashSet;
 use std::fmt::Write;
 
 pub mod budget;
@@ -2636,6 +2637,19 @@ pub fn found(
 
     let mut shown = 0usize;
     let mut last_path = String::new();
+    // Every line some hit will print as its own match, so context never steals one, and
+    // the match lines of each file in order so a window can be clamped to its neighbours.
+    let matched: HashSet<(&str, usize)> =
+        listed.iter().map(|h| (h.path.as_str(), h.line)).collect();
+    let mut match_lines: std::collections::HashMap<&str, Vec<usize>> =
+        std::collections::HashMap::new();
+    for h in listed.iter().copied() {
+        match_lines.entry(h.path.as_str()).or_default().push(h.line);
+    }
+    for v in match_lines.values_mut() {
+        v.sort_unstable();
+    }
+    let mut printed: HashSet<(String, usize)> = HashSet::new();
     for h in listed.iter().copied() {
         if h.path != last_path {
             // The file header carries the flags, because "this hit is in generated code"
@@ -2685,7 +2699,36 @@ pub fn found(
         };
         // Context above, the match, context below — the match marked so the eye finds it
         // without counting lines.
-        for (n, line) in h.around.iter().filter(|(n, _)| *n < h.line) {
+        //
+        // Each hit used to print its own window with no memory of the last one, so hits a
+        // line or two apart repeated everything between them. Measured on the scenario
+        // this command wins: `for find "openLabel"` printed 70 context lines carrying 33
+        // distinct ones — **52 % of the answer was the same lines again**, and one line of
+        // a translation file appeared five times. A translation file is precisely where
+        // matches cluster, so the waste is worst exactly where this command is used.
+        //
+        // A line already printed is not printed again, and a line that is some other hit's
+        // match is left for that hit, which prints it with `>` and its attribution. Every
+        // hit still appears; what goes is only the repetition between them.
+        // Clamped to the neighbouring matches, or the output stops being in line order:
+        // skipping a line because some other hit will print it lets the line *after* it
+        // arrive first, and `6` printed before `5` reads as a rendering bug even though
+        // every line is present exactly once.
+        let (prev, next) = match match_lines.get(h.path.as_str()) {
+            Some(v) => (
+                v.iter().copied().rfind(|m| *m < h.line),
+                v.iter().copied().find(|m| *m > h.line),
+            ),
+            None => (None, None),
+        };
+        for (n, line) in h
+            .around
+            .iter()
+            .filter(|(n, _)| *n < h.line && prev.is_none_or(|p| *n > p))
+        {
+            if matched.contains(&(h.path.as_str(), *n)) || !printed.insert((h.path.clone(), *n)) {
+                continue;
+            }
             let _ = budget.push(&mut body, &format!("  {n:>5} | {}", line.trim_end()));
         }
         if !budget.push(
@@ -2694,7 +2737,15 @@ pub fn found(
         ) {
             break;
         }
-        for (n, line) in h.around.iter().filter(|(n, _)| *n > h.line) {
+        printed.insert((h.path.clone(), h.line));
+        for (n, line) in h
+            .around
+            .iter()
+            .filter(|(n, _)| *n > h.line && next.is_none_or(|x| *n < x))
+        {
+            if matched.contains(&(h.path.as_str(), *n)) || !printed.insert((h.path.clone(), *n)) {
+                continue;
+            }
             let _ = budget.push(&mut body, &format!("  {n:>5} | {}", line.trim_end()));
         }
         shown += 1;
@@ -2957,6 +3008,82 @@ mod guarantees {
                 indexed: true,
             },
             around: Vec::new(),
+        }
+    }
+
+    /// A hit with its own line number and a window of context around it.
+    fn hit_at(path: &str, n: usize, text: &str, around: &[(usize, &str)]) -> FoundLine {
+        FoundLine {
+            path: path.into(),
+            line: n,
+            text: text.into(),
+            context: LineContext {
+                symbol: None,
+                section: None,
+                generated: false,
+                is_test: false,
+                indexed: true,
+            },
+            around: around.iter().map(|(i, l)| (*i, l.to_string())).collect(),
+        }
+    }
+
+    #[test]
+    fn clustered_hits_do_not_print_the_lines_between_them_twice() {
+        // Every hit printed its own window with no memory of the last, so hits a line or
+        // two apart repeated everything between them. Measured on the scenario this
+        // command wins - a translation key, where matches cluster by construction -
+        // 70 context lines carried 33 distinct ones and one line appeared five times.
+        let around = |n: usize| {
+            vec![
+                (n - 1, "line above"),
+                (n + 1, "line below"),
+                (n + 2, "two below"),
+            ]
+        };
+        let hits = vec![
+            hit_at("locales/cs.json", 3, "\"openLabel\": \"a\"", &around(3)),
+            hit_at(
+                "locales/cs.json",
+                4,
+                "\"openLabelUnread\": \"b\"",
+                &around(4),
+            ),
+            hit_at(
+                "locales/cs.json",
+                5,
+                "\"openLabelUnread_one\": \"c\"",
+                &around(5),
+            ),
+        ];
+        let out = render(&hits, false);
+
+        // The body rows only: the header also starts with a count, and counting it as a
+        // line number made the first version of this test fail for the wrong reason.
+        let numbered: Vec<&str> = out
+            .lines()
+            .filter(|l| l.starts_with("  ") && (l.contains(" | ") || l.contains(" > ")))
+            .collect();
+        let mut seen = std::collections::HashSet::new();
+        let mut last = 0usize;
+        for l in &numbered {
+            let n: usize = l.split_whitespace().next().unwrap().parse().unwrap();
+            assert!(seen.insert(n), "line {n} printed twice:\n{out}");
+            // In order, too. Dropping a line because another hit will print it is only
+            // correct if what remains still reads top to bottom.
+            assert!(n > last, "line {n} came after {last}:\n{out}");
+            last = n;
+        }
+
+        // And every hit is still there, marked as a match rather than swallowed into
+        // some neighbour's context - which is the way a dedup could quietly lose one.
+        for n in ["3", "4", "5"] {
+            assert!(
+                numbered
+                    .iter()
+                    .any(|l| l.split_whitespace().next() == Some(n) && l.contains('>')),
+                "the hit on line {n} must still be marked:\n{out}"
+            );
         }
     }
 
