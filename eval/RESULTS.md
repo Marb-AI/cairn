@@ -2911,3 +2911,51 @@ that reads exit codes. It is the open question, not a decision.
 One frozen binary, both nets wide, twice each: backend **16/17, no contradictions** twice;
 frontend **10/17, no contradictions** twice; sweep at 400 twice. 208 tests, 58 corpus
 cases, 11/11 mutations, fmt and clippy clean on both targets.
+
+## What the frontend state actually is — 2026-08-11
+
+Asked directly. The honest answer is neither of the two offered.
+
+**Value: last measured median 0.84, and that number is stale.** The acceptance rule wants
+≤0.50 at an equal answer. Of the three frontend scenarios only F2 met it (0.29, 0.62) and
+F1 came back at 1.33 in round two — cairn dearer than grep. That measurement was taken at
+`6ce5c78`. There have been **twelve commits since, and every one of them touched the
+frontend-facing paths**: the residue, `for find`'s tags, the daemon, the partial-index
+note, the renderer. By this file's own rule — *re-measure settled results* — 0.84 is not
+the current number. It is the last number.
+
+**Reliability: no contradiction the nets can see, which is weaker than it sounds.** Both
+nets, wide, twice, are clean on the frontend. But seven of seventeen invariants never reach
+a guard there, and **the ten defects found in the last three days were found by questions,
+not by the nets** — the nets stayed green throughout. That is evidence the nets do not
+cover this surface, not that the surface is clean.
+
+### Checking the answer keys mechanically found another one
+
+Re-running the three scenarios' keys by hand at the current commit — the part I can measure
+without arms — F2 still answers in one call, with the key, both translations and the
+component carrying its enclosing symbol. And **52 % of that answer was the same lines
+again**:
+
+| | printed context lines | distinct | repeated |
+|---|---|---|---|
+| `for find "openLabel"` | 70 | 33 | **37** |
+
+One line of the translation file appeared five times. Every hit rendered its own context
+window with no memory of the previous one, so hits a line or two apart repeated everything
+between them — and a translation file is where matches cluster by construction. The waste
+was worst exactly where this command is used and exactly where it was measured winning.
+
+Merged: **604 words → 344**, every fact of the answer key still present, zero repeated
+lines across four frontend and three backend queries. The backend was already near-free
+because its hits are spread out, and is unchanged.
+
+**This is a smaller answer, not fewer round trips.** The recorded ratios are round trips,
+so this does not move them by itself; it moves the token half of the acceptance rule for
+one query, and no claim beyond that is supported until the arms are re-run.
+
+### Verdict for `f53dc3f`
+
+One frozen binary, both nets wide, twice each: backend **16/17, no contradictions**;
+frontend **10/17, no contradictions**; sweep at 400 twice. 209 tests, 58 corpus cases,
+11/11 mutations, fmt and clippy clean on both targets.
