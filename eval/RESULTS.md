@@ -2959,3 +2959,33 @@ one query, and no claim beyond that is supported until the arms are re-run.
 One frozen binary, both nets wide, twice each: backend **16/17, no contradictions**;
 frontend **10/17, no contradictions**; sweep at 400 twice. 209 tests, 58 corpus cases,
 11/11 mutations, fmt and clippy clean on both targets.
+
+---
+
+## Vývoj pozastaven zde — 2026-08-11, `f53dc3f`
+
+Bod, ve kterém byl vývoj vědomě zastaven. Nic není rozděláno.
+
+**Stav bran:** jedna zmrazená binárka, obě sítě široce 2× — backend 16/17 bez rozporů,
+frontend 10/17 bez rozporů, sweep 400 2×, 209 testů, 58 korpusových případů, 11/11 mutací,
+fmt a clippy čisté na obou targetech. Schéma v19, oba indexy přestavěné.
+
+**Čím se pokračuje, v tomto pořadí:**
+
+1. **Čerstvé měřicí kolo proti `f53dc3f`.** Jediná věc, která odpoví, jestli je frontend
+   dál na mediánu 0,84. To číslo je z `6ce5c78` a od té doby šlo třináct commitů právě do
+   frontendových cest — podle pravidla *přeměřit uzavřené výsledky* je to poslední číslo,
+   ne současné. Protokol je v `SCENARIOS-FRONTEND.md`, ramena v `eval/arms/`.
+2. **Exit kód u částečného indexu.** Deklarovaná mezera tady sráží exit na 3 a nedodržení
+   té konvence už jednou bylo defektem. Vědomě neuděláno, protože by to vracelo 3 z
+   každého příkazu na repozitáři s jedním rozbitým lockfilem a nezměřil jsem, co to stojí
+   agenta, který exit kódy čte. Otevřená otázka, ne rozhodnutí.
+3. **`neighbours` v `affects`** — ~110 ms v ~900 dotazech po 0,12 ms. Zrychlení znamená
+   načíst celou hladinu jedním dotazem s limitem na rodiče, což mění sémantiku fanoutu.
+   Stojí za to jen tehdy, když 200 ms latence někdy zaváží proti round tripu za sekundy.
+
+**Co se osvědčilo jako způsob hledání defektů:** obě třídy nalezené v posledních dnech
+vznikly z **otázky položené celému stromu**, ne ze sítí — *„pravidlo psané, když byly dva
+jazyky"* (sedm defektů, čtyři z nich mlčení) a *„zapisuje index vůbec, že je neúplný?"*
+(tři). Sítě svítily zeleně po celou dobu. Potvrzují, co byly postavené potvrdit; novou
+třídu najde otázka.
