@@ -2989,3 +2989,80 @@ vznikly z **otázky položené celému stromu**, ne ze sítí — *„pravidlo p
 jazyky"* (sedm defektů, čtyři z nich mlčení) a *„zapisuje index vůbec, že je neúplný?"*
 (tři). Sítě svítily zeleně po celou dobu. Potvrzují, co byly postavené potvrdit; novou
 třídu najde otázka.
+
+---
+
+## Round 3, frontend — pre-registered 2026-11-08, before any arm was run
+
+Written and committed **before any number exists**, on the protocol's own terms: the design
+cannot be tuned once the result is visible. The scenarios and answer keys are unchanged from
+`SCENARIOS-FRONTEND.md`; what follows is what differs about this round and what it is
+predicted to show.
+
+### What is frozen
+
+| | |
+|---|---|
+| commit | `41faa63` |
+| binary | `cairn 0.1.2`, sha256 `7679062ee42bb287…`, one build for every run |
+| index | 841 files, 23,117 symbols, 122,572 occurrences, **two** projects |
+| index health | `stale: none`, `suppressed: none`, **`unknown: none`** |
+
+`entrypoints` and `cross-api` report `n/a` — no compose file and no `.proto` in this tree —
+and `n/a` is now reported as *not applicable* rather than as a failure. Until this week every
+frontend answer carried "2 mechanism(s) did not complete". That was the tool lying about
+itself on this corpus, in the one line the whole design puts the honesty in.
+
+### r1 and r2 are not pooled into this, and that is the main thing to know
+
+Three of the inputs changed, so the six recorded ratios and whatever this round produces are
+measurements of different things:
+
+- **The corpus as indexed is smaller: 1,059 files → 841.** The workspace excludes a retired
+  app; cairn used to index it anyway. In r1 that app's 218 files were *in* the index.
+- **The binary is nine commits newer**, including the merged-context change that cut one F2
+  answer from 604 words to 344 — already recorded above as a token change, not a round-trip
+  one.
+- **Both of those were found while setting this round up.** This is not a clean re-measure of
+  an old binary; it is a first measure of a corrected one.
+
+### One asymmetry, stated before the runs rather than explained after them
+
+F1 rests on a name defined twice in the workspace. That namesake exists **only in the retired
+app**, so as of this commit it is presented to the grep arm — which reads the tree — and not
+to the cairn arm, whose index honours the workspace's own exclusion. Cairn is therefore
+spared, by its own fix, part of the ambiguity F1 was built to make it resolve.
+
+That is the tool's real behaviour and the point of having it, so it is not corrected for. What
+it does mean is that an F1 win this round is a *weaker* result than an F1 win in r1 would have
+been, and it will be read that way. The grading is unchanged except for one clause fixed now,
+in advance: naming the retired app **as part of this app's flow** is worse, as the key says;
+naming it and saying correctly that it is excluded is *same*.
+
+### Design
+
+Three scenarios × two arms × **three runs** per arm = 18 runs, the full protocol rather than
+r1 and r2's single run per arm. Run in three batches of six — one run of each scenario in each
+arm per batch — so parallelism is constant and identical across the arms being compared, which
+it was not when a batch held one arm only. Round trips come from `cluster.py`, whose threshold
+is computed from each run's own gaps; the largest within-turn gap is reported per run, so a run
+where six-way parallelism stretched a batched dispatch far enough to matter is visible rather
+than assumed. Arm compliance is audited from the hook logs, not from what the answer says it did.
+
+Acceptance rule unchanged: same answer → at most half the round trips or half the wall clock;
+better answer → no more than the baseline; **a worse answer fails at any price.**
+
+### Prediction, recorded now
+
+| scenario | prediction |
+|---|---|
+| F1 generated-code trace | cairn below r2's 1.33, in the 0.6–1.0 band. **Not** predicted to meet ≤0.50 |
+| F2 translation key | cairn wins and is the one scenario meeting acceptance: ≤0.50 |
+| F3 ordinary reference | a tie, ≈1.0, as s01 is on the backend |
+
+**Overall: a median of the nine ratios in the 0.7–0.9 band — no better than the recorded
+0.84, and still short of acceptance in two of three scenarios.** The conclusion that would
+follow is the one already on record: cairn's measured value is concentrated in codebases with
+a service boundary, and a frontend is not where to reach for it. A round predicted to confirm
+that is still worth running, because the alternative is quoting a number from a binary that no
+longer exists.
