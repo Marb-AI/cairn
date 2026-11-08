@@ -3270,3 +3270,78 @@ and both weaken rather than flatter the case for the tool:
 
 Neither is retracted by the re-run; the answers were not what the stale binary affected. The
 prediction above stands as written.
+
+### Backend round 7 result — `f949b0a`, 60 runs
+
+Thirty ratios, three per scenario, cairn over grep, round trips from `cluster.py`.
+
+| scenario | cairn rt | grep rt | ratios | median | wall median | acceptance |
+|---|---|---|---|---|---|---|
+| 1 edges | 2, 5, 2 | 9, 7, 8 | 0.22, 0.71, 0.25 | **0.25** | 0.19 | **meets** |
+| 2 identity | 6, 8, 6 | 13, 14, 11 | 0.46, 0.57, 0.55 | 0.55 | 0.54 | fails |
+| 3 boundary | 2, 1, 1 | 12, 13, 11 | 0.17, 0.08, 0.09 | **0.09** | n/a | **meets** |
+| 4 the name changes shape | 14, 9, 14 | 22, 25, 32 | 0.64, 0.36, 0.44 | **0.44** | 0.58 | **meets** |
+| 5 sets | 12, 11, 8 | 23, 19, 29 | 0.52, 0.58, 0.28 | 0.52 | 0.31 | **meets** (wall) |
+| 6 completeness | 1, 1, 1 | 22, 26, 24 | 0.05, 0.04, 0.04 | **0.04** | n/a | **meets** |
+| 7 a string literal | 3, 4, 3 | 5, 6, 6 | 0.60, 0.67, 0.50 | 0.60 | 0.54 | fails |
+| 8 configuration | 3, 5, 3 | 7, 6, 7 | 0.43, 0.83, 0.43 | **0.43** | 0.37 | **meets** |
+| 9 a file I just edited | 2, 2, 2 | 5, 5, 8 | 0.40, 0.40, 0.25 | **0.40** | 0.22 | **meets** |
+| 10 nothing indexed | 12, 16, 7 | 11, 10, 16 | 1.09, 1.60, 0.44 | 1.09 | 0.76 | fails |
+
+**Median of the thirty: 0.433.** Seven scenarios of ten meet the acceptance rule; 2, 7 and 10
+do not.
+
+`n/a` where a median cairn run was a single call: this rig timestamps calls, so a one-call run
+has no measurable span and its wall ratio would read 0.00. Those two scenarios pass on round
+trips alone, which is the stricter half anyway.
+
+**Answers: all sixty complete.** I read every one against the keys. Not one answer from either
+arm was graded *worse*, which makes the whole table a same-answer comparison — the strictest
+reading of the rule.
+
+### The prediction was right about the number and wrong about the shape
+
+| predicted | measured |
+|---|---|
+| median 0.35–0.55 | **0.433** |
+| 3, 5, 6 well under 0.50 | 0.09, 0.52, 0.04 — 5 only just over on round trips, under on wall |
+| 7, 8, 10 at or above 1.00 | 0.60, **0.43**, 1.09 — **wrong on 7 and 8** |
+| at least one grep answer graded *worse* | **none** |
+
+The last two rows matter more than the first. **cairn won both scenarios where the guide's own
+advice is to use grep**: a string literal in a header (`for find` returns the line with its
+enclosing function, so the second look-up never happens) and a compose variable (0.43, meeting
+acceptance). The advice in the guide is, on this corpus, wrong about those two.
+
+And the falsifier I wrote down fired: **no grep answer was worse.** Scenario 3 predicts the
+grep arm misses `share.go`, "the one a reader assembling this by hand misses", and fails at any
+price. All three runs found it and called it out as the non-obvious caller. Scenario 5 predicts
+an incomplete grep answer that does not say it is incomplete; instead both arms enumerated the
+package by AST or by `unreached` and both concluded that **one** of the key's four symbols is
+genuinely dead, the other three being artifacts of static reachability — an answer better than
+the pre-registered key, from both arms, in all six runs.
+
+So the case for this tool on the backend is **cost, not correctness**. A capable agent with
+`rg` got the right answer every time; it paid two to twenty-five times the round trips to do
+it. That is a weaker claim than "the tool prevents wrong answers", and it is the one the data
+supports.
+
+### Scenario 10 is the one real loss, and it is the predicted one
+
+1.09, and 1.60 in one run: the question names a path that does not exist, and no index can
+help. Both arms corrected it and both went on to find that the scripts' `SUM`-over-all-POIs
+scoring diverges from the handler's `MIN`-over-nearest, and that they query `poi` where
+production queries `poi_poi` — the *better* grading the key's amendment allows. cairn's cost
+there is the wasted look-up plus the 15,450-character guide it loaded to no purpose.
+
+### Two things the logs say
+
+**Batching finally appears, and only just.** 13 of 60 runs put more than one call in a turn,
+and the widest within-turn gap was 1.00 s — right at `cluster.py`'s computed threshold, so the
+metric was doing real work here rather than counting calls. On the frontend round, 16 of 18
+runs never batched at all.
+
+**Scenario 6 is the tool's clearest win on record: one call against twenty-two to twenty-six,
+three times out of three.** "Which deployed services does this change touch" is the question
+`affects` exists for, and the grep arm has to assemble compose files, Dockerfiles and the call
+graph by hand to answer it. Both arms got it right; one of them did it in a single round trip.
