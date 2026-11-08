@@ -55,6 +55,13 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # Belt and suspenders for aarch64-pc-windows-msvc: the step above reported success
+      # on 2026-11-08 without actually adding it, and the build died on "can't find crate
+      # for core" - rustup had only resynced the host's rust-std, not the cross target's.
+      # `rustup target add` is idempotent, so this costs nothing on the targets it was
+      # already present for.
+      - run: rustup target add ${{ matrix.target }}
+
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
