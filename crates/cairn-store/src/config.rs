@@ -37,10 +37,21 @@ pub struct Config {
     /// Said plainly because the doc here used to claim the build was aborted, which was
     /// never true of any version of this code.
     pub memory_limit_mb: Option<u64>,
+    /// Hard cap, in MB, on the container the indexers and language servers run in.
+    ///
+    /// **This is the one that is enforced**, and it is the one that matters on a small
+    /// machine: cairn's own process is a few hundred MB, while `gopls`, `tsc` and
+    /// `scip-go` inside the container are where gigabytes go. Unset means no cap, which
+    /// is Docker's own default and the behaviour every existing install has.
+    ///
+    /// Enforced by the kernel, so exceeding it is a kill rather than a warning. That is
+    /// the point — and it is also why an indexer killed this way is reported as killed,
+    /// naming this setting, instead of as an ordinary failure.
+    pub indexer_memory_mb: Option<u64>,
     /// Default ceiling on an answer, in tokens, when `--budget` is not given.
     pub default_budget: Option<usize>,
-    /// Refuse to answer at all beyond this, whatever `--budget` says. A guard for a
-    /// shared install, where one caller's generous budget is everyone's memory.
+    /// Refuse to exceed this whatever `--budget` says. A guard for a shared install,
+    /// where one caller's generous budget is everyone's memory.
     pub max_budget: Option<usize>,
 }
 
@@ -112,6 +123,10 @@ pub const SETTINGS: &[(&str, &str)] = &[
         "say so when a command used more than this; default is a quarter of RAM",
     ),
     (
+        "indexer_memory_mb",
+        "hard cap on the indexer container's memory; unset means no cap",
+    ),
+    (
         "default_budget",
         "ceiling on an answer in tokens when --budget is not given",
     ),
@@ -126,6 +141,7 @@ impl Config {
             "tracking" => self.tracking.to_string(),
             "memory_peak" => self.memory_peak.to_string(),
             "memory_limit_mb" => self.memory_limit_mb.map_or(unset, |v| v.to_string()),
+            "indexer_memory_mb" => self.indexer_memory_mb.map_or(unset, |v| v.to_string()),
             "default_budget" => self.default_budget.map_or(unset, |v| v.to_string()),
             "max_budget" => self.max_budget.map_or(unset, |v| v.to_string()),
             _ => return None,
@@ -154,6 +170,7 @@ impl Config {
             "tracking" => self.tracking = as_bool()?,
             "memory_peak" => self.memory_peak = as_bool()?,
             "memory_limit_mb" => self.memory_limit_mb = as_num()?,
+            "indexer_memory_mb" => self.indexer_memory_mb = as_num()?,
             "default_budget" => self.default_budget = as_num()?.map(|v| v as usize),
             "max_budget" => self.max_budget = as_num()?.map(|v| v as usize),
             other => {

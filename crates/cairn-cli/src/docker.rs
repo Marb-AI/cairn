@@ -288,6 +288,30 @@ fn ensure_container_inner(repo: &Path, dep_roots: &[PathBuf]) -> Result<String> 
         .arg("--workdir")
         .arg(MOUNT);
 
+    // A cap, when the installation asked for one. This is where a memory limit has to go:
+    // the indexers and language servers inside this container are what consume gigabytes
+    // — `gopls`, `tsc`, `scip-go` — while cairn's own process is a few hundred MB, and a
+    // limit must be set at `docker run` because a running container's cannot be changed.
+    //
+    // Unset is no cap, which is Docker's default and every existing install's behaviour.
+    // Deliberately not defaulted to a fraction of RAM: this is enforced by the kernel, so
+    // a default that is too small does not warn, it kills the indexer mid-run on a
+    // repository that indexed fine yesterday.
+    //
+    // `--memory-swap` is set to the same value, which disables swap for the container. A
+    // limit that can be satisfied by swapping turns an out-of-memory kill into a machine
+    // that thrashes for twenty minutes, and the people this setting is for - the ones on
+    // smaller machines - are exactly the ones who would pay for that.
+    if let Some(mb) = cairn_store::Config::load()
+        .ok()
+        .and_then(|c| c.indexer_memory_mb)
+    {
+        cmd.arg("--memory")
+            .arg(format!("{mb}m"))
+            .arg("--memory-swap")
+            .arg(format!("{mb}m"));
+    }
+
     // A volume over each project's `node_modules`, so the dependency tree lives where node
     // resolution needs it and nowhere on the host.
     //
@@ -380,7 +404,7 @@ fn exec_in(
     let repo = std::fs::canonicalize(repo)?;
     let rel = workdir.strip_prefix(&repo).unwrap_or(Path::new(""));
 
-    Command::new("docker")
+    let out = Command::new("docker")
         .args(["exec", "--workdir"])
         .arg(Path::new(MOUNT).join(rel))
         .arg(&name)
@@ -388,7 +412,62 @@ fn exec_in(
         .stdout(stdout)
         .stderr(Stdio::piped())
         .output()
-        .context("running `docker exec`")
+        .context("running `docker exec`")?;
+    Ok(annotate_memory_exhaustion(out))
+}
+
+/// Marks a line in an indexer's output as cairn's own, so the summary can prefer it over
+/// whatever the tool itself complained about.
+pub const NOTE_PREFIX: &str = "cairn: ";
+
+/// Say when an indexer ran out of memory under the cap, rather than having failed.
+///
+/// Two ways it shows up, and both were seen on one repository:
+///
+/// - **137**, which is 128 + SIGKILL: the kernel's OOM killer. The process says nothing on
+///   its way out, so without this the event reads as "failed:" with no reason at all.
+/// - **The runtime noticing first.** Node sizes its heap from the cgroup limit, so under a
+///   cap it dies of its own "Reached heap limit — JavaScript heap out of memory" with an
+///   ordinary exit code. Measured: a 900 MB cap on a 1,079-file TypeScript workspace, which
+///   indexed one project and lost the other this way.
+///
+/// Either way the one person who can act on it is the one who set the cap, and the message
+/// has to name it. Appended to stderr rather than turned into an error: a failed project is
+/// already reported per project and rides on every answer afterwards, so the only question
+/// here is whether the reader is told *why*.
+fn annotate_memory_exhaustion(mut out: std::process::Output) -> std::process::Output {
+    let killed = out.status.code() == Some(137);
+    let ran_out = {
+        let err = String::from_utf8_lossy(&out.stderr);
+        err.contains("heap out of memory")
+            || err.contains("Reached heap limit")
+            || err.contains("Cannot allocate memory")
+            || err.contains("out of memory")
+    };
+    if !killed && !ran_out {
+        return out;
+    }
+    let Some(mb) = cairn_store::Config::load()
+        .ok()
+        .and_then(|c| c.indexer_memory_mb)
+    else {
+        // No cap set, so this is the machine's own memory and not a setting anyone chose.
+        // Saying "raise the cap" would send the reader after a number that does not exist.
+        return out;
+    };
+    // At the front, and prefixed, because this is the line the reader needs first: the
+    // caller summarises a failure by picking one line out of the indexer's output, and
+    // cairn's own explanation of *why* outranks the indexer's complaint about *what*.
+    let note = format!(
+        "{NOTE_PREFIX}the indexer ran out of memory under the {mb} MB `indexer_memory_mb` \
+         cap. The cap has to fit the LARGEST project in the repository, not the average \
+         one. Raise it with `cairn config indexer_memory_mb=<MB>`, or `=unset` for no cap. \
+         Nothing was wrong with the code it was reading.\n"
+    );
+    let mut stderr = note.into_bytes();
+    stderr.append(&mut out.stderr);
+    out.stderr = stderr;
+    out
 }
 /// What to tell someone who has not got Docker.
 pub const NO_DOCKER: &str = "\

@@ -883,11 +883,17 @@ pub fn run_indexer(found: &Found, root: &Path, tag: &str, repo: &Path, out_rel: 
                 .map(str::trim)
                 .filter(|l| !l.is_empty())
                 .collect();
+            // cairn's own explanation wins when there is one. An indexer killed under the
+            // memory cap complains about a heap limit; the fact the reader can act on is
+            // the cap, and it is the one line here that cairn wrote itself.
             let complaint = lines
                 .iter()
-                .find(|l| {
-                    let l = l.to_ascii_lowercase();
-                    l.contains("error") || l.contains("failed") || l.contains("cannot")
+                .find(|l| l.starts_with(crate::docker::NOTE_PREFIX))
+                .or_else(|| {
+                    lines.iter().find(|l| {
+                        let l = l.to_ascii_lowercase();
+                        l.contains("error") || l.contains("failed") || l.contains("cannot")
+                    })
                 })
                 .copied()
                 .or_else(|| lines.first().copied())

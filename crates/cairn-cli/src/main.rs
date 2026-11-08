@@ -1261,13 +1261,48 @@ fn ensure_index_dir(db: &Path) -> Result<()> {
     Ok(())
 }
 
+/// The budget in force: the flag, the installation's default, and its ceiling.
+///
+/// Returns the budget and, when the ceiling bit, a line to say so. Separated from `run`
+/// because it is a rule rather than plumbing, and a rule with no test is how these two
+/// settings came to do nothing in the first place.
+fn effective_budget(
+    flag: Option<usize>,
+    settings: &cairn_store::Config,
+) -> (Option<usize>, Option<String>) {
+    let want = flag.or(settings.default_budget);
+    match (want, settings.max_budget) {
+        (Some(want), Some(max)) if want > max => (
+            Some(max),
+            Some(format!(
+                "budget {want} is above the installation's max_budget {max}; using {max}"
+            )),
+        ),
+        (want, _) => (want, None),
+    }
+}
+
 fn run() -> Result<u8> {
     let cli = Cli::parse();
     let db = cli.db.unwrap_or_else(default_db);
-    let cli_budget = cli.budget;
+    // `default_budget` and `max_budget` were listed by `cairn config`, documented in the
+    // struct, settable, saved to the file — and read by nothing. Two settings that existed
+    // only as a promise, which is worse than their absence: an administrator who sets
+    // `max_budget` on a shared install believes a ceiling is in force.
+    //
+    // Applied in the one place every command's budget comes from: the flag wins over the
+    // default, and the maximum wins over both, because that is what "refuse to exceed this
+    // whatever --budget says" means. Exceeding the maximum is clamped and said out loud
+    // rather than refused: a silently smaller answer is the failure this tool is against,
+    // and an error would make a shared install's ceiling look like a broken command.
+    let settings = cairn_store::Config::load().unwrap_or_default();
+    let (cli_budget, note) = effective_budget(cli.budget, &settings);
+    if let Some(note) = note {
+        eprintln!("cairn: {note}");
+    }
     let _ = FORMAT.set(cli.format);
     let _ = COMMAND.set(command_name(&cli.cmd));
-    let mut budget = Budget::from_opt(cli.budget);
+    let mut budget = Budget::from_opt(cli_budget);
     // Asked once per invocation, best-effort: a missing daemon is a normal state and
     // must never fail a query, only change what the answer can claim about freshness.
     let live = cairn_daemon::client::dirty_if_running(&cairn_daemon::socket_path(&db));
@@ -3968,5 +4003,54 @@ mod indexable_count {
             "expected one file per indexed language, and nothing from node_modules"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod budget_settings_tests {
+    use super::effective_budget;
+    use cairn_store::Config;
+
+    fn cfg(default: Option<usize>, max: Option<usize>) -> Config {
+        Config {
+            default_budget: default,
+            max_budget: max,
+            ..Config::default()
+        }
+    }
+
+    #[test]
+    fn nothing_configured_is_the_flag_alone() {
+        assert_eq!(effective_budget(Some(500), &cfg(None, None)).0, Some(500));
+        assert_eq!(effective_budget(None, &cfg(None, None)).0, None);
+    }
+
+    #[test]
+    fn the_default_applies_only_when_the_flag_is_absent() {
+        assert_eq!(effective_budget(None, &cfg(Some(800), None)).0, Some(800));
+        assert_eq!(
+            effective_budget(Some(100), &cfg(Some(800), None)).0,
+            Some(100)
+        );
+    }
+
+    #[test]
+    fn the_maximum_wins_over_both_and_says_so() {
+        // "Refuse to exceed this whatever --budget says" - including when what says it is
+        // the installation's own default.
+        let (budget, note) = effective_budget(Some(9000), &cfg(None, Some(1000)));
+        assert_eq!(budget, Some(1000));
+        assert!(note.unwrap().contains("max_budget 1000"));
+
+        let (budget, note) = effective_budget(None, &cfg(Some(9000), Some(1000)));
+        assert_eq!(budget, Some(1000));
+        assert!(note.is_some());
+    }
+
+    #[test]
+    fn a_budget_under_the_maximum_is_left_alone_and_silent() {
+        let (budget, note) = effective_budget(Some(400), &cfg(None, Some(1000)));
+        assert_eq!(budget, Some(400));
+        assert!(note.is_none(), "nothing happened, so say nothing");
     }
 }
