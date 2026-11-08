@@ -49,11 +49,18 @@ pub struct OutlineEntry {
     pub symbol: SymbolRow,
     pub caller_count: i64,
     pub production_callers: i64,
-    /// A service binding reaches this, so a static caller count of zero says nothing.
+    /// A service binding reaches this, or it satisfies an interface, so a static caller
+    /// count of zero says nothing.
     ///
     /// Fixing `unreached` was not enough (task M): `outline` kept labelling thirty RPC
     /// methods `test-only`, an agent correctly disbelieved every one of them, and spent a
     /// third more than the baseline checking. A wrong label is not cheaper than no label.
+    ///
+    /// The interface half is the same shape of gap, found later: every Go method that
+    /// only ever runs through an interface it satisfies - `Area()` on two shapes, called
+    /// as `s.Area()` where `s Shape` - printed `unused` next to a method a caller reaches
+    /// every time it runs. `is_implementation` is SCIP's own exact relationship, not a
+    /// guess, so this is the same confidence as the service-link case, one construct over.
     pub dispatched: bool,
 }
 
@@ -186,6 +193,16 @@ impl Store {
                      JOIN service_links l ON l.symbol_id = t.id AND l.role = 0
                     WHERE t.def_file_id = s.def_file_id
                       AND s.container_leaf_id = t.name_id)
+               -- A method that satisfies an interface is called through it, the same way
+               -- a service binding is called over the wire: both are a deterministic,
+               -- compiler-grade fact (SCIP's own `is_implementation` relationship) and
+               -- neither is visible to a plain call-graph walk. Measured on a fixture with
+               -- two implementations of one interface: both came back `unused` while a
+               -- concrete caller invoked each of them through it. Precedent is the
+               -- service-link exclusion two lines up; this is the same gap one language
+               -- construct over, not a new kind of problem.
+               AND NOT EXISTS (
+                   SELECT 1 FROM edges e2 WHERE e2.src_symbol = s.id AND e2.kind = 1)
              GROUP BY s.id
             HAVING prod_callers = 0
              ORDER BY test_callers DESC, s.ref_count DESC
@@ -259,7 +276,14 @@ impl Store {
                                  FROM symbols t
                                  JOIN service_links l ON l.symbol_id = t.id AND l.role = 0
                                 WHERE t.def_file_id = s.def_file_id
-                                  AND s.container_leaf_id = t.name_id))
+                                  AND s.container_leaf_id = t.name_id)
+                    -- Same fact as the `unreached` exclusion just below: implementing an
+                    -- interface is being called through it, exactly as a service binding
+                    -- is called over the wire. Without this, every method satisfying an
+                    -- interface and never named directly printed as `unused`, in a label
+                    -- column an agent reads as a license to delete.
+                    OR EXISTS (SELECT 1 FROM edges e2
+                                WHERE e2.src_symbol = s.id AND e2.kind = 1))
               FROM symbols s
               JOIN files   f ON f.id = s.def_file_id
               JOIN strings p ON p.id = f.path_id

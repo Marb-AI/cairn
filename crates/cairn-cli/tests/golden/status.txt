@@ -8,9 +8,9 @@
 $ cairn status
 exit 0
 index      <db>
-files      16
-symbols    490
-occurrence 1580
+files      17
+symbols    500
+occurrence 1599
 generated  2 files
 
 coverage   what each mechanism produced, against the tree it was built from
@@ -18,8 +18,8 @@ coverage   what each mechanism produced, against the tree it was built from
            having run and matched the tree, which is counting; the rungs above
            are judgements recorded by `cairn llm verify` and expire with the tree
   entrypoints    indexed       4 entrypoints, 3 resolve to code, 1 idle
-  cross-api      indexed       2 gRPC services, 5 serve, 8 call links
-  go             indexed       217 symbols, ingested from SCIP with no tree walk to compare
+  cross-api      indexed       2 gRPC services, 6 serve, 12 call links
+  go             indexed       227 symbols, ingested from SCIP with no tree walk to compare
   python         indexed       273 symbols, ingested from SCIP with no tree walk to compare
 daemon     not running
 stale: NOT TRACKED - the file watcher is still starting, so edits made since the index was built are not visible yet. `cairn verify --repo <dir>` is the one-off check

@@ -2,12 +2,17 @@
 # Everything runs in here; nothing is installed on the host (D13, architecture 2.1).
 
 # -- Go tooling: scip-go (indexer) + scip (CLI, used to cross-check our stats) --
-FROM golang:1.25-bookworm AS gotools
+#
+# Pinned, not `@latest`, for the same reason as `goplsbuild` below: `@latest` makes the
+# image a function of the day it was built, and on 2026-11-08 scip-go's latest started
+# requiring Go >= 1.26 while this stage pinned 1.25. Same version this repository's own
+# `crates/cairn-cli/assets/indexers.Dockerfile` pins.
+FROM golang:1.26-bookworm AS gotools
 ENV CGO_ENABLED=0
 # NOTE: scip-go moved from sourcegraph/ to scip-code/ (that is how the module
 # declares itself in go.mod as of v0.2.x). Evidence for the "SCIP ecosystem
-# maintenance is uneven" risk. It also requires Go >= 1.25.
-RUN go install github.com/scip-code/scip-go/cmd/scip-go@latest
+# maintenance is uneven" risk.
+RUN go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.9
 # The scip CLI has `replace` directives in go.mod, so `go install` refuses it -
 # build from a clone. It only cross-checks our own parser, so failure is not fatal.
 RUN git clone --depth 1 https://github.com/sourcegraph/scip /tmp/scip \
@@ -17,8 +22,14 @@ RUN touch /go/bin/scip
 
 # gopls needs a newer toolchain than scip-go does, so it gets its own stage rather
 # than forcing the whole image up a Go version.
-FROM golang:1.26-bookworm AS goplsbuild
-RUN go install golang.org/x/tools/gopls@latest
+#
+# Pinned, not `@latest`: on 2026-11-08 gopls v0.24.0 started requiring Go >= 1.27, which
+# this stage did not have, and the fixture-regeneration build broke with no change to this
+# file. Same fix as `crates/cairn-cli/assets/indexers.Dockerfile` made the same day, for
+# the same reason - this image does not even run gopls (index.sh calls scip-go and
+# scip-python only), but `spike` still COPYs from this stage, so it has to build.
+FROM golang:1.27-bookworm AS goplsbuild
+RUN go install golang.org/x/tools/gopls@v0.24.0
 
 # -- Runtime -----------------------------------------------------------------
 # Python 3.13.7 to match `requires-python == 3.13.7` in srcpy/pyproject.toml.

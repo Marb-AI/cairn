@@ -52,6 +52,30 @@
   contains: ["handle_severe_cold", "no callers"]
   max_seconds: 5
 
+# Reporter in format.go has two implementations, each called only through the interface
+# (`r.Report()` inside ReportAll) — never by name. Before this pair was fixed both printed
+# `unused`, which is the opposite of true: a caller runs each one every time it executes.
+# `is_implementation` is SCIP's own exact relationship (scip-go emits it for every type
+# that satisfies an interface), so this is the same confidence as the gRPC case above, one
+# language construct over - and the same failure mode: a label an agent reads as a license
+# to delete, printed on code that is not dead.
+- name: a method that only runs through an interface it satisfies is not unused
+  args: [outline, srcgo/internal/station]
+  contains: ["dispatched", "Terse.Report", "Verbose.Report"]
+  max_seconds: 5
+
+- name: a method reached only through an interface is not listed as unreached
+  args: [unreached, srcgo/internal/station]
+  not_contains: ["Terse.Report", "Verbose.Report"]
+  max_seconds: 5
+
+# And the contrast case, in the same file: a plain function with a genuinely absent caller
+# is still reported — the fix above must not have made the whole package quiet.
+- name: a genuinely uncalled function next to a dispatched one is still reported
+  args: [unreached, srcgo/internal/station]
+  contains: ["ReportAll", "no callers"]
+  max_seconds: 5
+
 - name: an outline separates production callers from test-only ones
   args: [outline, srcgo/internal/station]
   contains: ["Registry.Add", "test-only", "prod"]
