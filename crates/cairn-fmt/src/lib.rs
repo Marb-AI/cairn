@@ -110,6 +110,7 @@ pub fn answer_schemas() -> Vec<(&'static str, serde_json::Value)> {
         ("concept-show", answer_schema::<ConceptData>()),
         ("concept-list", answer_schema::<ConceptListData>()),
         ("links", answer_schema::<LinksData>()),
+        ("flow", answer_schema::<cairn_store::Flow>()),
     ]
 }
 
@@ -608,6 +609,78 @@ pub struct RefJson {
 pub struct SourceLine {
     pub line: usize,
     pub text: String,
+}
+
+/// The control flow inside one function, as a page.
+///
+/// One line per node, indented by what it is rather than by the graph: a reader following
+/// a handler wants the branches and the early returns to stand out, and the edges are in
+/// the data for anything that wants the graph itself.
+pub fn flow(f: &cairn_store::Flow, budget: &mut Budget) -> Envelope {
+    let mut body = String::new();
+    let _ = writeln!(
+        body,
+        "flow of [{}] {}   {} node(s)   [{}{}]",
+        f.handle,
+        f.function,
+        f.nodes.len(),
+        f.provider,
+        if f.cached { ", cached" } else { "" }
+    );
+    let mut shown = 0usize;
+    for n in &f.nodes {
+        // The kind first and in a column, because that is what a reader scans for. A
+        // branch and a return read differently at a glance and should.
+        let what = n
+            .condition
+            .as_deref()
+            .or(n.name.as_deref())
+            .unwrap_or("")
+            .trim();
+        let target = match (&n.handle, &n.target) {
+            (Some(h), _) => format!("  -> [{h}]"),
+            (None, Some(_)) => "  -> (unresolved)".to_string(),
+            _ => String::new(),
+        };
+        // What a connector declared about the callee: the reason this command is worth
+        // more than reading the function. `writes w17:entity/Order` is not in the source.
+        let declared = if n.declared.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "   {}",
+                n.declared
+                    .iter()
+                    .map(|a| format!("{} {} (declared by {})", a.kind, a.target, a.connector))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+        let line = format!(
+            "  {:<13} {:<42} {}{target}{declared}",
+            n.kind,
+            truncate(what, 42),
+            n.span
+        );
+        if !budget.push(&mut body, &line) {
+            break;
+        }
+        shown += 1;
+    }
+    if f.nodes.is_empty() {
+        let _ = writeln!(
+            body,
+            "  (no nodes - the provider found nothing to describe)"
+        );
+    }
+    let mut env = Envelope::new(body).rows(shown).data(f);
+    if shown < f.nodes.len() {
+        env = env.suppressed(budget.cut_note(f.nodes.len() - shown, "nodes"));
+    }
+    for u in &f.unknown {
+        env = env.unknown(u.clone());
+    }
+    env
 }
 
 /// `cairn status` as data.

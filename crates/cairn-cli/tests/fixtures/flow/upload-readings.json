@@ -1,0 +1,156 @@
+{
+  "provider": "cairnflow 1",
+  "function": "Service.UploadReadings",
+  "file": "/repo/srcgo/internal/ingest/service.go",
+  "nodes": [
+    {
+      "id": 0,
+      "kind": "entry",
+      "name": "Service.UploadReadings",
+      "span": "38-56"
+    },
+    {
+      "id": 1,
+      "kind": "branch",
+      "condition": "batch == nil",
+      "span": "39-41"
+    },
+    {
+      "id": 2,
+      "kind": "call",
+      "name": "fmt.Errorf",
+      "at": {
+        "line": 40,
+        "col": 18
+      },
+      "span": "40-40"
+    },
+    {
+      "id": 3,
+      "kind": "return_error",
+      "condition": "nil, fmt.Errorf(\u2026)",
+      "span": "40-40"
+    },
+    {
+      "id": 4,
+      "kind": "call",
+      "name": "len",
+      "at": {
+        "line": 42,
+        "col": 4
+      },
+      "span": "42-42"
+    },
+    {
+      "id": 5,
+      "kind": "branch",
+      "condition": "len(\u2026) > maxBatch",
+      "span": "42-44"
+    },
+    {
+      "id": 6,
+      "kind": "call",
+      "name": "fmt.Errorf",
+      "at": {
+        "line": 43,
+        "col": 18
+      },
+      "span": "43-43"
+    },
+    {
+      "id": 7,
+      "kind": "call",
+      "name": "len",
+      "at": {
+        "line": 43,
+        "col": 64
+      },
+      "span": "43-43"
+    },
+    {
+      "id": 8,
+      "kind": "return_error",
+      "condition": "nil, fmt.Errorf(\u2026)",
+      "span": "43-43"
+    },
+    {
+      "id": 9,
+      "kind": "loop",
+      "condition": "range batch.Readings",
+      "span": "46-52"
+    },
+    {
+      "id": 10,
+      "kind": "call",
+      "name": "s.accept",
+      "at": {
+        "line": 47,
+        "col": 8
+      },
+      "span": "47-47"
+    },
+    {
+      "id": 11,
+      "kind": "branch",
+      "condition": "!s.accept(\u2026)",
+      "span": "47-50"
+    },
+    {
+      "id": 12,
+      "kind": "return",
+      "condition": "ack, nil",
+      "span": "55-55"
+    }
+  ],
+  "edges": [
+    {
+      "from": 0,
+      "to": 1
+    },
+    {
+      "from": 1,
+      "to": 2
+    },
+    {
+      "from": 2,
+      "to": 3
+    },
+    {
+      "from": 3,
+      "to": 4
+    },
+    {
+      "from": 4,
+      "to": 5
+    },
+    {
+      "from": 5,
+      "to": 6
+    },
+    {
+      "from": 6,
+      "to": 7
+    },
+    {
+      "from": 7,
+      "to": 8
+    },
+    {
+      "from": 8,
+      "to": 9
+    },
+    {
+      "from": 9,
+      "to": 10
+    },
+    {
+      "from": 10,
+      "to": 11
+    },
+    {
+      "from": 11,
+      "to": 12
+    }
+  ],
+  "unknown": []
+}

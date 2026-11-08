@@ -24,6 +24,17 @@ use std::sync::{Mutex, OnceLock};
 
 const DOCKERFILE: &str = include_str!("../assets/indexers.Dockerfile");
 
+/// The flow provider, embedded the same way the Dockerfile is: there is no registry to
+/// fetch it from and nothing to install on the host.
+const CAIRNFLOW: &[(&str, &str)] = &[
+    ("main.go", include_str!("../assets/cairnflow/main.go")),
+    ("go.mod", include_str!("../assets/cairnflow/go.mod")),
+    ("go.sum", include_str!("../assets/cairnflow/go.sum")),
+];
+
+/// What the provider is called inside the image.
+pub const FLOW_PROVIDER: &str = "cairnflow";
+
 /// The shared image's name. Version-tagged so upgrading cairn rebuilds it rather than
 /// silently reusing indexers from an older release.
 pub fn image_tag() -> String {
@@ -110,6 +121,16 @@ fn build_context() -> Result<PathBuf> {
         None => std::env::temp_dir().join("cairn-indexers"),
     };
     std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
+    // The flow provider's source goes into the context too, so the image can compile it
+    // at build time - which is the only time there is a network. A `go build` at query
+    // time would need one, and D15 says a query has none.
+    let provider = dir.join("cairnflow");
+    std::fs::create_dir_all(&provider)
+        .with_context(|| format!("creating {}", provider.display()))?;
+    for (name, text) in CAIRNFLOW {
+        std::fs::write(provider.join(name), text)
+            .with_context(|| format!("writing {}", provider.join(name).display()))?;
+    }
     let path = dir.join("Dockerfile");
     // Rewritten every time rather than only when absent: an edited or truncated file here
     // would build an image that is not the one this cairn was published with.
@@ -337,6 +358,24 @@ fn ensure_container_inner(repo: &Path, dep_roots: &[PathBuf]) -> Result<String> 
 
 /// Run one command inside the repository's container.
 pub fn exec(repo: &Path, workdir: &Path, args: &[&str]) -> Result<std::process::Output> {
+    exec_in(repo, workdir, args, Stdio::null())
+}
+
+/// The same, keeping stdout.
+///
+/// Separate because the indexers write files and say nothing worth reading, while a
+/// provider's whole answer is on stdout — and inheriting megabytes of indexer progress
+/// into a query's output was not worth the one shared function.
+pub fn exec_out(repo: &Path, workdir: &Path, args: &[&str]) -> Result<std::process::Output> {
+    exec_in(repo, workdir, args, Stdio::piped())
+}
+
+fn exec_in(
+    repo: &Path,
+    workdir: &Path,
+    args: &[&str],
+    stdout: Stdio,
+) -> Result<std::process::Output> {
     let name = ensure_container(repo)?;
     let repo = std::fs::canonicalize(repo)?;
     let rel = workdir.strip_prefix(&repo).unwrap_or(Path::new(""));
@@ -346,7 +385,7 @@ pub fn exec(repo: &Path, workdir: &Path, args: &[&str]) -> Result<std::process::
         .arg(Path::new(MOUNT).join(rel))
         .arg(&name)
         .args(args)
-        .stdout(Stdio::null())
+        .stdout(stdout)
         .stderr(Stdio::piped())
         .output()
         .context("running `docker exec`")

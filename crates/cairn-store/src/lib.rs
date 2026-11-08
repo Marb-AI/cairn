@@ -21,6 +21,7 @@ pub mod conventions;
 pub mod coverage;
 pub mod deploy;
 pub mod docs;
+pub mod flow;
 pub mod graph;
 pub mod ingest;
 pub mod llmverify;
@@ -44,6 +45,7 @@ pub use deploy::{
     Attribution, DeployServiceRow, DeployStats, Entrypoint, Service, Topology, Trigger,
 };
 pub use docs::{Document, DocumentRow, Hit, Section, SectionRow};
+pub use flow::{Flow, FlowEdge, FlowKind, FlowNode, ProviderFlow};
 pub use graph::{Direction, PathHop, Walk, WalkNode};
 pub use llmverify::{Check, Standing, Verdict};
 pub use protolink::{Chain, ChainHop, CrossLink, RpcCaller, ServiceRole};

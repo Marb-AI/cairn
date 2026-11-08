@@ -17,6 +17,7 @@ use std::time::Instant;
 /// Exit codes are part of the contract: an agent must be able to tell "nothing is
 /// there" from "I cannot see" (architecture 6.1.1).
 mod docker;
+mod flow;
 mod index;
 mod purpose;
 mod skill;
@@ -358,6 +359,17 @@ enum Cmd {
         max_depth: usize,
         #[arg(long, default_value = "skeleton")]
         detail: String,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+    },
+    /// Control flow inside one function: branches, early returns, calls, defers.
+    ///
+    /// The call graph is between functions, and reviewing one handler needs the tree
+    /// inside it. Computed on demand by a per-language provider that runs in the indexer
+    /// image, and cached on the content of the file - so asking twice costs one parse.
+    Flow {
+        handle: String,
+        /// Repo root. Worked out from the index's own location when omitted.
         #[arg(long)]
         repo: Option<PathBuf>,
     },
@@ -707,6 +719,7 @@ fn command_name(cmd: &Cmd) -> String {
         Cmd::Reaches { .. } => "reaches",
         Cmd::Path { .. } => "path",
         Cmd::Expand { .. } => "expand",
+        Cmd::Flow { .. } => "flow",
         Cmd::Weak { .. } => "weak",
         Cmd::Weaklinks { .. } => "weaklinks",
         Cmd::Verify { .. } => "verify",
@@ -2526,6 +2539,46 @@ fn run() -> Result<u8> {
                         }
                     }
                     emit(env);
+                    Ok(exit::NOT_FOUND)
+                }
+            }
+        }
+
+        Cmd::Flow { handle, repo } => {
+            let store = open(&db)?;
+            let Some(symbol_id) = subject(&store, &handle, cli_budget)? else {
+                return Ok(exit::ERROR);
+            };
+            let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
+            // The repository the index was found in, when the caller did not say: the
+            // same fallback `refs --context` learned to make after two measured rounds
+            // were spent supplying a value the binary had already computed.
+            let root = repo.or_else(|| repo_for(&db));
+            match flow::flow_of(&store, &sym, root.as_deref())? {
+                Ok(f) => {
+                    let stale_paths = vec![f.file.clone()];
+                    let nodes = f.nodes.len();
+                    emit(
+                        cairn_fmt::flow(&f, &mut budget).mark_stale(dirty.as_deref(), &stale_paths),
+                    );
+                    Ok(if nodes > 0 {
+                        exit::FOUND
+                    } else {
+                        exit::NOT_FOUND
+                    })
+                }
+                // Not an error: the question was well formed and the answer is that this
+                // cannot be described here. An exit code of 2 would tell an agent it
+                // asked wrong, and it did not.
+                Err(why) => {
+                    emit(
+                        cairn_fmt::Envelope::new(format!(
+                            "no flow for [{}] {}\n",
+                            sym.handle,
+                            sym.qualified()
+                        ))
+                        .unknown(why),
+                    );
                     Ok(exit::NOT_FOUND)
                 }
             }

@@ -1,0 +1,275 @@
+{
+  "$defs": {
+    "Annotation": {
+      "description": "A declared fact about what a call reaches: `writes`, `emits`, and who said so.",
+      "properties": {
+        "connector": {
+          "type": "string"
+        },
+        "kind": {
+          "description": "The declared edge kind, as the connector named it.",
+          "type": "string"
+        },
+        "target": {
+          "description": "The other end: a declared node id, or a SCIP symbol string.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "target",
+        "connector"
+      ],
+      "type": "object"
+    },
+    "Flow": {
+      "description": "`cairn flow` as data.",
+      "properties": {
+        "cached": {
+          "description": "True when this came from the cache rather than from a fresh run.",
+          "type": "boolean"
+        },
+        "edges": {
+          "items": {
+            "$ref": "#/$defs/FlowEdge"
+          },
+          "type": "array"
+        },
+        "file": {
+          "type": "string"
+        },
+        "function": {
+          "type": "string"
+        },
+        "handle": {
+          "description": "The symbol this is the flow of, as a handle.",
+          "type": "string"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/FlowNode"
+          },
+          "type": "array"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "symbol": {
+          "description": "Its full SCIP symbol string.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unknown": {
+          "description": "What the provider could not determine, and what cairn could not resolve.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "handle",
+        "function",
+        "file",
+        "provider",
+        "cached",
+        "nodes",
+        "edges",
+        "unknown"
+      ],
+      "type": "object"
+    },
+    "FlowEdge": {
+      "properties": {
+        "from": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "to": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "from",
+        "to"
+      ],
+      "type": "object"
+    },
+    "FlowNode": {
+      "description": "One node of the answer: the provider's node, plus what cairn could resolve about it.",
+      "properties": {
+        "condition": {
+          "description": "The condition or the returned expression, as written. Display only.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "declared": {
+          "description": "What a connector declared about the call's target. A call into a generated\nmutation reads `writes w17:entity/Order`, which is the sort of thing no call graph\ncan say.",
+          "items": {
+            "$ref": "#/$defs/Annotation"
+          },
+          "type": "array"
+        },
+        "handle": {
+          "description": "The handle of that symbol, so the next command can be run without a lookup.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kind": {
+          "description": "`entry`, `branch`, `call`, `return`, `return_error`, `loop`, `defer`, `panic`.",
+          "type": "string"
+        },
+        "name": {
+          "description": "What a call names, as written.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "span": {
+          "description": "`file:line-line`.",
+          "type": "string"
+        },
+        "target": {
+          "description": "The symbol a call resolved to. `null` for a call cairn could not resolve, which is\nreported, and for every node that is not a call.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "span",
+        "declared"
+      ],
+      "type": "object"
+    },
+    "Stale": {
+      "description": "The staleness section of a JSON answer: `StaleFiles` plus the sentences text prints.",
+      "properties": {
+        "dirty": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mentioned": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tracked": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "dirty",
+        "mentioned",
+        "notes"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One answer, as `--format json` prints it.\n\nBorrowed from the envelope rather than owning a copy: this is built once, on the way\nout, and an answer can carry a megabyte of body.\n\nGeneric in the payload for one reason: printing uses `serde_json::Value`, because the\nenvelope is built where the command is no longer known, while the published schema\nhas to name the command's own data type. One declaration, instantiated twice, so the\nschema in `docs/json-schema/v1/` describes the object this actually prints.",
+  "properties": {
+    "body": {
+      "description": "The text answer, exactly as text mode prints it above the envelope lines. The\nthree sections are fields here, so repeating them inside the body would be the\nsame claim twice and two places for it to drift.",
+      "type": "string"
+    },
+    "command": {
+      "description": "The command that produced this, as it would be typed: `refs`, `for change`.",
+      "type": "string"
+    },
+    "data": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Flow"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The answer as fields. `null` until the command has a data builder."
+    },
+    "rows": {
+      "format": "uint",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "schema": {
+      "type": "string"
+    },
+    "stale": {
+      "$ref": "#/$defs/Stale"
+    },
+    "suppressed": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "unknown": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "within": {
+      "description": "The declared container this answer was scoped to, or `null` for the whole index.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "command",
+    "truncated",
+    "unknown",
+    "suppressed",
+    "stale",
+    "body"
+  ],
+  "title": "Answer",
+  "type": "object"
+}

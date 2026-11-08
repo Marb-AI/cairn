@@ -91,6 +91,10 @@ fn case(file: &'static str, args: &[&str]) -> Case {
 /// add|link|drop`, `llm verify --check`, `daemon`, `live`, `skill`, `config <assignment>`.
 /// `config` without one reads installation settings that belong to the machine rather
 /// than to the index, so it cannot be recorded either.
+///
+/// `flow` is absent for a different reason, and it is a real hole: its provider runs in
+/// the indexer image, so recording it here would make the gate depend on Docker. It is
+/// covered by `tests/flow.rs` against a recorded provider answer instead.
 fn cases(sampled: &[Sampled], repo: &Path) -> Vec<Case> {
     let repo = repo.to_string_lossy().to_string();
     // Answers about the whole index, recorded once.

@@ -96,8 +96,10 @@ fn handle_of(db: &Path, qualified: &str) -> String {
     let bare = qualified.rsplit('.').next().unwrap_or(qualified);
     let (out, _) = run(db, &["symbol", bare, "--limit", "20"]);
     out.lines()
+        // Result lines only: the header says `1 matches for "classify"`, which contains
+        // the name and is not a row.
+        .filter_map(|l| l.trim().strip_prefix('['))
         .find(|l| l.contains(qualified))
-        .and_then(|l| l.trim().strip_prefix('['))
         .and_then(|l| l.split(']').next())
         .unwrap_or_else(|| panic!("no handle for {qualified} in:\n{out}"))
         .to_string()

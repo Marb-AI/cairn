@@ -24,8 +24,9 @@ set -eu
 : "${CAIRN_REPO:?the core sets CAIRN_REPO}"
 [ "$CAIRN_PROTOCOL" = "1" ] || { echo "protocol $CAIRN_PROTOCOL is not 1" >&2; exit 2; }
 
-# A real symbol of the fixture corpus, so one declared edge resolves against the index.
+# Real symbols of the fixture corpus, so declared edges resolve against the index.
 REGISTRY_ADD='scip-go gomod telemetry.example/srcgo . `telemetry.example/srcgo/internal/station`/Registry#Add().'
+SERVICE_ACCEPT='scip-go gomod telemetry.example/srcgo . `telemetry.example/srcgo/internal/ingest`/Service#accept().'
 
 # The core asks for a version by appending the flag to the whole command, so it arrives
 # after the mode rather than instead of it.
@@ -43,6 +44,13 @@ ok)
 	echo '{"edge":{"from":"w17:rpc/Station.Register","to":"w17:domain/telemetry","kind":"part_of"}}'
 	echo "{\"edge\":{\"from\":\"w17:rpc/Station.Register\",\"to\":\"scip:$REGISTRY_ADD\",\"kind\":\"implemented_by\"}}"
 	echo '{"unknown":"rpc Station.Retire: no handler found"}'
+	;;
+annotated)
+	# An edge *out of* code into a declared entity, which is what `cairn flow`
+	# annotates a call with: following UploadReadings, the call to accept reads
+	# "writes w17:entity/Reading".
+	echo '{"node":{"id":"w17:entity/Reading","kind":"entity","name":"Reading"}}'
+	echo "{\"edge\":{\"from\":\"scip:$SERVICE_ACCEPT\",\"to\":\"w17:entity/Reading\",\"kind\":\"writes\"}}"
 	;;
 expected)
 	echo '{"node":{"id":"w17:rpc/Station.Retire","kind":"rpc"}}'

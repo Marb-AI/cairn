@@ -107,6 +107,26 @@ docker compose -f crates/cairn-cli/tests/fixtures/compose.yaml run --rm scip
 A private checkout with its own indexed codebase can add a second case file at
 `eval/corpus/cases.yaml`; it is not in this repository, and its absence is the normal case.
 
+### The flow provider
+
+`cairn flow` asks a per-language provider for the control flow inside a function. The Go
+one is `crates/cairn-cli/assets/cairnflow/`, compiled into the indexer image at image
+build time — the only moment there is a network — and embedded in the binary the same way
+the Dockerfile is. Building it on its own, which is what to do after changing it:
+
+```
+docker run --rm -v "$PWD/crates/cairn-cli/assets/cairnflow":/src -w /src \
+  -e GOFLAGS=-mod=mod -e GOCACHE=/tmp/gc -e GOMODCACHE=/tmp/gm -e HOME=/tmp \
+  golang:1.26 sh -c 'go build -buildvcs=false -o /tmp/cairnflow . && \
+    /tmp/cairnflow /src/../../tests/fixtures/corpus/srcgo/internal/ingest/service.go 38'
+```
+
+CI has neither Go nor Docker, so what is committed is the provider's *output* for one
+fixture handler (`tests/fixtures/flow/upload-readings.json`), and `tests/flow.rs` drives
+everything cairn does with it: the cache, the resolved call targets, the declared
+annotations, and the calls it admits it could not resolve. After changing the provider,
+re-record that file with the command above.
+
 The unit tests caught none of the eight correctness defects found in the first day of
 measurement: every one lived in the interaction between the index and a real codebase rather
 than in a function that could be tested alone. The corpus cases found two more within minutes

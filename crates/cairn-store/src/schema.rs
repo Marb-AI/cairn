@@ -36,10 +36,14 @@ use rusqlite::Connection;
 /// they could not see. Without it `cairn status` cannot say who contributed a fact and no
 /// answer can carry a connector's gaps.
 ///
+/// v24 adds `flows`: the control flow inside a function, cached per provider and per file
+/// content. An index without it recomputes every `cairn flow` from scratch, which means
+/// spawning a provider for a question that was already answered.
+///
 /// v23 adds `edge_kinds`, `declared_nodes`, `edges.declared_kind` and `connectors.failed`: the facts an external
 /// connector contributes, and the one thing the core reads about them — how a kind
 /// propagates. An index without them cannot hold a declared node at all.
-pub const SCHEMA_VERSION: i64 = 23;
+pub const SCHEMA_VERSION: i64 = 24;
 
 pub const SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -127,6 +131,19 @@ CREATE TABLE IF NOT EXISTS connectors (
     -- Newline-separated. Merged into the `unknown` section of every answer, because a
     -- gap only `cairn index` printed is a gap the reader of an answer never sees.
     unknown TEXT
+);
+
+-- Control flow inside one function, as a provider produced it.
+--
+-- Cached on the *content* of the file, not a timestamp, and on the provider's version so
+-- a better provider invalidates its own output. There is no dependency component to the
+-- key: the flow inside a function is a syntax fact about one file, which is the case
+-- architecture 5.2 exempts from `deps_api_hash`.
+CREATE TABLE IF NOT EXISTS flows (
+    symbol_id INTEGER PRIMARY KEY REFERENCES symbols(id),
+    blob      BLOB NOT NULL,     -- content hash of the file the function is in
+    provider  TEXT NOT NULL,
+    json      TEXT NOT NULL      -- the provider's answer, verbatim
 );
 
 -- Edge kinds a connector declared, and how each propagates. Referenced from

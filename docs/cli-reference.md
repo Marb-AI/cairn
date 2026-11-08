@@ -61,7 +61,7 @@ What holds across both formats:
 ### The data of each command
 
 `symbol`, `refs`, `graph`, `path`, `affects`, `runs`, `reaches`, `expand`, `status`,
-`verify`, `concept show`, `concept list` and `links` fill `data`. Every symbol in it
+`verify`, `concept show`, `concept list`, `links` and `flow` fill `data`. Every symbol in it
 carries the same shape:
 
 ```
@@ -97,6 +97,22 @@ container, and says in `suppressed:` what the scope cut.
 Nothing under `.cairn/connectors/` means nothing changes. Writing one:
 [`docs/connectors.md`](connectors.md).
 
+## Inside one function
+
+`cairn flow <handle>` prints the control flow *inside* a function: where it branches,
+where it returns early, what it calls on the way, what it defers. The call graph answers
+everything else; this is the one question it cannot.
+
+Each node carries its span, and a call carries the handle it resolved to - so following a
+handler needs no second lookup. A call cairn could not resolve is named rather than
+dropped. Where a connector has declared something about the callee, the node says so:
+`writes w17:entity/Reading (declared by w17)`, which is not in the source at all.
+
+Computed on demand by a provider per language, running in the same image as the indexers,
+and cached on the content of the file: asking twice costs one parse. Go today; a Python
+symbol answers `unknown: flow is not available for python`, which is a reply rather than
+an empty page.
+
 ## cairn
 
 ```
@@ -123,6 +139,7 @@ Commands:
   runs         Which deployed services can run this code - the filesystem cannot say
   reaches      Who reaches this across a gRPC boundary - the query no name search can answer
   path         Shortest call path between two symbols: how does one reach the other
+  flow         Control flow inside one function: branches, early returns, calls, defers
   expand       Show a symbol in more detail
   weak         Build the weak-link layer: string literals that name a symbol
   weaklinks    Sites whose string literals name this symbol - candidate dynamic references
@@ -628,6 +645,39 @@ Options:
       --format <FORMAT>        Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
       --repo <REPO>            
   -h, --help                   Print help
+```
+
+## cairn flow
+
+```
+Control flow inside one function: branches, early returns, calls, defers.
+
+The call graph is between functions, and reviewing one handler needs the tree inside it. Computed on demand by a per-language provider that runs in the indexer image, and cached on the content of the file - so asking twice costs one parse.
+
+Usage: cairn flow [OPTIONS] <HANDLE>
+
+Arguments:
+  <HANDLE>
+          
+
+Options:
+      --db <DB>
+          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
+
+      --repo <REPO>
+          Repo root. Worked out from the index's own location when omitted
+
+      --budget <BUDGET>
+          Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+
+      --format <FORMAT>
+          Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both
+          
+          [default: text]
+          [possible values: text, json]
+
+  -h, --help
+          Print help (see a summary with '-h')
 ```
 
 ## cairn expand

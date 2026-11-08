@@ -216,6 +216,47 @@ fn invocations(handle: &str, other: &str, repo: &Path) -> Vec<(&'static str, Vec
     ]
 }
 
+/// `flow` needs a provider, and CI has none. The recorded answer goes into the cache the
+/// way a real run would key it — on the content of the file — so the schema of a command
+/// that spawns a subprocess is still checked against a real answer.
+///
+/// Returns the handle whose flow was seeded.
+fn seed_flow(root: &Path, db: &Path) -> Option<String> {
+    let recorded = std::fs::read_to_string(
+        root.join("crates/cairn-cli/tests/fixtures/flow/upload-readings.json"),
+    )
+    .ok()?;
+    let file = root.join("crates/cairn-cli/tests/fixtures/corpus/srcgo/internal/ingest/service.go");
+    let blob = blake3::hash(&std::fs::read(file).ok()?).as_bytes()[..16].to_vec();
+    let conn = rusqlite::Connection::open(db).ok()?;
+    let (symbol_id, handle): (i64, String) = conn
+        .query_row(
+            // Constrained to the file the recorded answer is about: the corpus has two
+            // symbols called `UploadReadings`, and the other one is the generated
+            // interface method in a different file - whose contents would key the cache
+            // to a blob the recorded flow was never computed from.
+            "SELECT h.symbol_id, h.handle
+               FROM handles h
+               JOIN symbols s ON s.id = h.symbol_id
+               JOIN strings n ON n.id = s.name_id
+               JOIN files   f ON f.id = s.def_file_id
+               JOIN strings p ON p.id = f.path_id
+              WHERE n.s = 'UploadReadings'
+                AND p.s = 'srcgo/internal/ingest/service.go'
+              LIMIT 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .ok()?;
+    conn.execute(
+        "INSERT INTO flows(symbol_id, blob, provider, json) VALUES (?1, ?2, 'cairnflow 1', ?3)
+         ON CONFLICT(symbol_id) DO UPDATE SET blob = excluded.blob, json = excluded.json",
+        rusqlite::params![symbol_id, blob, recorded],
+    )
+    .ok()?;
+    Some(handle)
+}
+
 /// The one command whose data needs something recorded first.
 fn seed_a_concept(bin: &Path, db: &Path, handle: &str) {
     for args in [
@@ -324,12 +365,24 @@ fn every_command_with_data_validates_against_its_schema() {
     let repo = root.join("crates/cairn-cli/tests/fixtures/corpus");
     let (handle, other) = first_handles(&db);
     seed_a_concept(&bin, &db, &handle);
+    let flow_handle = seed_flow(&root, &db);
 
     let schemas: BTreeMap<&str, serde_json::Value> =
         cairn_fmt::answer_schemas().into_iter().collect();
     let mut problems: Problems = Vec::new();
     let mut checked = 0usize;
     let mut cases = invocations(&handle, &other, &repo);
+    if let Some(h) = &flow_handle {
+        cases.push((
+            "flow",
+            vec![
+                "flow".to_string(),
+                h.clone(),
+                "--repo".to_string(),
+                repo.to_string_lossy().to_string(),
+            ],
+        ));
+    }
     cases.push(("concept-show", {
         ["concept", "show", "ingest-path"]
             .iter()

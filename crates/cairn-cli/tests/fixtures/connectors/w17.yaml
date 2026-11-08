@@ -31,3 +31,5 @@ edge_kinds:
   # Grouping only. An rpc being part of a domain does not make a change to one rpc reach
   # its siblings.
   part_of: { propagates: containment }
+  # What a handler does to an entity. A change to the entity reaches the handler.
+  writes: { propagates: dependency }

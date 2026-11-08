@@ -75,7 +75,7 @@ What holds across both formats:
 ### The data of each command
 
 `symbol`, `refs`, `graph`, `path`, `affects`, `runs`, `reaches`, `expand`, `status`,
-`verify`, `concept show`, `concept list` and `links` fill `data`. Every symbol in it
+`verify`, `concept show`, `concept list`, `links` and `flow` fill `data`. Every symbol in it
 carries the same shape:
 
 ```
@@ -110,6 +110,22 @@ container, and says in `suppressed:` what the scope cut.
 
 Nothing under `.cairn/connectors/` means nothing changes. Writing one:
 [`docs/connectors.md`](connectors.md).
+
+## Inside one function
+
+`cairn flow <handle>` prints the control flow *inside* a function: where it branches,
+where it returns early, what it calls on the way, what it defers. The call graph answers
+everything else; this is the one question it cannot.
+
+Each node carries its span, and a call carries the handle it resolved to - so following a
+handler needs no second lookup. A call cairn could not resolve is named rather than
+dropped. Where a connector has declared something about the callee, the node says so:
+`writes w17:entity/Reading (declared by w17)`, which is not in the source at all.
+
+Computed on demand by a provider per language, running in the same image as the indexers,
+and cached on the content of the file: asking twice costs one parse. Go today; a Python
+symbol answers `unknown: flow is not available for python`, which is a reply rather than
+an empty page.
 
 HEADER
 

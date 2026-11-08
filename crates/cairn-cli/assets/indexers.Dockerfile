@@ -15,6 +15,15 @@ ENV CGO_ENABLED=0
 RUN go install github.com/scip-code/scip-go/cmd/scip-go@latest \
  && go install golang.org/x/tools/gopls@latest
 
+# The flow provider: `cairn flow` asks it for the control flow inside one Go function.
+#
+# Compiled here, at image build time, because that is the only moment there is a network:
+# a `go build` at query time would need one and D15 says a query has none. Its source is
+# embedded in the cairn binary and written into this build context, so there is nothing
+# to fetch and nothing to install on the host.
+COPY cairnflow /src/cairnflow
+RUN cd /src/cairnflow && go build -buildvcs=false -o /go/bin/cairnflow .
+
 # Python is the base, not an afterthought: scip-python shells out to `pip` to enumerate the
 # environment and fails outright without one. Learned by building this the other way round
 # and watching it die with "Could not find valid pip command".
@@ -51,6 +60,7 @@ RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 
 # The Go toolchain as well as the indexer: scip-go runs `go list` against the module it is
 # indexing, so the compiler has to be here too. gopls is the Go half of the live overlay.
+COPY --from=gobuild /go/bin/cairnflow /usr/local/bin/cairnflow
 COPY --from=gobuild /go/bin/scip-go /usr/local/bin/scip-go
 COPY --from=gobuild /go/bin/gopls /usr/local/bin/gopls
 COPY --from=golang:1.26-bookworm /usr/local/go /usr/local/go
