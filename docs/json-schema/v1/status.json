@@ -29,6 +29,10 @@
           "format": "int64",
           "type": "integer"
         },
+        "failed": {
+          "description": "The last run failed, so these facts are the previous run's.",
+          "type": "boolean"
+        },
         "name": {
           "type": "string"
         },
@@ -57,7 +61,8 @@
       "required": [
         "name",
         "facts",
-        "unknown"
+        "unknown",
+        "failed"
       ],
       "type": "object"
     },
@@ -270,6 +275,13 @@
         "type": "string"
       },
       "type": "array"
+    },
+    "within": {
+      "description": "The declared container this answer was scoped to, or `null` for the whole index.",
+      "type": [
+        "string",
+        "null"
+      ]
     }
   },
   "required": [

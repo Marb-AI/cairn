@@ -24,6 +24,13 @@
 //! What a connector must never do is call a model or the network (D15). `cairn index`
 //! runs offline with no key, and every connector runs inside that promise.
 
+pub mod declared;
+pub mod external;
+pub mod manifest;
+
+pub use declared::DeclaredNode;
+pub use external::{EdgeFact, ExternalConnector, Facts, NodeFact};
+
 use crate::Store;
 use anyhow::Result;
 use std::collections::BTreeMap;
@@ -104,6 +111,13 @@ pub struct Manifest {
     pub node_kinds: Vec<String>,
     /// Edge kind name -> how it propagates.
     pub edge_kinds: BTreeMap<String, Propagates>,
+    /// blake3-128 of the manifest as written, for the cache key: a manifest that
+    /// changed is a connector whose facts may have changed, whatever its inputs did.
+    pub digest: Vec<u8>,
+    /// What to run, for an external connector. Empty for an in-process one.
+    pub command: Vec<String>,
+    /// How long the command may take before it is killed and the run treated as failed.
+    pub timeout_s: u64,
 }
 
 /// What a connector is given to work with.
@@ -130,6 +144,11 @@ pub struct ConnectorReport {
     pub log: Vec<String>,
     /// How many facts this run contributed, for `cairn status`.
     pub facts: i64,
+    /// What the connector reported as its own version, when it was asked.
+    pub version: Option<String>,
+    /// The run failed and whatever facts are in place are the previous run's. Reported
+    /// by `cairn status`; the reason is in `unknown` and reaches every answer.
+    pub failed: bool,
 }
 
 pub trait Connector {
@@ -181,6 +200,11 @@ impl DefaultConnector {
                 tier: Tier::Declared,
                 node_kinds: vec!["service".to_string(), "rpc".to_string()],
                 edge_kinds,
+                // In-process: there is nothing to spawn, nothing to time out, and no
+                // cache - the work is a few queries and runs with the index.
+                digest: Vec::new(),
+                command: Vec::new(),
+                timeout_s: 0,
             },
         }
     }
@@ -266,6 +290,8 @@ pub struct ConnectorRun {
     pub facts: i64,
     /// What it could not determine. Carried on every answer, not only here.
     pub unknown: Vec<String>,
+    /// The last run failed, so these facts are the previous run's.
+    pub failed: bool,
 }
 
 impl Store {
@@ -277,17 +303,22 @@ impl Store {
         ran_at: i64,
     ) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO connectors(name, version, ran_at, facts, unknown)
-             VALUES (?1, ?2, ?3, ?4, ?5)
+            "INSERT INTO connectors(name, version, ran_at, facts, failed, unknown)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
              ON CONFLICT(name) DO UPDATE SET version = excluded.version,
                                              ran_at  = excluded.ran_at,
                                              facts   = excluded.facts,
+                                             failed  = excluded.failed,
                                              unknown = excluded.unknown",
             rusqlite::params![
                 manifest.name,
-                manifest.version,
+                // What the connector itself reported, when it was asked, and otherwise
+                // what the manifest knows. An external connector's version is the one
+                // that matters: it is in the cache key.
+                report.version.clone().or_else(|| manifest.version.clone()),
                 ran_at,
                 report.facts,
+                report.failed as i64,
                 if report.unknown.is_empty() {
                     None
                 } else {
@@ -301,7 +332,8 @@ impl Store {
     /// Every connector this index was built with.
     pub fn connector_runs(&self) -> Result<Vec<ConnectorRun>> {
         let mut stmt = self.conn.prepare(
-            "SELECT name, version, ran_at, facts, unknown FROM connectors ORDER BY name",
+            "SELECT name, version, ran_at, facts, unknown, failed FROM connectors
+              ORDER BY name",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok(ConnectorRun {
@@ -313,6 +345,7 @@ impl Store {
                     .get::<_, Option<String>>(4)?
                     .map(|s| s.lines().map(|l| l.to_string()).collect())
                     .unwrap_or_default(),
+                failed: r.get::<_, i64>(5)? != 0,
             })
         })?;
         let mut out = Vec::new();
@@ -351,8 +384,8 @@ mod tests {
         let c = DefaultConnector::new();
         let report = ConnectorReport {
             unknown: vec!["no compose file".to_string()],
-            log: vec![],
             facts: 7,
+            ..Default::default()
         };
         store
             .record_connector_run(c.manifest(), &report, 1_762_000_000)

@@ -35,7 +35,11 @@ use rusqlite::Connection;
 /// v22 adds `connectors`: which connectors built this index, what they produced, and what
 /// they could not see. Without it `cairn status` cannot say who contributed a fact and no
 /// answer can carry a connector's gaps.
-pub const SCHEMA_VERSION: i64 = 22;
+///
+/// v23 adds `edge_kinds`, `declared_nodes`, `edges.declared_kind` and `connectors.failed`: the facts an external
+/// connector contributes, and the one thing the core reads about them — how a kind
+/// propagates. An index without them cannot hold a declared node at all.
+pub const SCHEMA_VERSION: i64 = 23;
 
 pub const SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -117,9 +121,43 @@ CREATE TABLE IF NOT EXISTS connectors (
     version TEXT,
     ran_at  INTEGER,                      -- unix seconds
     facts   INTEGER NOT NULL DEFAULT 0,
+    -- The last run failed, so whatever facts are in place are the previous run's. The
+    -- reason is in `unknown`; this is what `status` reads to say so in one word.
+    failed  INTEGER NOT NULL DEFAULT 0,
     -- Newline-separated. Merged into the `unknown` section of every answer, because a
     -- gap only `cairn index` printed is a gap the reader of an answer never sees.
     unknown TEXT
+);
+
+-- Edge kinds a connector declared, and how each propagates. Referenced from
+-- `edges.declared_kind` for `kind = 5` (Declared).
+--
+-- A table rather than a column of text: two connectors may use the same word for
+-- different relations, and an answer has to be able to say which one it means.
+-- `propagates` is the only thing the core reads: 0 dependency, 1 containment, 2 none.
+CREATE TABLE IF NOT EXISTS edge_kinds (
+    id         INTEGER PRIMARY KEY,
+    connector  TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    propagates INTEGER NOT NULL,
+    UNIQUE(connector, name)
+);
+
+-- Nodes a connector declared: a domain, a contract, an entity. Not code, and addressable
+-- by the id the connector gave them (`w17:domain/orders`).
+--
+-- The node itself is a row in `symbols`, which is what makes it traversable by every walk
+-- and addressable by a handle; this table is its identity and its kind. Concepts were the
+-- other candidate and are the wrong home: they are authored knowledge on the knowledge
+-- side, they survive a reindex, and nothing walks them - a declared node has to be in the
+-- graph and has to disappear when the connector stops stating it.
+CREATE TABLE IF NOT EXISTS declared_nodes (
+    symbol_id INTEGER PRIMARY KEY REFERENCES symbols(id),
+    connector TEXT NOT NULL,
+    -- One of the connector's manifest `node_kinds`. Free text here on purpose: the core
+    -- never interprets it.
+    kind      TEXT NOT NULL,
+    node_id   TEXT NOT NULL UNIQUE
 );
 
 -- Derived relations. One table for every edge kind so that exact (L1), weak (L1-W),
@@ -145,7 +183,9 @@ CREATE TABLE IF NOT EXISTS edges (
     -- Which connector stated this edge, for `source = 4` (Declared); null otherwise.
     -- "L1, declared" without a name leaves a reader unable to ask the next question,
     -- and two connectors contributing edges of the same kind would be indistinguishable.
-    origin     TEXT
+    origin     TEXT,
+    -- Which declared kind this is, for `kind = 5`; null for every built-in kind.
+    declared_kind INTEGER REFERENCES edge_kinds(id)
 );
 
 CREATE TABLE IF NOT EXISTS occurrences (
@@ -326,6 +366,9 @@ CREATE INDEX IF NOT EXISTS edge_in        ON edges(dst_symbol, kind);
 CREATE INDEX IF NOT EXISTS file_is_test   ON files(is_test);
 CREATE INDEX IF NOT EXISTS slink_by_symbol  ON service_links(symbol_id, role);
 CREATE INDEX IF NOT EXISTS slink_by_service ON service_links(service_id, role);
+-- Declared nodes are looked up by the id a caller types (`w17:domain/orders`) and dropped
+-- per connector, so both are indexed.
+CREATE INDEX IF NOT EXISTS declared_by_connector ON declared_nodes(connector);
 "#;
 
 /// Authored knowledge: concepts and hand-written links.
@@ -519,7 +562,7 @@ pub fn finalize(conn: &Connection) -> Result<()> {
 ///
 /// Shortest unique prefix: try two characters, lengthen on collision. Done in SQL so it
 /// is one pass rather than 71k round trips.
-fn assign_handles(conn: &Connection) -> Result<()> {
+pub(crate) fn assign_handles(conn: &Connection) -> Result<()> {
     // Encoding in Rust rather than SQL: base32 over a byte string is awkward in SQL and
     // the collision walk needs a running set of what is taken, which is natural here.
     let mut rows: Vec<(i64, Vec<u8>)> = Vec::new();

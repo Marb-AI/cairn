@@ -192,6 +192,7 @@ dependencies = [
  "rusqlite",
  "schemars",
  "serde",
+ "serde_json",
  "serde_yaml",
  "windows-sys 0.59.0",
 ]

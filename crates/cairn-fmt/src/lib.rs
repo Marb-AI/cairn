@@ -74,6 +74,8 @@ pub struct Answer<'a, T = serde_json::Value> {
     pub body: &'a str,
     /// The answer as fields. `null` until the command has a data builder.
     pub data: Option<&'a T>,
+    /// The declared container this answer was scoped to, or `null` for the whole index.
+    pub within: Option<&'a str>,
 }
 
 /// The JSON Schema of one command's answer: the envelope, with `data` as that command's
@@ -151,6 +153,8 @@ pub struct Envelope {
     /// The answer as structured data, for `--format json`. `None` while a command still
     /// has only a text renderer; the envelope around it is there either way.
     pub data: Option<serde_json::Value>,
+    /// The declared container this answer was scoped to, when `--within` was given.
+    pub within: Option<String>,
     /// How many rows the body carried, where the answer is a list.
     ///
     /// What was *printed*, not what matched. The two differ whenever a limit or the
@@ -172,8 +176,27 @@ impl Envelope {
             stale: Vec::new(),
             stale_files: StaleFiles::default(),
             data: None,
+            within: None,
             rows: None,
         }
+    }
+
+    /// Note that this answer was scoped to a declared container, and what that cut.
+    ///
+    /// On the envelope rather than in the body: `--within` is a filter, and a filtered
+    /// answer that does not say so reads as the whole set — the same silence `suppressed`
+    /// exists for. The container is named because "12 rows were dropped" is not something
+    /// a reader can act on without knowing which boundary dropped them.
+    pub fn within(mut self, container: String, dropped: usize) -> Self {
+        self.body = format!("within {container}\n{}", self.body);
+        if dropped > 0 {
+            self.suppressed.push(format!(
+                "{dropped} row(s) outside {container} (--within). Drop the flag for the \
+                 unscoped answer"
+            ));
+        }
+        self.within = Some(container);
+        self
     }
 
     /// Attach the answer as data. Text rendering is unaffected: the renderer reads
@@ -292,6 +315,7 @@ impl Envelope {
             },
             body: &self.body,
             data: self.data.as_ref(),
+            within: self.within.as_deref(),
         };
         // Infallible in practice: every field is a string, a number or a `Value` that
         // was built by `serde_json` in the first place. A command printing nothing at
@@ -3713,6 +3737,7 @@ mod tests {
                 generated: false,
                 gen_via: cairn_store::GeneratedVia::No,
                 enclosing: None,
+                enclosing_id: None,
             }),
             def_end_line: None,
             ref_count: 0,
@@ -4037,6 +4062,7 @@ mod guarantees {
                 generated: true,
                 gen_via: cairn_store::GeneratedVia::PathPattern,
                 enclosing: None,
+                enclosing_id: None,
             }),
             def_end_line: None,
             ref_count: 0,

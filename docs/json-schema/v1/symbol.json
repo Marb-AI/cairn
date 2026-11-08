@@ -184,6 +184,13 @@
         "type": "string"
       },
       "type": "array"
+    },
+    "within": {
+      "description": "The declared container this answer was scoped to, or `null` for the whole index.",
+      "type": [
+        "string",
+        "null"
+      ]
     }
   },
   "required": [

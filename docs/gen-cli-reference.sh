@@ -100,6 +100,17 @@ The full shape of each command's answer is published as JSON Schema under
 [`docs/json-schema/v1/`](json-schema/v1/), generated from the same structs that serialise
 it, and a test both regenerates them and validates real output against them.
 
+## Facts from a connector
+
+A connector contributes what cairn cannot derive: a service contract, a domain, an
+entity. Its nodes are addressable by the id it gave them — `cairn affects
+w17:domain/orders` — and its dependency edges travel exactly as calls do, labelled
+`L1, declared by <connector>`. `--within <node>` scopes an answer to one declared
+container, and says in `suppressed:` what the scope cut.
+
+Nothing under `.cairn/connectors/` means nothing changes. Writing one:
+[`docs/connectors.md`](connectors.md).
+
 HEADER
 
 printf '## cairn\n\n```\n'

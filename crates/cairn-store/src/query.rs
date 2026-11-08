@@ -66,6 +66,12 @@ pub struct Occurrence {
     pub role: i32,
     pub generated: bool,
     pub gen_via: GeneratedVia,
+    /// Id of the symbol whose body contains this occurrence, when one is known.
+    ///
+    /// The name above is for a reader; this is for a filter. `--within` scopes an answer
+    /// to the sites inside a declared container, and matching that on a name would pair
+    /// two functions that happen to share one.
+    pub enclosing_id: Option<i64>,
     /// Symbol whose body contains this occurrence, when one is known.
     ///
     /// A bare `path:line` makes the caller open the file to learn anything, and every
@@ -287,6 +293,7 @@ impl Store {
                 let def = match r.get::<_, Option<String>>(8)? {
                     Some(path) => Some(Occurrence {
                         enclosing: None,
+                        enclosing_id: None,
                         path,
                         line: r.get::<_, Option<i64>>(9)?.unwrap_or(0),
                         col_start: r.get::<_, Option<i64>>(10)?.unwrap_or(0),
@@ -434,6 +441,7 @@ impl Store {
         Ok(match rows.next()? {
             Some(r) => Some(Occurrence {
                 enclosing: None,
+                enclosing_id: None,
                 path: r.get(0)?,
                 line: r.get::<_, Option<i64>>(1)?.unwrap_or(0),
                 col_start: r.get::<_, Option<i64>>(2)?.unwrap_or(0),
@@ -469,7 +477,13 @@ impl Store {
                        AND encl.def_end_line IS NOT NULL
                        AND encl.def_line <= o.line AND encl.def_end_line >= o.line
                      ORDER BY (encl.def_end_line - encl.def_line) ASC
-                     LIMIT 1) AS enclosing
+                     LIMIT 1) AS enclosing,
+                   (SELECT encl.id FROM symbols encl
+                     WHERE encl.def_file_id = o.file_id
+                       AND encl.def_end_line IS NOT NULL
+                       AND encl.def_line <= o.line AND encl.def_end_line >= o.line
+                     ORDER BY (encl.def_end_line - encl.def_line) ASC
+                     LIMIT 1) AS enclosing_id
               FROM occurrences o
               JOIN files f   ON f.id = o.file_id
               JOIN strings p ON p.id = f.path_id
@@ -484,6 +498,7 @@ impl Store {
             |r| {
                 let mut occ = occ_from_row(r).map_err(|_| rusqlite::Error::InvalidQuery)?;
                 occ.enclosing = r.get::<_, Option<String>>(7)?;
+                occ.enclosing_id = r.get::<_, Option<i64>>(8)?;
                 Ok(occ)
             },
         )?;
@@ -525,6 +540,7 @@ impl Store {
 fn occ_from_row(r: &rusqlite::Row) -> Result<Occurrence> {
     Ok(Occurrence {
         enclosing: None,
+        enclosing_id: None,
         path: r.get(0)?,
         line: r.get(1)?,
         col_start: r.get(2)?,
@@ -650,6 +666,7 @@ mod tests {
     fn line_numbers_are_one_based_on_output() {
         let occ = Occurrence {
             enclosing: None,
+            enclosing_id: None,
             path: "a/b.py".into(),
             line: 41,
             col_start: 0,

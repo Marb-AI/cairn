@@ -30,6 +30,7 @@ pub mod query;
 pub mod rules;
 pub mod schema;
 pub mod survey;
+pub mod tree;
 pub mod verify;
 pub mod weak;
 
@@ -185,6 +186,11 @@ pub enum EdgeKind {
     /// registered class into the methods it puts on the live path without paying a join
     /// per node.
     Member = 4,
+    /// Stated by a connector, in a kind the core does not interpret. The kind itself is
+    /// `edges.declared_kind` -> `edge_kinds`, and the only thing read from it is how it
+    /// propagates: a dependency travels like a call, a containment groups, and `none` is
+    /// display only.
+    Declared = 5,
 }
 
 /// Where an edge came from. Answers group by this so an exact edge is never presented
@@ -284,6 +290,10 @@ pub const SOURCE_RANK_SQL: &str =
 
 pub struct Store {
     pub conn: Connection,
+    /// Where this store lives on disk, for the things that belong *beside* it rather
+    /// than inside it: a connector's cached facts, which have to survive the reindex
+    /// that drops every table. `:memory:` for a test store.
+    path: std::path::PathBuf,
     /// False when the authored-knowledge sidecar could not be opened and a memory one
     /// stood in. Everything still works; nothing written survives the process. Carried
     /// so a caller can say so before printing "recorded".
@@ -312,6 +322,7 @@ impl Store {
         let knowledge_is_durable = schema::attach_knowledge(&conn, &knowledge_path(path))?;
         let store = Store {
             conn,
+            path: path.to_path_buf(),
             knowledge_is_durable,
             rules: rules::Rules::default(),
         };
@@ -354,9 +365,27 @@ impl Store {
         schema::attach_knowledge(&conn, std::path::Path::new(":memory:"))?;
         Ok(Store {
             conn,
+            path: std::path::PathBuf::from(":memory:"),
             knowledge_is_durable: false,
             rules: rules::Rules::default(),
         })
+    }
+
+    /// Where this store lives. See the field.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Intern a string, returning its id.
+    ///
+    /// The ingest has its own cached interner for the hot path; this is the cold one, for
+    /// the handful of strings a connector contributes.
+    pub fn intern(&self, s: &str) -> Result<i64> {
+        self.conn
+            .execute("INSERT OR IGNORE INTO strings(s) VALUES (?1)", [s])?;
+        Ok(self
+            .conn
+            .query_row("SELECT id FROM strings WHERE s = ?1", [s], |r| r.get(0))?)
     }
 
     /// Drops and recreates the schema. Cheap because the store is a projection.
@@ -379,6 +408,7 @@ impl Store {
         let knowledge_is_durable = schema::attach_knowledge(&conn, &knowledge_path(path))?;
         Ok(Store {
             conn,
+            path: path.to_path_buf(),
             knowledge_is_durable,
             rules: rules::Rules::default(),
         })

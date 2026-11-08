@@ -254,6 +254,9 @@ enum Cmd {
         handle: String,
         #[arg(long)]
         include_generated: bool,
+        /// Only sites inside this declared container, e.g. `w17:domain/orders`.
+        #[arg(long)]
+        within: Option<String>,
         #[arg(long, default_value_t = 40)]
         limit: usize,
         /// How much source to show at each site: none | line | block | <n> | auto.
@@ -289,6 +292,9 @@ enum Cmd {
         /// Repo root, required when --detail prints source.
         #[arg(long)]
         repo: Option<PathBuf>,
+        /// Only nodes inside this declared container, e.g. `w17:domain/orders`.
+        #[arg(long)]
+        within: Option<String>,
     },
     /// The conventions cairn reads the world with, and where they came from.
     ///
@@ -327,6 +333,9 @@ enum Cmd {
         depth: usize,
         #[arg(long, default_value_t = 200)]
         fanout: usize,
+        /// Only routes whose code is inside this declared container.
+        #[arg(long)]
+        within: Option<String>,
     },
     /// Which deployed services can run this code - the filesystem cannot say.
     Runs {
@@ -1361,8 +1370,56 @@ fn run() -> Result<u8> {
             // connector or it derives from half an index.
             {
                 use cairn_store::connect::Connector;
-                let connectors: Vec<Box<dyn Connector>> =
+                // The built-in one first, then every manifest under
+                // `.cairn/connectors/`, in name order. First because its facts — service
+                // links, the deployment layer — are what an external connector's `scip:`
+                // references resolve against.
+                let mut connectors: Vec<Box<dyn Connector>> =
                     vec![Box::new(cairn_store::connect::DefaultConnector::new())];
+                let manifest_dir = db
+                    .parent()
+                    .map(|d| d.join(cairn_store::connect::manifest::DIR))
+                    .unwrap_or_default();
+                let (manifests, manifest_problems) =
+                    cairn_store::connect::Manifest::load_dir(&manifest_dir);
+                for m in manifests {
+                    println!(
+                        "connector {}: {} input glob(s), {} node kind(s), {} edge kind(s)",
+                        m.name,
+                        m.inputs.len(),
+                        m.node_kinds.len(),
+                        m.edge_kinds.len()
+                    );
+                    connectors.push(Box::new(cairn_store::connect::ExternalConnector::new(m)));
+                }
+                // A manifest that would not load is a connector that contributes
+                // nothing, and that has to be said on every answer rather than once on
+                // stderr during an index nobody was watching.
+                if !manifest_problems.is_empty() {
+                    let report = cairn_store::connect::ConnectorReport {
+                        unknown: manifest_problems.clone(),
+                        ..Default::default()
+                    };
+                    for p in &manifest_problems {
+                        eprintln!("cairn: {p}");
+                    }
+                    let manifest = cairn_store::connect::Manifest {
+                        name: "manifests".to_string(),
+                        version: None,
+                        inputs: Vec::new(),
+                        tier: cairn_store::connect::Tier::Declared,
+                        node_kinds: Vec::new(),
+                        edge_kinds: Default::default(),
+                        digest: Vec::new(),
+                        command: Vec::new(),
+                        timeout_s: 0,
+                    };
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0);
+                    store.record_connector_run(&manifest, &report, now)?;
+                }
                 let ran_at = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs() as i64)
@@ -1697,6 +1754,7 @@ fn run() -> Result<u8> {
         Cmd::Refs {
             handle,
             include_generated,
+            within,
             limit,
             context,
             repo,
@@ -1718,8 +1776,25 @@ fn run() -> Result<u8> {
             } else {
                 limit
             };
-            let (refs, suppressed, total) =
+            let (mut refs, suppressed, total) =
                 store.references(symbol_id, include_generated, effective_limit)?;
+            // `--within`: only the sites inside a declared container. Filtered here
+            // rather than in the query because containment is a declared relation and
+            // the query is about occurrences - and because what was cut has to be
+            // reported, which a `WHERE` clause cannot do.
+            let scope = within_scope(&store, within.as_deref(), cli_budget)?;
+            let outside = match &scope {
+                None => 0,
+                Some((_, inside)) => {
+                    let before = refs.len();
+                    refs.retain(|r| {
+                        r.enclosing_id
+                            .map(|id| inside.contains(&id))
+                            .unwrap_or(false)
+                    });
+                    before - refs.len()
+                }
+            };
             let found = !refs.is_empty();
             let paths: Vec<String> = refs.iter().map(|r| r.path.clone()).collect();
             let ctx = if context == "auto" {
@@ -1745,18 +1820,20 @@ fn run() -> Result<u8> {
                     .and_then(|d| d.parent())
                     .map(|root| Source::new(root.to_path_buf())),
             };
-            emit(
-                cairn_fmt::references_with_context(
-                    &sym,
-                    &refs,
-                    suppressed,
-                    total,
-                    source.as_mut(),
-                    ctx,
-                    &mut budget,
-                )
-                .mark_stale(dirty.as_deref(), &paths),
-            );
+            let mut env = cairn_fmt::references_with_context(
+                &sym,
+                &refs,
+                suppressed,
+                total,
+                source.as_mut(),
+                ctx,
+                &mut budget,
+            )
+            .mark_stale(dirty.as_deref(), &paths);
+            if let Some((label, _)) = &scope {
+                env = env.within(label.clone(), outside);
+            }
+            emit(env);
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
@@ -1769,6 +1846,7 @@ fn run() -> Result<u8> {
             detail,
             repo,
             exclude_tests,
+            within,
         } => {
             let store = open(&db)?;
             let Some(symbol_id) = subject(&store, &handle, cli_budget)? else {
@@ -1802,7 +1880,15 @@ fn run() -> Result<u8> {
                 Aspect::Impls => (EdgeKind::Implements, Direction::In, "implementations of"),
                 Aspect::Tests => unreachable!("handled above"),
             };
-            let w = store.walk(symbol_id, kind, dir, depth, fanout, exclude_tests)?;
+            let mut w = store.walk(symbol_id, kind, dir, depth, fanout, exclude_tests)?;
+            // `--within`: the same walk, inside a declared container. The tree survives
+            // the filter - a node whose parent was dropped is re-pointed at its nearest
+            // surviving ancestor - so what prints is still a tree of real edges.
+            let scope = within_scope(&store, within.as_deref(), cli_budget)?;
+            let outside = match &scope {
+                None => 0,
+                Some((_, inside)) => w.retain_ids(inside),
+            };
             let root = w
                 .nodes
                 .first()
@@ -1813,6 +1899,9 @@ fn run() -> Result<u8> {
             let paths = paths_of(w.nodes.iter().map(|n| n.symbol.def.as_ref()));
             let mut env = cairn_fmt::walk(&w, &title, view, detail, source.as_mut(), &mut budget)
                 .mark_stale(dirty.as_deref(), &paths);
+            if let Some((label, _)) = &scope {
+                env = env.within(label.clone(), outside);
+            }
             // References with no enclosing body are module-level, not missing. Say so
             // rather than letting the count look like a gap.
             if matches!(aspect, Aspect::Callers) {
@@ -2137,18 +2226,41 @@ fn run() -> Result<u8> {
             handle,
             depth,
             fanout,
+            within,
         } => {
             let store = open(&db)?;
             let Some(symbol_id) = subject(&store, &handle, cli_budget)? else {
                 return Ok(exit::ERROR);
             };
             let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
-            let a = store.affects(symbol_id, depth, fanout)?;
+            let mut a = store.affects(symbol_id, depth, fanout)?;
+            // `--within`: only the routes whose code sits inside a declared container.
+            // A hop is kept when either end of the call it describes is inside, because
+            // a route *into* the container is as much part of its blast radius as one
+            // that starts there.
+            let scope = within_scope(&store, within.as_deref(), cli_budget)?;
+            let outside = match &scope {
+                None => 0,
+                Some((_, inside)) => {
+                    let before = a.hops.len() + a.outgoing.len();
+                    a.hops.retain(|h| {
+                        inside.contains(&h.call_site.id) || inside.contains(&h.handler.id)
+                    });
+                    a.outgoing.retain(|o| inside.contains(&o.via.id));
+                    // The in-process side is about the symbol itself, which is the
+                    // subject rather than a row inside the container, so it is left
+                    // alone: scoping it would answer a different question.
+                    before - (a.hops.len() + a.outgoing.len())
+                }
+            };
             let found = !a.in_process.is_empty() || !a.hops.is_empty();
             let gap = deployment_gap(&store);
             let mut env = cairn_fmt::affects(&sym, &a, &mut budget);
             if let Some(note) = &gap {
                 env = env.unknown(note.clone());
+            }
+            if let Some((label, _)) = &scope {
+                env = env.within(label.clone(), outside);
             }
             emit(env);
             Ok(match (found, gap.is_some()) {
@@ -2708,10 +2820,14 @@ fn run() -> Result<u8> {
             for c in connectors.iter().filter(|c| c.name != "default") {
                 let _ = writeln!(
                     body,
-                    "connector  {:<12} {:<8} {} fact(s){}",
+                    "connector  {:<12} {:<8} {} fact(s){}{}",
                     c.name,
                     c.version.as_deref().unwrap_or("-"),
                     c.facts,
+                    // Said in the status line, not only in the envelope: this is the
+                    // command whose whole job is to report how much the index can be
+                    // trusted, and facts from a run that failed are the previous run's.
+                    if c.failed { ", LAST RUN FAILED" } else { "" },
                     if c.unknown.is_empty() {
                         String::new()
                     } else {
@@ -2828,7 +2944,12 @@ fn run() -> Result<u8> {
                 }
             };
 
-            let unknown = index_unknown(&store);
+            let mut unknown = index_unknown(&store);
+            // The connectors' own gaps belong here too. `status` is the command the guide
+            // says to run first, so a connector that failed must be visible in it — and
+            // `status` does not go through `emit`, which is where every other answer
+            // picks these up.
+            unknown.extend(CONNECTOR_GAPS.get().into_iter().flatten().cloned());
             match format() {
                 Format::Text => {
                     print!("{body}");
@@ -2837,9 +2958,18 @@ fn run() -> Result<u8> {
                     }
                     print!("{trailer}");
                     println!("suppressed: none");
-                    match unknown.first() {
-                        None => println!("unknown: none"),
-                        Some(u) => println!("unknown: {u}"),
+                    // The same shape `Envelope::render` uses: one line for one, a
+                    // counted block for several. A reader of `status` has learned where
+                    // the honesty lives and should not have to learn a second layout.
+                    match unknown.len() {
+                        0 => println!("unknown: none"),
+                        1 => println!("unknown: {}", unknown[0]),
+                        n => {
+                            println!("unknown ({n}):");
+                            for u in &unknown {
+                                println!("  {u}");
+                            }
+                        }
                     }
                 }
                 Format::Json => {
@@ -3395,9 +3525,43 @@ fn resolve_for_purpose(
     Ok(Subject::Answered(exit::ERROR))
 }
 
+/// The container `--within` names, and everything inside it.
+///
+/// Containment is a declared relation and is never traversed for impact — an rpc being
+/// part of a domain does not make a change to one rpc reach its siblings. What it is for
+/// is scoping: "this walk, but only inside that contract". Resolved by connector id
+/// (`w17:domain/orders`) or by handle, because a declared node has both.
+fn within_scope(
+    store: &Store,
+    within: Option<&str>,
+    cli_budget: Option<usize>,
+) -> Result<Option<(String, std::collections::HashSet<i64>)>> {
+    let Some(given) = within else {
+        return Ok(None);
+    };
+    let Some(id) = subject(store, given, cli_budget)? else {
+        return Ok(None);
+    };
+    let label = store
+        .declared_node_of(id)?
+        .map(|n| n.node_id)
+        .unwrap_or_else(|| given.to_string());
+    let inside: std::collections::HashSet<i64> = store.contained_by(id)?.into_iter().collect();
+    Ok(Some((label, inside)))
+}
+
 fn subject(store: &Store, given: &str, cli_budget: Option<usize>) -> Result<Option<i64>> {
     if let Some(id) = store.resolve_handle(given)? {
         return Ok(Some(id));
+    }
+    // A declared node, named by the id its connector gave it: `cairn affects
+    // w17:domain/orders`. Tried before the name search because a colon cannot appear in
+    // a handle or in a symbol's display name, so this is unambiguous - and because the
+    // id is what a connector's own output prints, which is where a caller gets it from.
+    if given.contains(':') {
+        if let Some(node) = store.declared_node(given)? {
+            return Ok(Some(node.symbol_id));
+        }
     }
     let named = store.symbols_named(given)?;
     match named.len() {

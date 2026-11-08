@@ -86,6 +86,17 @@ The full shape of each command's answer is published as JSON Schema under
 [`docs/json-schema/v1/`](json-schema/v1/), generated from the same structs that serialise
 it, and a test both regenerates them and validates real output against them.
 
+## Facts from a connector
+
+A connector contributes what cairn cannot derive: a service contract, a domain, an
+entity. Its nodes are addressable by the id it gave them — `cairn affects
+w17:domain/orders` — and its dependency edges travel exactly as calls do, labelled
+`L1, declared by <connector>`. `--within <node>` scopes an answer to one declared
+container, and says in `suppressed:` what the scope cut.
+
+Nothing under `.cairn/connectors/` means nothing changes. Writing one:
+[`docs/connectors.md`](connectors.md).
+
 ## cairn
 
 ```
@@ -350,9 +361,10 @@ Options:
       --db <DB>            Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
       --include-generated  
       --budget <BUDGET>    Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+      --within <WITHIN>    Only sites inside this declared container, e.g. `w17:domain/orders`
+      --format <FORMAT>    Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
       --limit <LIMIT>      [default: 40]
       --context <CONTEXT>  How much source to show at each site: none | line | block | <n> | auto. `auto` divides --budget by the number of sites, so few sites get a block and many get a line. Needs --repo. Far cheaper than opening the files [default: none]
-      --format <FORMAT>    Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
       --repo <REPO>        
   -h, --help               Print help
 ```
@@ -415,6 +427,9 @@ Options:
 
       --repo <REPO>
           Repo root, required when --detail prints source
+
+      --within <WITHIN>
+          Only nodes inside this declared container, e.g. `w17:domain/orders`
 
   -h, --help
           Print help (see a summary with '-h')
@@ -550,6 +565,9 @@ Options:
           
           [default: text]
           [possible values: text, json]
+
+      --within <WITHIN>
+          Only routes whose code is inside this declared container
 
   -h, --help
           Print help (see a summary with '-h')

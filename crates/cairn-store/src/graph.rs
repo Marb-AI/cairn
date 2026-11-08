@@ -58,6 +58,52 @@ pub struct Walk {
     pub truncated: usize,
 }
 
+impl Walk {
+    /// Keep only the nodes in `keep` (and the root), and report how many went.
+    ///
+    /// The tree has to survive the filter: a node whose parent was dropped is re-pointed
+    /// at its nearest surviving ancestor, and depth is recomputed from that, so what is
+    /// printed is still a tree of real edges rather than an indented list with holes in
+    /// it. Used by `--within`, where the question is "this walk, inside that container".
+    pub fn retain_ids(&mut self, keep: &HashSet<i64>) -> usize {
+        let mut surviving: Vec<usize> = Vec::new();
+        // Index in the old list -> index in the new one, for the nodes that stay.
+        let mut moved: Vec<Option<usize>> = vec![None; self.nodes.len()];
+        for (i, node) in self.nodes.iter().enumerate() {
+            // The root is the subject of the answer, not a result in it.
+            if i == 0 || keep.contains(&node.symbol.id) {
+                moved[i] = Some(surviving.len());
+                surviving.push(i);
+            }
+        }
+        let dropped = self.nodes.len() - surviving.len();
+        let old = std::mem::take(&mut self.nodes);
+        let mut kept: Vec<WalkNode> = Vec::new();
+        for (new_index, old_index) in surviving.iter().enumerate() {
+            let mut node = old[*old_index].clone();
+            // Walk up until an ancestor survived. `None` only for the root.
+            let mut parent = node.parent;
+            let mut mapped = None;
+            while let Some(p) = parent {
+                if let Some(at) = moved[p] {
+                    mapped = Some(at);
+                    break;
+                }
+                parent = old[p].parent;
+            }
+            node.parent = mapped;
+            node.depth = match mapped {
+                Some(at) => kept[at].depth + 1,
+                None if new_index == 0 => 0,
+                None => 1,
+            };
+            kept.push(node);
+        }
+        self.nodes = kept;
+        dropped
+    }
+}
+
 impl Store {
     /// Breadth-first walk over edges of one kind.
     ///
@@ -226,6 +272,22 @@ impl Store {
             ""
         };
         let rank = crate::SOURCE_RANK_SQL;
+        // Declared dependency edges travel with calls, and only with calls. A connector
+        // that says an rpc is implemented by a handler is stating the same kind of thing
+        // a call edge states - a change to the target reaches the source - so a walk
+        // that followed one and not the other would answer "nothing calls this" about a
+        // handler the whole system reaches through a contract. `impls` and `member` are
+        // about types and membership, where a declared dependency has no business, and
+        // containment never propagates at all.
+        let declared = if kind == EdgeKind::Calls {
+            format!(
+                " OR (e.kind = {} AND e.declared_kind IN
+                        (SELECT id FROM edge_kinds WHERE propagates = 0))",
+                EdgeKind::Declared as i64
+            )
+        } else {
+            String::new()
+        };
         let sql = format!(
             r#"
             SELECT e.{to_col}, e.source, p.s, MAX(e.line), e.origin
@@ -234,7 +296,7 @@ impl Store {
               LEFT JOIN strings p ON p.id = f.path_id
               JOIN symbols other ON other.id = e.{to_col}
               LEFT JOIN files otherf ON otherf.id = other.def_file_id
-             WHERE e.{from_col} = ?1 AND e.kind = ?2
+             WHERE e.{from_col} = ?1 AND (e.kind = ?2{declared})
                AND (?4 = 0 OR coalesce(otherf.is_test, 0) = 0)
                {noise_filter}
              GROUP BY e.{to_col}
@@ -271,7 +333,7 @@ impl Store {
             "SELECT count(DISTINCT e.{to_col}) FROM edges e
                JOIN symbols other ON other.id = e.{to_col}
                LEFT JOIN files otherf ON otherf.id = other.def_file_id
-              WHERE e.{from_col} = ?1 AND e.kind = ?2
+              WHERE e.{from_col} = ?1 AND (e.kind = ?2{declared})
                 AND (?3 = 0 OR coalesce(otherf.is_test, 0) = 0)
                 {noise_filter}"
         );
