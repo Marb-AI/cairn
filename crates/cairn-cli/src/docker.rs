@@ -293,18 +293,19 @@ fn ensure_container_inner(repo: &Path, dep_roots: &[PathBuf]) -> Result<String> 
     // — `gopls`, `tsc`, `scip-go` — while cairn's own process is a few hundred MB, and a
     // limit must be set at `docker run` because a running container's cannot be changed.
     //
-    // Unset is no cap, which is Docker's default and every existing install's behaviour.
-    // Deliberately not defaulted to a fraction of RAM: this is enforced by the kernel, so
-    // a default that is too small does not warn, it kills the indexer mid-run on a
-    // repository that indexed fine yesterday.
+    // Half the machine's RAM unless configured otherwise - `Config::indexer_memory_cap_mb`
+    // has the reasoning and the number from the day this was asked for directly.
+    // `indexer_memory_mb=0` still means no cap at all, for the repository large enough
+    // to need the whole machine and a user who has decided that is fine; `=unset` means
+    // something else now - go back to the default, not disable it.
     //
     // `--memory-swap` is set to the same value, which disables swap for the container. A
     // limit that can be satisfied by swapping turns an out-of-memory kill into a machine
-    // that thrashes for twenty minutes, and the people this setting is for - the ones on
+    // that thrashes for twenty minutes, and the people this default is for - the ones on
     // smaller machines - are exactly the ones who would pay for that.
     if let Some(mb) = cairn_store::Config::load()
         .ok()
-        .and_then(|c| c.indexer_memory_mb)
+        .and_then(|c| c.indexer_memory_cap_mb())
     {
         cmd.arg("--memory")
             .arg(format!("{mb}m"))
@@ -447,22 +448,28 @@ fn annotate_memory_exhaustion(mut out: std::process::Output) -> std::process::Ou
     if !killed && !ran_out {
         return out;
     }
-    let Some(mb) = cairn_store::Config::load()
-        .ok()
-        .and_then(|c| c.indexer_memory_mb)
-    else {
-        // No cap set, so this is the machine's own memory and not a setting anyone chose.
-        // Saying "raise the cap" would send the reader after a number that does not exist.
+    let Some(settings) = cairn_store::Config::load().ok() else {
+        // The settings file itself could not be read, so no cap was set by this run
+        // either way. Saying "raise the cap" would send the reader after a number that
+        // does not exist.
+        return out;
+    };
+    let Some(mb) = settings.indexer_memory_cap_mb() else {
         return out;
     };
     // At the front, and prefixed, because this is the line the reader needs first: the
     // caller summarises a failure by picking one line out of the indexer's output, and
     // cairn's own explanation of *why* outranks the indexer's complaint about *what*.
+    //
+    // Named the same whether the cap came from `indexer_memory_mb` or from the default
+    // half-of-RAM nobody configured: either way `cairn config indexer_memory_mb=<MB>`
+    // is the fix, and the reader does not need to know which case they are in to use it.
     let note = format!(
         "{NOTE_PREFIX}the indexer ran out of memory under the {mb} MB `indexer_memory_mb` \
-         cap. The cap has to fit the LARGEST project in the repository, not the average \
-         one. Raise it with `cairn config indexer_memory_mb=<MB>`, or `=unset` for no cap. \
-         Nothing was wrong with the code it was reading.\n"
+         cap (set explicitly, or half the machine's RAM by default - `cairn config` shows \
+         which). The cap has to fit the LARGEST project in the repository, not the average \
+         one. Raise it with `cairn config indexer_memory_mb=<MB>`, or `=0` for no cap at \
+         all. Nothing was wrong with the code it was reading.\n"
     );
     let mut stderr = note.into_bytes();
     stderr.append(&mut out.stderr);

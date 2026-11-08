@@ -41,12 +41,23 @@ pub struct Config {
     ///
     /// **This is the one that is enforced**, and it is the one that matters on a small
     /// machine: cairn's own process is a few hundred MB, while `gopls`, `tsc` and
-    /// `scip-go` inside the container are where gigabytes go. Unset means no cap, which
-    /// is Docker's own default and the behaviour every existing install has.
+    /// `scip-go` inside the container are where gigabytes go.
     ///
     /// Enforced by the kernel, so exceeding it is a kill rather than a warning. That is
     /// the point — and it is also why an indexer killed this way is reported as killed,
     /// naming this setting, instead of as an ordinary failure.
+    ///
+    /// Three states, not two, because there turned out to be three:
+    ///
+    /// - `None` — nobody has typed a number. Read `Config::indexer_memory_cap_mb` for the
+    ///   cap actually in effect; it is not "no cap" any more, it is half the machine's RAM.
+    /// - `Some(0)` — explicitly no cap, for the repository large enough to need the whole
+    ///   machine. `cairn config indexer_memory_mb=0` sets it; `=unset`/`=default` do not,
+    ///   they clear back to the first state, which is the more useful thing to restore to.
+    /// - `Some(n)`, `n > 0` — the cap, explicitly.
+    ///
+    /// `0` as a real memory limit means nothing, which is what makes it safe to reuse as
+    /// the sentinel rather than adding a second field or an enum just for this.
     pub indexer_memory_mb: Option<u64>,
     /// Default ceiling on an answer, in tokens, when `--budget` is not given.
     pub default_budget: Option<usize>,
@@ -124,7 +135,7 @@ pub const SETTINGS: &[(&str, &str)] = &[
     ),
     (
         "indexer_memory_mb",
-        "hard cap on the indexer container's memory; unset means no cap",
+        "hard cap on the indexer container's memory; default is half this machine's RAM, 0 means no cap",
     ),
     (
         "default_budget",
@@ -218,6 +229,39 @@ impl Config {
             return Some(mb * 1024 * 1024);
         }
         total_ram_bytes().map(|total| total / 4)
+    }
+
+    /// The cap to pass to `docker run --memory` for the indexer container, in MB:
+    /// what was configured, or half the machine's RAM.
+    ///
+    /// Asked for directly, after `indexer_memory_mb` shipped with no default at all:
+    /// "roughly fit" was the bar, not exact, and the point was a machine never locking up
+    /// on a large project, which an opt-in setting nobody has typed yet does not deliver.
+    ///
+    /// Half rather than a quarter - `memory_limit_bytes`'s fraction, reused here, would
+    /// cap a 16 GB laptop at 4 GB, which is below what the real run upstream of this
+    /// setting needed on a 1,079-file TypeScript workspace (2.5 GB, measured the same
+    /// day) and would make the *common* project the one that needs raising, not the
+    /// unusually large one. Half leaves the other half for the OS, the browser, whatever
+    /// else is running, and still gives the indexer real room.
+    ///
+    /// The reason this can default at all, where `indexer_memory_mb` deliberately did
+    /// not default to a fraction of RAM when it was added hours earlier: that version
+    /// had no way to say *why* a kill happened, so a default that was ever too small
+    /// killed the indexer mid-run on a repository that indexed fine yesterday, silently.
+    /// `annotate_memory_exhaustion` (cairn-cli) closes that - the failure now names the
+    /// cap and the value it hit - so the risk a default used to carry is the thing this
+    /// default is now safe to take.
+    ///
+    /// `Some(0)` - typed as `indexer_memory_mb=0` - means no cap, explicitly asked for
+    /// rather than defaulted into; it is the one input value this returns as `None`.
+    pub fn indexer_memory_cap_mb(&self) -> Option<u64> {
+        match self.indexer_memory_mb {
+            Some(0) => return None,
+            Some(mb) => return Some(mb),
+            None => {}
+        }
+        total_ram_bytes().map(|total| total / 2 / (1024 * 1024))
     }
 
     /// Read the settings in effect: the machine's, then this user's on top.
@@ -332,6 +376,48 @@ mod tests {
             );
         }
         std::env::remove_var("CAIRN_CONFIG");
+    }
+
+    #[test]
+    fn indexer_cap_defaults_to_half_the_machines_ram() {
+        // The thing asked for directly: a fresh install, nothing configured, still gets a
+        // cap - not the old "unset means unlimited" that let one large project take the
+        // whole machine down with it.
+        let c = Config::default();
+        if let Some(mb) = c.indexer_memory_cap_mb() {
+            assert!(
+                mb > 256,
+                "half of any machine worth running Docker on is more than this"
+            );
+        }
+    }
+
+    #[test]
+    fn an_explicit_cap_is_used_as_given() {
+        let c = Config {
+            indexer_memory_mb: Some(4096),
+            ..Config::default()
+        };
+        assert_eq!(c.indexer_memory_cap_mb(), Some(4096));
+    }
+
+    #[test]
+    fn zero_means_no_cap_explicitly_not_the_default() {
+        // `indexer_memory_mb=0` and leaving the field unset must not collapse to the same
+        // answer, or there is no way left to say "I want the whole machine" - which is
+        // exactly what the repository too large for the default needs to say.
+        let zero = Config {
+            indexer_memory_mb: Some(0),
+            ..Config::default()
+        };
+        assert_eq!(zero.indexer_memory_cap_mb(), None);
+        // And they disagree whenever the machine lets the default compute at all - on a
+        // platform `total_ram_bytes` cannot read, both are `None` and there is nothing to
+        // tell apart, which is the same honest degradation `memory_limit_bytes` already
+        // has above.
+        if let Some(default_mb) = Config::default().indexer_memory_cap_mb() {
+            assert_ne!(Some(default_mb), zero.indexer_memory_cap_mb());
+        }
     }
 
     #[test]

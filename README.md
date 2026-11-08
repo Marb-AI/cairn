@@ -173,17 +173,20 @@ is the part to plan for: 2.6 GB is enough to be killed inside a small container.
 that, queries are milliseconds, and a rebuild never takes the index away from whoever is
 reading it.
 
-**On a smaller machine, cap it rather than hope.** `cairn config indexer_memory_mb=<MB>`
-puts a hard limit on the container the indexers and language servers run in, which is where
-the gigabytes above go — cairn's own process is a few hundred MB. Unset is the default and
-means no cap at all.
+**It is capped by default, at half the machine's RAM**, so a large project cannot take the
+whole machine down with it. `cairn config indexer_memory_mb=<MB>` sets the cap explicitly;
+`=0` turns it off entirely, for a repository large enough to need the whole machine and a
+user who has decided that is fine. `cairn config` shows which is in effect, computed
+default included.
 
 The number has to fit the **largest project in the repository**, not the average one, and
 it is a kernel limit: too small does not warn, it kills that project's indexer and the
-index comes back incomplete — honestly labelled, and still incomplete. Measured on a
-1,079-file TypeScript workspace: 900 MB and 1,500 MB both lost the big app, 2,500 MB
-indexed everything. So pick a number from the table above with room over it, and raise it
-if a project reports running out — the message names the setting and the value it hit.
+index comes back incomplete — honestly labelled, and still incomplete, and the failure
+names the cap and the value it hit so raising it is one command rather than a guess.
+Measured on a 1,079-file TypeScript workspace: 900 MB and 1,500 MB both lost the big app,
+2,500 MB indexed everything — so on a machine with a few GB of RAM to spare, the default
+should clear real projects; on one without much to spare, that is also exactly the machine
+this default exists to protect.
 
 Re-run `cairn index` whenever you want it current again.
 
@@ -195,7 +198,7 @@ Little should need changing, but nothing is hidden either:
 cairn config                        # every setting, its value, and where it came from
 cairn config tracking=on            # record one line per command, for reading a session back
 cairn config memory_peak=on         # report memory use when a command finishes
-cairn config indexer_memory_mb=4096 # cap the indexer container; unset means no cap
+cairn config indexer_memory_mb=4096 # cap the indexer container; default is half the RAM, 0 means no cap
 ```
 
 Settings live in `~/.cairn/cairn.yaml`, written for you by that command. Absent is the
