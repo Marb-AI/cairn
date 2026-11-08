@@ -3176,3 +3176,172 @@ dearer than grep as often as it is cheaper.
 The conclusion is the standing one, now predicted rather than discovered: this tool's value is
 concentrated in codebases with a service boundary, and on a frontend the thing to reach for is
 `for find`. Nothing here supports a claim beyond that.
+
+---
+
+## Backend round 7 — pre-registered 2026-11-08, before any run
+
+The frontend was re-measured this morning; **0.50 is now the stale number.** It comes from a
+binary that no longer exists, and the commits since went into exactly the paths it measures —
+connectors, `edges.origin`, declared edges, the deploy rule pack, entrypoints, cross-api. The
+rule that retired 0.84 retires it too.
+
+### What is frozen
+
+| | |
+|---|---|
+| commit | `f949b0a` |
+| binary | `cairn 0.1.2`, sha256 `840b1024479e135b…`, one build for every run |
+| corpus | `repos/backend`, rebuilt immediately before the runs |
+| index | 1,685 files, 71,140 symbols, 365,605 occurrences |
+
+### Two things that make this not a clean comparison with 0.50, both stated now
+
+- **The arm has changed.** `arms/cairn_full.md` was handing out a guide 1,379 characters
+  behind `skill/SKILL.md`, missing the paragraphs on a *searched* miss and on `UNCHECKED` /
+  exit 3 meaning "I did not look". Every earlier backend round was measured on advice the
+  tool had stopped giving, and two of the ten scenarios turn on exactly that advice. Fixed
+  and now guarded by a test; the instruction overhead is re-measured at 15,450 against the
+  baseline's 10,002, so the cairn arm gets 54% more instruction, not the 40% on record.
+- **The tool has changed in twelve commits**, four of them from this morning's round: the
+  three-state index tag, per-root staleness, the memory cap, and two settings that did
+  nothing until today.
+
+So this is a fresh measurement of a changed tool against unchanged scenarios and unchanged
+keys, which is the most that can be claimed. The per-scenario predictions in `SCENARIOS.md`
+stand as written and are not reopened.
+
+### Design
+
+Ten scenarios × two arms × **three runs** = 60 runs, batched six at a time — one run of three
+scenarios in each arm per batch — so parallelism is constant and identical across the arms
+being compared. Scenario 9 runs last and separately, because its setup edits the tree after
+the index was built, and the whole thing it grades is whether the arm notices.
+
+Round trips from `cluster.py`; the rig now also records how much of a file each `Read`
+opened, which is the one thing the frontend round could not check. Arm compliance audited
+from the logs. Acceptance rule unchanged: same answer → at most half the round trips or half
+the wall clock; better answer → no more than the baseline; **a worse answer fails at any
+price.**
+
+### Prediction, recorded now
+
+- **Median of the thirty ratios: 0.35–0.55** — at or below the recorded 0.50. The backend is
+  where this tool's structure matches the questions, and nothing in the last twelve commits
+  touches that structure adversely.
+- **Scenarios 3, 5 and 6 well under 0.50** (a cross-language boundary, a question over a set,
+  a blast radius across services) and **7, 8 and 10 at or above 1.00** — the three where the
+  guide's own advice is to use grep.
+- **At least one scenario where the grep arm's answer is graded *worse***, as
+  `SCENARIOS.md` predicts for 3, 5 and 6. If every grep answer comes back complete, the case
+  for the tool is weaker than the round-trip numbers will make it look, and that is the
+  result to report.
+- **Scenario 9 is the one to watch**, and the prediction is unchanged: cairn's case rests
+  entirely on the envelope saying `stale:` unprompted. If it answers "no callers" without
+  flagging that the index may not have seen the file, that is graded **worse** — accidentally
+  right and unusable.
+
+### Addendum to the backend pre-registration, written after eighteen runs and before any counted one
+
+The first eighteen runs were **discarded and re-run**, for the same cause as the frontend
+round's first batch and by my own omission: the warning about the stale install was added to
+the frontend arm this morning and not to this one. `/usr/local/bin/cairn` is an 0.1.1
+install that exits 3 on a current index, and **eight of the nine cairn runs typed the bare
+name**, paying one to three round trips each. One of them — scenario 10 — concluded from the
+exit 3 that the index was unusable and answered the question by reading files, with the tool
+switched off.
+
+That is not a tax one can subtract afterwards: it varies per run, falls on one arm only, and
+in one case changed what was being measured. Both preambles now carry the same sentence, and
+the discarded logs are kept as `DISCARDED-stale-path-*`.
+
+**Two findings from those runs are kept, because they are about answers rather than counts**,
+and both weaken rather than flatter the case for the tool:
+
+- **Scenario 3's predicted grep failure did not happen.** `SCENARIOS.md` predicts the grep
+  arm misses `share.go` — the tenth call site, "the one a reader assembling this by hand
+  misses" — and fails the acceptance rule at any price. It found it, named it "a second,
+  easy-to-miss entry point", and gave the full RPC table.
+- **Scenario 5's predicted grep failure did not happen either**, and the grep arm arguably
+  answered *better* than the key: it enumerated the package by AST and reported that only one
+  of the four symbols is genuinely dead, where the key lists four. The cairn arm reached the
+  same conclusion from `unreached` plus `usage` and `weaklinks`. Two arms converging on a
+  better answer than the pre-registered key is a finding about the key.
+
+Neither is retracted by the re-run; the answers were not what the stale binary affected. The
+prediction above stands as written.
+
+### Backend round 7 result — `f949b0a`, 60 runs
+
+Thirty ratios, three per scenario, cairn over grep, round trips from `cluster.py`.
+
+| scenario | cairn rt | grep rt | ratios | median | wall median | acceptance |
+|---|---|---|---|---|---|---|
+| 1 edges | 2, 5, 2 | 9, 7, 8 | 0.22, 0.71, 0.25 | **0.25** | 0.19 | **meets** |
+| 2 identity | 6, 8, 6 | 13, 14, 11 | 0.46, 0.57, 0.55 | 0.55 | 0.54 | fails |
+| 3 boundary | 2, 1, 1 | 12, 13, 11 | 0.17, 0.08, 0.09 | **0.09** | n/a | **meets** |
+| 4 the name changes shape | 14, 9, 14 | 22, 25, 32 | 0.64, 0.36, 0.44 | **0.44** | 0.58 | **meets** |
+| 5 sets | 12, 11, 8 | 23, 19, 29 | 0.52, 0.58, 0.28 | 0.52 | 0.31 | **meets** (wall) |
+| 6 completeness | 1, 1, 1 | 22, 26, 24 | 0.05, 0.04, 0.04 | **0.04** | n/a | **meets** |
+| 7 a string literal | 3, 4, 3 | 5, 6, 6 | 0.60, 0.67, 0.50 | 0.60 | 0.54 | fails |
+| 8 configuration | 3, 5, 3 | 7, 6, 7 | 0.43, 0.83, 0.43 | **0.43** | 0.37 | **meets** |
+| 9 a file I just edited | 2, 2, 2 | 5, 5, 8 | 0.40, 0.40, 0.25 | **0.40** | 0.22 | **meets** |
+| 10 nothing indexed | 12, 16, 7 | 11, 10, 16 | 1.09, 1.60, 0.44 | 1.09 | 0.76 | fails |
+
+**Median of the thirty: 0.433.** Seven scenarios of ten meet the acceptance rule; 2, 7 and 10
+do not.
+
+`n/a` where a median cairn run was a single call: this rig timestamps calls, so a one-call run
+has no measurable span and its wall ratio would read 0.00. Those two scenarios pass on round
+trips alone, which is the stricter half anyway.
+
+**Answers: all sixty complete.** I read every one against the keys. Not one answer from either
+arm was graded *worse*, which makes the whole table a same-answer comparison — the strictest
+reading of the rule.
+
+### The prediction was right about the number and wrong about the shape
+
+| predicted | measured |
+|---|---|
+| median 0.35–0.55 | **0.433** |
+| 3, 5, 6 well under 0.50 | 0.09, 0.52, 0.04 — 5 only just over on round trips, under on wall |
+| 7, 8, 10 at or above 1.00 | 0.60, **0.43**, 1.09 — **wrong on 7 and 8** |
+| at least one grep answer graded *worse* | **none** |
+
+The last two rows matter more than the first. **cairn won both scenarios where the guide's own
+advice is to use grep**: a string literal in a header (`for find` returns the line with its
+enclosing function, so the second look-up never happens) and a compose variable (0.43, meeting
+acceptance). The advice in the guide is, on this corpus, wrong about those two.
+
+And the falsifier I wrote down fired: **no grep answer was worse.** Scenario 3 predicts the
+grep arm misses `share.go`, "the one a reader assembling this by hand misses", and fails at any
+price. All three runs found it and called it out as the non-obvious caller. Scenario 5 predicts
+an incomplete grep answer that does not say it is incomplete; instead both arms enumerated the
+package by AST or by `unreached` and both concluded that **one** of the key's four symbols is
+genuinely dead, the other three being artifacts of static reachability — an answer better than
+the pre-registered key, from both arms, in all six runs.
+
+So the case for this tool on the backend is **cost, not correctness**. A capable agent with
+`rg` got the right answer every time; it paid two to twenty-five times the round trips to do
+it. That is a weaker claim than "the tool prevents wrong answers", and it is the one the data
+supports.
+
+### Scenario 10 is the one real loss, and it is the predicted one
+
+1.09, and 1.60 in one run: the question names a path that does not exist, and no index can
+help. Both arms corrected it and both went on to find that the scripts' `SUM`-over-all-POIs
+scoring diverges from the handler's `MIN`-over-nearest, and that they query `poi` where
+production queries `poi_poi` — the *better* grading the key's amendment allows. cairn's cost
+there is the wasted look-up plus the 15,450-character guide it loaded to no purpose.
+
+### Two things the logs say
+
+**Batching finally appears, and only just.** 13 of 60 runs put more than one call in a turn,
+and the widest within-turn gap was 1.00 s — right at `cluster.py`'s computed threshold, so the
+metric was doing real work here rather than counting calls. On the frontend round, 16 of 18
+runs never batched at all.
+
+**Scenario 6 is the tool's clearest win on record: one call against twenty-two to twenty-six,
+three times out of three.** "Which deployed services does this change touch" is the question
+`affects` exists for, and the grep arm has to assemble compose files, Dockerfiles and the call
+graph by hand to answer it. Both arms got it right; one of them did it in a single round trip.

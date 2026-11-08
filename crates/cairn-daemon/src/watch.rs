@@ -97,8 +97,9 @@ struct State {
     /// Directories the indexers were actually pointed at, e.g. `srcpy`, `srcgo`. Empty
     /// when the index recorded none, in which case the extension filter stands alone.
     roots: Vec<String>,
-    /// Extensions the index actually holds documents for, taken from the index itself.
-    indexable: std::collections::HashSet<String>,
+    /// Extensions the index actually holds documents for, taken from the index itself —
+    /// repository-wide and per project root. See `Coverage`.
+    indexable: Coverage,
     /// Connectors whose inputs this watcher can recognise.
     connectors: Vec<ConnectorWatch>,
     /// Connectors whose inputs have changed since their facts were built, and which are
@@ -119,7 +120,7 @@ impl DirtyTracker {
         // from a clean one, which makes it the worst kind: a confident negative from a
         // component that never looked.
         let repo = std::fs::canonicalize(repo).unwrap_or_else(|_| repo.to_path_buf());
-        let indexable = extensions_of(&indexed);
+        let indexable = coverage_of(&indexed, &[]);
         DirtyTracker {
             inner: Arc::new(Mutex::new(State {
                 repo,
@@ -150,7 +151,11 @@ impl DirtyTracker {
     /// false-loudness the extension filter was added for, one level in: `verify --repo`
     /// called the tree clean while `status` advertised seventeen files of debt.
     pub fn set_roots(&self, roots: Vec<String>) {
-        self.inner.lock().unwrap().roots = roots;
+        let mut st = self.inner.lock().unwrap();
+        // The per-root sets are derived from the roots, so they are rebuilt here rather
+        // than only in `new` — which runs before the caller has said what the roots are.
+        st.indexable = coverage_of(&st.indexed, &roots);
+        st.roots = roots;
     }
 
     /// The connectors behind this index, and how to re-run one.
@@ -281,7 +286,7 @@ impl DirtyTracker {
             let mut st = self.inner.lock().unwrap();
             // The set follows the index: a reindex that adds a language must not leave
             // the watcher judging new files by the languages of the previous build.
-            st.indexable = extensions_of(&fresh);
+            st.indexable = coverage_of(&fresh, &st.roots);
             st.indexed = fresh;
             st.index_stamp = now;
             let d = &st.dirty;
@@ -507,7 +512,7 @@ fn walk_new(
     dir: &Path,
     indexed: &HashMap<String, [u8; 16]>,
     roots: &[String],
-    indexable: &std::collections::HashSet<String>,
+    indexable: &Coverage,
     out: &mut Vec<String>,
 ) {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -546,6 +551,45 @@ fn extensions_of(indexed: &HashMap<String, [u8; 16]>) -> std::collections::HashS
         .collect()
 }
 
+/// Which extensions the index holds, repository-wide and **per project root**.
+///
+/// The repository-wide set alone was measured wrong on a 4,786-file monorepo: three `.js`
+/// and three `.json` documents somewhere in it made those two extensions "indexable"
+/// everywhere, so every `package.json`, `tsconfig.json` and `jest.config.js` inside any
+/// indexed project was reported as created on a tree nobody had touched — 90 files, on a
+/// line that rides on every answer. Per root the same tree is quiet: `frontend/apps/auth`
+/// holds `.ts` and `.tsx` and nothing else, so its `package.json` is not a file the index
+/// could have held.
+///
+/// Both are kept because both are needed: the per-root sets for the judgement, the
+/// repository-wide one for a file in a root the index holds nothing for.
+#[derive(Debug, Clone, Default)]
+struct Coverage {
+    global: std::collections::HashSet<String>,
+    by_root: std::collections::BTreeMap<String, std::collections::HashSet<String>>,
+}
+
+fn coverage_of(indexed: &HashMap<String, [u8; 16]>, roots: &[String]) -> Coverage {
+    let mut by_root: std::collections::BTreeMap<String, std::collections::HashSet<String>> = roots
+        .iter()
+        .map(|r| (r.clone(), std::collections::HashSet::new()))
+        .collect();
+    for path in indexed.keys() {
+        let Some(ext) = Path::new(path).extension().and_then(|e| e.to_str()) else {
+            continue;
+        };
+        for (root, exts) in by_root.iter_mut() {
+            if path == root || path.starts_with(&format!("{root}/")) {
+                exts.insert(ext.to_string());
+            }
+        }
+    }
+    Coverage {
+        global: extensions_of(indexed),
+        by_root,
+    }
+}
+
 /// What to fall back on when the index holds no files at all.
 ///
 /// Only reachable with an empty index, where every question about staleness is moot. It
@@ -582,16 +626,37 @@ pub fn is_indexable(rel: &str, indexable: &std::collections::HashSet<String>) ->
 /// calling a markdown file created — just harder to spot, because the extension is right.
 /// With no roots recorded the extension test stands alone, so an older index degrades to
 /// the previous behaviour rather than to silence.
-fn covered(rel: &str, roots: &[String], indexable: &std::collections::HashSet<String>) -> bool {
-    if !is_indexable(rel, indexable) {
+fn covered(rel: &str, roots: &[String], indexable: &Coverage) -> bool {
+    if roots.is_empty() {
+        return is_indexable(rel, &indexable.global);
+    }
+    let containing: Vec<&String> = roots
+        .iter()
+        .filter(|r| rel == r.as_str() || rel.starts_with(&format!("{r}/")))
+        .collect();
+    if containing.is_empty() {
         return false;
     }
-    if roots.is_empty() {
-        return true;
+    // The NEAREST containing root decides, walking outward only when a root holds
+    // nothing. Roots nest - `w17/services/x` is a Go module and `w17/services/x/spa` is a
+    // TypeScript project inside it - and the union of the two was measured wrong: the Go
+    // root holds a `schema/admin.json`, which made `spa/package.json` and
+    // `spa/tsconfig.json` news in all three such services. The inner project's own
+    // languages are the ones that answer for a file inside it.
+    let mut containing = containing;
+    containing.sort_by_key(|r| std::cmp::Reverse(r.len()));
+    for r in containing {
+        match indexable.by_root.get(r.as_str()) {
+            // A root the index holds nothing for says nothing about this file - a project
+            // whose indexer failed outright is the ordinary way that happens - so keep
+            // walking outward rather than reading its silence as a no.
+            Some(exts) if !exts.is_empty() => return is_indexable(rel, exts),
+            _ => continue,
+        }
     }
-    roots
-        .iter()
-        .any(|r| rel == r.as_str() || rel.starts_with(&format!("{r}/")))
+    // Inside a root, but no root that contains it holds anything: fall back to the
+    // repository-wide answer rather than going silent about new code there.
+    is_indexable(rel, &indexable.global)
 }
 
 /// Last-modified time of the index, or `None` if it cannot be read.
@@ -641,6 +706,11 @@ mod tests {
         );
     }
 
+    /// An `indexed` map from paths alone: the hashes are never compared in these tests.
+    fn indexed(paths: &[&str]) -> HashMap<String, [u8; 16]> {
+        paths.iter().map(|p| (p.to_string(), [0u8; 16])).collect()
+    }
+
     #[test]
     fn a_python_file_no_indexer_was_pointed_at_is_not_news() {
         // Measured on the target repository: 17 `.py` and `.go` files under `tools/` and
@@ -649,17 +719,84 @@ mod tests {
         // --repo` called the same tree clean. A staleness number nobody can act on is the
         // one people learn to skip past.
         let roots = vec!["srcpy".to_string(), "srcgo".to_string()];
-        let exts = exts(&["py", "go"]);
-        assert!(covered("srcpy/domains/orders/x.py", &roots, &exts));
-        assert!(covered("srcgo/cmd/main.go", &roots, &exts));
-        assert!(!covered("tools/eval/run_eval.py", &roots, &exts));
-        assert!(!covered("infra/sentinel/main.go", &roots, &exts));
+        let cov = coverage_of(
+            &indexed(&["srcpy/domains/orders/repo.py", "srcgo/cmd/server/main.go"]),
+            &roots,
+        );
+        assert!(covered("srcpy/domains/orders/x.py", &roots, &cov));
+        assert!(covered("srcgo/cmd/main.go", &roots, &cov));
+        assert!(!covered("tools/eval/run_eval.py", &roots, &cov));
+        assert!(!covered("infra/sentinel/main.go", &roots, &cov));
         // A directory whose name merely starts the same way is not inside it.
-        assert!(!covered("srcpython/x.py", &roots, &exts));
+        assert!(!covered("srcpython/x.py", &roots, &cov));
         // Still not indexable whatever the roots say.
-        assert!(!covered("srcpy/README.md", &roots, &exts));
+        assert!(!covered("srcpy/README.md", &roots, &cov));
         // No roots recorded: the extension test stands alone, as it did before.
-        assert!(covered("tools/eval/run_eval.py", &[], &exts));
+        assert!(covered("tools/eval/run_eval.py", &[], &cov));
+    }
+
+    #[test]
+    fn an_extension_one_project_holds_is_not_news_in_a_project_that_holds_none() {
+        // Measured on a 4,786-file monorepo: three `.js` and three `.json` documents
+        // somewhere in it made both extensions indexable *everywhere*, so every
+        // `package.json`, `tsconfig.json` and `jest.config.js` inside any indexed project
+        // came back as created on a tree nobody had touched - 90 files, on the line that
+        // rides on every answer. Per root the same tree is quiet.
+        let roots = vec!["apps/auth".to_string(), "tooling".to_string()];
+        let cov = coverage_of(
+            &indexed(&[
+                "apps/auth/src/login.ts",
+                "apps/auth/src/view.tsx",
+                // The one project that does hold a `.json` and a `.js`.
+                "tooling/config.json",
+                "tooling/build.js",
+            ]),
+            &roots,
+        );
+        // Still reported where that extension is genuinely part of the project.
+        assert!(covered("tooling/other.json", &roots, &cov));
+        assert!(covered("tooling/next.js", &roots, &cov));
+        // And not reported where it is not.
+        assert!(!covered("apps/auth/package.json", &roots, &cov));
+        assert!(!covered("apps/auth/jest.config.js", &roots, &cov));
+        // A new module in the language that project IS indexed in is still news - the
+        // whole point of the `created` set, and the thing a blunter filter would lose.
+        assert!(covered("apps/auth/src/brand/new.ts", &roots, &cov));
+    }
+
+    #[test]
+    fn a_nested_project_is_judged_by_its_own_languages_not_its_parents() {
+        // Measured on the same monorepo, and the reason this is nearest-root rather than
+        // a union over every containing root: `w17/services/x` is a Go module holding a
+        // `schema/admin.json`, and `w17/services/x/spa` is a TypeScript project inside it.
+        // Pooling the two made `spa/package.json` and `spa/tsconfig.json` news in all
+        // three such services - six files, on a tree nobody had touched.
+        let roots = vec!["svc/admin".to_string(), "svc/admin/spa".to_string()];
+        let cov = coverage_of(
+            &indexed(&[
+                "svc/admin/main.go",
+                "svc/admin/schema/admin.json",
+                "svc/admin/spa/src/main.tsx",
+            ]),
+            &roots,
+        );
+        // The parent's `.json` does not reach into the SPA.
+        assert!(!covered("svc/admin/spa/package.json", &roots, &cov));
+        assert!(!covered("svc/admin/spa/tsconfig.json", &roots, &cov));
+        // The SPA's own language still is news, and so is the parent's.
+        assert!(covered("svc/admin/spa/src/view.tsx", &roots, &cov));
+        assert!(covered("svc/admin/cmd/serve.go", &roots, &cov));
+        assert!(covered("svc/admin/schema/other.json", &roots, &cov));
+    }
+
+    #[test]
+    fn a_root_the_index_holds_nothing_for_falls_back_rather_than_going_silent() {
+        // A project whose indexer failed outright holds no documents, so its per-root set
+        // is empty and says nothing about any file. Silence there would hide new code in
+        // exactly the project already known to be incomplete.
+        let roots = vec!["apps/ok".to_string(), "apps/failed".to_string()];
+        let cov = coverage_of(&indexed(&["apps/ok/src/a.ts"]), &roots);
+        assert!(covered("apps/failed/src/b.ts", &roots, &cov));
     }
 
     fn exts(list: &[&str]) -> std::collections::HashSet<String> {
@@ -678,7 +815,7 @@ mod tests {
             ("apps/web/hooks/useThing.ts".to_string(), [0u8; 16]),
             ("apps/web/app/page.tsx".to_string(), [0u8; 16]),
         ]);
-        let exts = extensions_of(&indexed);
+        let exts = coverage_of(&indexed, &[]);
         assert!(covered("apps/web/hooks/useOther.ts", &[], &exts));
         assert!(covered("apps/web/app/other.tsx", &[], &exts));
         // A language this index does not hold is still not news about this index.
@@ -687,7 +824,7 @@ mod tests {
 
         // And the same index rebuilt for Python answers the other way round.
         let repython = HashMap::from([("srcpy/a.py".to_string(), [0u8; 16])]);
-        let exts = extensions_of(&repython);
+        let exts = coverage_of(&repython, &[]);
         assert!(covered("srcpy/b.py", &[], &exts));
         assert!(!covered("apps/web/hooks/useOther.ts", &[], &exts));
     }
@@ -696,7 +833,7 @@ mod tests {
     fn an_empty_index_falls_back_rather_than_going_silent() {
         // Nothing indexed means every extension question is moot, but answering "no" to
         // all of them would be the silent failure again, one layer down.
-        let exts = std::collections::HashSet::new();
+        let exts = Coverage::default();
         assert!(covered("srcpy/a.py", &[], &exts));
         assert!(covered("apps/web/a.tsx", &[], &exts));
         assert!(!covered("README.md", &[], &exts));

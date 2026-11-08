@@ -82,3 +82,54 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod arm_tests {
+    use super::SKILL;
+
+    /// Every measured arm must hand the agent the guide that ships, not a copy of it.
+    ///
+    /// A copy is what it was. `eval/arms/cairn_full.md` embedded a guide 1,379 characters
+    /// behind `skill/SKILL.md` — missing both the paragraph on what a *searched* miss means
+    /// and the one on `UNCHECKED` and exit 3 being "I did not look" rather than "there is
+    /// nothing". Those bear directly on two of the ten backend scenarios, so the arm was
+    /// about to be measured on advice the tool no longer gives. The protocol already warns
+    /// twice that a number here goes stale while the file it describes grows; so does a
+    /// quoted guide, and unlike a number nothing was checking it.
+    #[test]
+    fn every_arm_embeds_the_guide_that_ships() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("the workspace root")
+            .to_path_buf();
+        let arms = [
+            "eval/arms/cairn_full.md",
+            "eval/arms/cairn_full_frontend.md",
+        ];
+        // Absent is tolerated, because an arm is a generated file and a checkout that has
+        // not run `eval/build-arms.sh` legitimately has none — which is also how this test
+        // first failed in CI, on an arm that was gitignored at the time. Both are tracked
+        // now, so CI does check them; the `checked` count is here so that if they ever stop
+        // being tracked the test says it inspected nothing rather than passing quietly.
+        let mut checked = 0;
+        for arm in arms {
+            let path = root.join(arm);
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            checked += 1;
+            assert!(
+                text.contains(SKILL.trim()),
+                "{arm} does not embed the current skill/SKILL.md. Rebuild it with \
+                 `eval/build-arms.sh`: an arm is its preamble plus the guide verbatim, and a \
+                 stale copy measures advice the tool no longer gives."
+            );
+        }
+        assert!(
+            checked > 0,
+            "no arm file was found to check, so this test proved nothing. The arms are \
+             expected at eval/arms/cairn_full*.md and are built by eval/build-arms.sh."
+        );
+    }
+}

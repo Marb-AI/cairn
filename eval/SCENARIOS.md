@@ -50,12 +50,27 @@ better.**
   | | preamble | guide | total | at 3.7 chars/token |
   |---|---|---|---|---|
   | grep | 1 124 | 8 878 (`arms/grep_preamble.md`) | **10 002** | ~2 700 tok |
-  | cairn | 1 204 | 12 856 (`skill/SKILL.md`) | **14 060** | ~3 800 tok |
+  | cairn | 1 254 | 14 196 (`skill/SKILL.md`) | **15 450** | ~4 200 tok |
 
-  *(2026-08-05. Round one recorded the cairn side as 8 850 chars / 2 391 tokens, and round
-  three as 12 069 — "closer to the grep arm's 10 002". That is no longer true in either
-  direction: the cairn arm now gets **40% more instruction than the baseline**. Re-measure
-  whenever either file changes; a stale number here silently understates the asymmetry.)*
+  (15 450 is what the round of 2026-11-08 actually ran. `eval/build-arms.sh`, added after it,
+  normalises the separator between the two halves and produces 15 455 — re-measure with the
+  next round rather than editing a figure that describes runs already taken.)
+
+  *(Re-measured 2026-11-08. Round one recorded the cairn side as 8 850 chars / 2 391 tokens,
+  and round three as 12 069 — "closer to the grep arm's 10 002". That is no longer true in
+  either direction: the cairn arm now gets **54% more instruction than the baseline**.
+  Re-measure whenever either file changes; a stale number here silently understates the
+  asymmetry.)*
+
+  **And the arm was handing out a stale copy of the guide, which is worse than a stale
+  number.** `arms/cairn_full.md` embedded a version 1 379 characters behind
+  `skill/SKILL.md`, missing the paragraph on what a *searched* miss means and the one on
+  `UNCHECKED` and exit 3 meaning "I did not look" rather than "there is nothing" — advice
+  that bears directly on scenarios 9 and 10. Found while re-measuring this table for the
+  round of 2026-11-08, so the backend numbers before that date were taken against advice
+  the tool had already stopped giving. A test now fails when any arm's embedded guide and
+  `skill/SKILL.md` differ (`skill::arm_tests::every_arm_embeds_the_guide_that_ships`); the
+  frontend arm was already current, so round three's frontend result is unaffected.
 
 - **Toolkit asymmetry, stated because it is real.** The grep arm may use `grep`, `rg`, the
   Grep tool, Read, `find`, `ls`, `sed` and `awk`. The cairn arm may use `cairn`, Read and

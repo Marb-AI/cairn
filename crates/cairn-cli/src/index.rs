@@ -868,10 +868,24 @@ pub fn run_indexer(found: &Found, root: &Path, tag: &str, repo: &Path, out_rel: 
     let on_host = repo.join(out_rel).join(format!("{tag}.scip"));
 
     match result {
-        Ok(o) if o.status.success() && on_host.exists() => Outcome::Indexed {
-            scip: on_host,
-            seconds: started.elapsed().as_secs_f64(),
-        },
+        Ok(o) if o.status.success() && on_host.exists() => {
+            // Kept even on success, which it was not before. An indexer that exits 0 and
+            // writes an index describing nothing is a case this code already knows about
+            // and reports - and the reason was being thrown away with the output, because
+            // only a failing run got a log. Measured: two Go modules of 102 files came out
+            // empty on a real repository, and the sentence that explained it,
+            // `go: updating go.sum: open /repo/go.work.sum: permission denied`, had been
+            // discarded. That turned a two-minute diagnosis into twenty.
+            //
+            // Costs one small file per project per index, written where the failure path
+            // already writes one.
+            let log = on_host.with_extension("log");
+            let _ = std::fs::write(&log, &o.stderr);
+            Outcome::Indexed {
+                scip: on_host,
+                seconds: started.elapsed().as_secs_f64(),
+            }
+        }
         Ok(o) => {
             // Not the last line: a crashing Node prints its own version last, so taking
             // the tail reports "Node.js v22" as though that were the complaint. The first
