@@ -65,6 +65,14 @@ def main() -> None:
         "tool": payload.get("tool_name", "?"),
         "detail": str(detail)[:400],
     }
+    # How much of a file was opened, when the tool says. Round three could see that the
+    # cairn arm's work moved out of Bash and into Read, and that its token spend rose with
+    # it - and could not tell whether those Reads were whole files or the ranges the line
+    # numbers made possible. That is the obvious explanation and was exactly the thing the
+    # rig could not check, so it is recorded from now on rather than argued about.
+    for k in ("offset", "limit"):
+        if isinstance(tool_input.get(k), int):
+            record[k] = tool_input[k]
     base = os.path.join(os.path.dirname(ACTIVE), run_dir)
     os.makedirs(base, exist_ok=True)
     with open(os.path.join(base, agent + ".jsonl"), "a") as fh:
