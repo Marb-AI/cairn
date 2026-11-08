@@ -4,10 +4,15 @@
 # how to reproduce them; the raw logs stay local.
 runs/
 
-# Machine-specific scaffolding: a wrapper pointing at an extracted binary, and the arm
-# prompt assembled from a preamble plus SKILL.md at run time.
+# Machine-specific scaffolding: a wrapper pointing at an extracted binary.
 armbin/
-arms/cairn_full.md
+
+# `arms/cairn_full.md` used to be ignored here, as "the arm prompt assembled from a
+# preamble plus SKILL.md at run time". Nothing performed that assembly, so the file was
+# written by hand once and then sat going stale while the guide grew - the backend arm
+# spent several rounds handing out advice the tool had stopped giving. Both halves of that
+# are fixed: `build-arms.sh` does the assembling, and the arms are tracked so CI can check
+# they match `skill/SKILL.md`. A file nobody can see is a file nobody notices is wrong.
 
 # Byte-compiled harness modules, produced whenever stress.py is imported rather than run.
 __pycache__/

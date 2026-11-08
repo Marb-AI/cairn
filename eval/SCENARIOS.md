@@ -52,6 +52,10 @@ better.**
   | grep | 1 124 | 8 878 (`arms/grep_preamble.md`) | **10 002** | ~2 700 tok |
   | cairn | 1 254 | 14 196 (`skill/SKILL.md`) | **15 450** | ~4 200 tok |
 
+  (15 450 is what the round of 2026-11-08 actually ran. `eval/build-arms.sh`, added after it,
+  normalises the separator between the two halves and produces 15 455 — re-measure with the
+  next round rather than editing a figure that describes runs already taken.)
+
   *(Re-measured 2026-11-08. Round one recorded the cairn side as 8 850 chars / 2 391 tokens,
   and round three as 12 069 — "closer to the grep arm's 10 002". That is no longer true in
   either direction: the cairn arm now gets **54% more instruction than the baseline**.

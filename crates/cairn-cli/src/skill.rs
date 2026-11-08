@@ -107,16 +107,29 @@ mod arm_tests {
             "eval/arms/cairn_full.md",
             "eval/arms/cairn_full_frontend.md",
         ];
+        // Absent is tolerated, because an arm is a generated file and a checkout that has
+        // not run `eval/build-arms.sh` legitimately has none — which is also how this test
+        // first failed in CI, on an arm that was gitignored at the time. Both are tracked
+        // now, so CI does check them; the `checked` count is here so that if they ever stop
+        // being tracked the test says it inspected nothing rather than passing quietly.
+        let mut checked = 0;
         for arm in arms {
             let path = root.join(arm);
-            let text = std::fs::read_to_string(&path)
-                .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            checked += 1;
             assert!(
                 text.contains(SKILL.trim()),
-                "{arm} does not embed the current skill/SKILL.md. Refresh it: the arm is \
-                 preamble + the guide verbatim, and a stale copy measures advice the tool \
-                 no longer gives."
+                "{arm} does not embed the current skill/SKILL.md. Rebuild it with \
+                 `eval/build-arms.sh`: an arm is its preamble plus the guide verbatim, and a \
+                 stale copy measures advice the tool no longer gives."
             );
         }
+        assert!(
+            checked > 0,
+            "no arm file was found to check, so this test proved nothing. The arms are \
+             expected at eval/arms/cairn_full*.md and are built by eval/build-arms.sh."
+        );
     }
 }

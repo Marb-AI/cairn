@@ -33,6 +33,8 @@ against this arm harder than an extra command does.
 ## The cairn guide
 
 ---
+
+---
 name: cairn
 description: Code context for an agent - what a change breaks, who calls what, how services reach each other, and where any text lives with whose line it is. Say what you are doing with `cairn for`; the mechanisms are underneath.
 ---
