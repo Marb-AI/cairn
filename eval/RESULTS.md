@@ -3066,3 +3066,24 @@ follow is the one already on record: cairn's measured value is concentrated in c
 a service boundary, and a frontend is not where to reach for it. A round predicted to confirm
 that is still worth running, because the alternative is quoting a number from a binary that no
 longer exists.
+
+### Addendum to the pre-registration, written after six runs and before any counted one
+
+The first batch of six was **discarded and re-run**, and the reason is recorded here rather
+than in a footnote because it changed the arm.
+
+`/usr/local/bin/cairn` on the measuring machine is an 0.1.1 install that reads schema v16 and
+exits 3 on any current index. The arm preamble names the binary under test by full path and
+`armbin/cairn` refuses to run anything else — so the *arm* could not be fooled, but a run that
+typed the bare name could, and two of three cairn runs did: 3 of 22 round trips in F1, 4 of 14
+in F3, 0 in F2. The grep arm cannot suffer the equivalent. A rig defect that taxes one arm
+unevenly, in the metric being reported, is not a result.
+
+The cairn preamble now says the bare name is a stale install and to use the path. That is a
+change to the arm, so it is stated before the numbers exist and not after. The machine itself
+was left alone: replacing a root-owned system binary is the owner's decision, not something a
+measurement does on the way past.
+
+Both discarded batches' logs are kept as `DISCARDED-batch1-stale-path-*`. Their answers are
+still evidence — both arms answered all three scenarios completely — and only the round-trip
+counts are thrown away. The prediction above is unchanged; it was written before any of this.
