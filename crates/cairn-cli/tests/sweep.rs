@@ -14,7 +14,10 @@
 //!   * it never says `suppressed: none` while also reporting that it cut something —
 //!     three separate truncation bugs found today all had exactly this shape;
 //!   * nothing takes longer than a ceiling, because the worst regression of the day was
-//!     purely latency and no correctness assertion would have seen it.
+//!     purely latency and no correctness assertion would have seen it;
+//!   * the same answer in `--format json` parses, carries the envelope as fields, and
+//!     exits with the same code — the contract is the contract in either rendering, and
+//!     the one a wrapper reads is the one nobody proof-reads.
 //!
 //! A stride rather than a random sample: the same symbols every run, so a failure is
 //! reproducible and a fix can be verified.
@@ -201,8 +204,62 @@ fn every_command_holds_its_contract_across_the_index() {
                         say(format!("no {section} section - the answer looks complete"));
                     }
                 }
+                // The same answer in JSON, because D8 is about the contract and not about
+                // one rendering of it. An envelope that is three lines in text and three
+                // absent fields in JSON would be the silent-gap failure with a new
+                // spelling, and the format a wrapper reads is the one nobody proof-reads.
+                let as_json = Command::new(&bin)
+                    .arg("--db")
+                    .arg(&db)
+                    .arg("--format")
+                    .arg("json")
+                    .args(*head)
+                    .arg(handle)
+                    .args(*tail)
+                    .output()
+                    .unwrap_or_else(|e| panic!("running {} {handle} as json: {e}", head.join(" ")));
+                if as_json.status.code() != out.status.code() {
+                    say(format!(
+                        "exit {:?} as text and {:?} as json - the code is the contract and \
+                         cannot depend on the format",
+                        out.status.code(),
+                        as_json.status.code()
+                    ));
+                }
+                match serde_json::from_slice::<serde_json::Value>(&as_json.stdout) {
+                    Err(e) => say(format!("--format json did not produce JSON: {e}")),
+                    Ok(v) => {
+                        if v["schema"] != serde_json::json!("cairn.answer/1") {
+                            say(format!(
+                                "json schema is {}, not cairn.answer/1",
+                                v["schema"]
+                            ));
+                        }
+                        if !v["command"].is_string() {
+                            say("json answer does not say which command produced it".to_string());
+                        }
+                        // Present, not non-empty: empty means none, absent means nobody
+                        // said. Arrays and the stale object are checked by shape so that a
+                        // field quietly becoming `null` is a failure rather than a pass.
+                        for field in ["unknown", "suppressed"] {
+                            if !v[field].is_array() {
+                                say(format!("json answer has no {field} array"));
+                            }
+                        }
+                        for field in ["dirty", "mentioned", "notes"] {
+                            if !v["stale"][field].is_array() {
+                                say(format!("json answer has no stale.{field} array"));
+                            }
+                        }
+                        if !v["body"].is_string() {
+                            say("json answer carries no body".to_string());
+                        }
+                    }
+                }
+
                 // The shape three separate bugs took today: cutting the list and
                 // simultaneously claiming nothing was cut.
+                //
                 // Every phrasing the binary uses to say it left something out. This list
                 // drifting behind the output is not hypothetical: `symbol` announced
                 // "--limit reached, there may be more" next to `suppressed: none` for

@@ -37,6 +37,41 @@ distinction exists to prevent.
 `unknown:` what the mechanism cannot see, `stale:` what has changed since indexing. A
 section reading `none` is a claim; a missing section is a bug.
 
+## Machine-readable output
+
+`--format json` prints the same answer as one `cairn.answer/1` object, with the envelope
+as fields rather than as lines. Text is the default and stays the primary format for an
+agent: braces and repeated keys cost several times the tokens of an aligned table, and
+cheaper context is the point. JSON is for a program — a wrapper, an editor, a check in CI.
+
+```
+{
+  "schema": "cairn.answer/1",
+  "command": "refs",
+  "rows": 10,
+  "truncated": false,
+  "unknown": [],
+  "suppressed": [],
+  "stale": { "tracked": false, "dirty": [], "mentioned": ["srcgo/..."], "notes": ["..."] },
+  "body": "...the same text as above the envelope lines...",
+  "data": null
+}
+```
+
+What holds across both formats:
+
+* **Exit codes are identical.** The code is the contract; it cannot depend on how the
+  answer was printed.
+* **The envelope is always present.** An empty `unknown` means none; a missing one would
+  be the same silent error a missing `unknown:` line is. `stale.tracked` is the
+  distinction a bare empty list cannot make: `false` means nothing was watching the tree,
+  not that nothing had changed.
+* **`body` is the text answer** without the three envelope lines, since those are fields
+  here. `--budget` cuts a JSON answer exactly as it cuts a text one, and what it cut is
+  in `suppressed`.
+* **`data`** is the answer as fields. It is `null` for commands that still have only a
+  text renderer; the envelope around it is there either way.
+
 HEADER
 
 printf '## cairn\n\n```\n'

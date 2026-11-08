@@ -143,6 +143,7 @@ dependencies = [
  "libc",
  "rusqlite",
  "serde",
+ "serde_json",
  "serde_yaml",
  "windows-sys 0.59.0",
 ]
@@ -165,6 +166,8 @@ version = "0.1.2"
 dependencies = [
  "anyhow",
  "cairn-store",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

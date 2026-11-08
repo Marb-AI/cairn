@@ -233,6 +233,32 @@ fn cases(sampled: &[Sampled], repo: &Path) -> Vec<Case> {
         true
     });
 
+    // One JSON answer per command, in a recording of its own.
+    //
+    // Not every invocation again: the JSON body is the text body, so recording all of
+    // them would double 400 kB of files to catch nothing the text recording does not
+    // already catch. What is worth locking down is the envelope *shape* - the field
+    // names, the `stale` object, `rows` being null rather than absent for a report - and
+    // one answer per command pins that for every command.
+    let representative: Vec<Case> = {
+        let mut per_command: Vec<&'static str> = Vec::new();
+        out.iter()
+            .filter(|c| {
+                if per_command.contains(&c.file) {
+                    return false;
+                }
+                per_command.push(c.file);
+                true
+            })
+            .map(|c| {
+                let mut args = vec!["--format".to_string(), "json".to_string()];
+                args.extend(c.args.iter().cloned());
+                Case { file: "json", args }
+            })
+            .collect()
+    };
+    out.extend(representative);
+
     out
 }
 

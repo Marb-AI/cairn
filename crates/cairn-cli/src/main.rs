@@ -44,8 +44,30 @@ struct Cli {
     #[arg(long, global = true)]
     budget: Option<usize>,
 
+    // One paragraph, deliberately. A second one turns this into clap's *long* help, and
+    // clap then prints every command's help in the expanded layout - which rewrote six
+    // hundred lines of docs/cli-reference.md for one flag. The reasoning lives here
+    // instead: text stays the primary format because braces and repeated keys cost
+    // several times the tokens of an aligned table, and cheaper context is the point.
+    // JSON carries the same answer with the envelope as fields, for a wrapper, an editor
+    // or a check in CI.
+    /// Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both.
+    #[arg(long, global = true, value_enum, default_value_t = Format::Text)]
+    format: Format,
+
     #[command(subcommand)]
     cmd: Cmd,
+}
+
+/// Which format an answer is printed in. See `Cli::format`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum Format {
+    // Plain comments, not doc comments: per-value help is only shown in clap's *long*
+    // layout, and giving it any forces every command's help into that layout. `text` is
+    // aligned text with the envelope as its last three lines; `json` is one
+    // `cairn.answer/1` object with the envelope as fields.
+    Text,
+    Json,
 }
 
 #[derive(Subcommand)]
@@ -560,21 +582,17 @@ fn report(argv: &[String], code: u8, elapsed: std::time::Duration) {
     );
 }
 
-/// Print an answer, and remember what it carried.
+/// What the index itself cannot answer for, as envelope entries.
 ///
-/// Every envelope leaves through here. Printing and recording being one step is the
-/// point: the session log is read to ask why an agent ran the same query four times, and
-/// that question is only answerable if the row count and the "I left something out" flag
-/// in the log are the ones that were in front of it when it decided to ask again.
-/// The two envelope lines `status` was missing.
+/// `status` is the command the agent guide says to run first, and it printed only
+/// `stale:` — so it was the one answer where a reader who had learned to check `unknown:`
+/// found nothing there. Its sibling report `verify` prints all three. Found by the stress
+/// harness comparing the two.
 ///
-/// Every other answer ends with `unknown:` / `suppressed:` / `stale:`, and the agent guide
-/// tells the reader that is where the honesty lives. `status` printed only `stale:` — and
-/// it is the command the guide says to run first, so it was the one answer where a reader
-/// who had learned to check `unknown:` found nothing there. Its sibling report `verify`
-/// prints all three. Found by the stress harness comparing the two.
-fn envelope_tail(store: &Store) {
-    println!("suppressed: none");
+/// Returned rather than printed, so the same facts can be lines or fields. One source,
+/// two formats: a JSON `status` whose `unknown` disagreed with the text one would be the
+/// silent-gap failure in a new dress.
+fn index_unknown(store: &Store) -> Vec<String> {
     let partial: Vec<String> = store
         .coverage(None)
         .map(|c| {
@@ -590,15 +608,14 @@ fn envelope_tail(store: &Store) {
         })
         .unwrap_or_default();
     if partial.is_empty() {
-        println!("unknown: none");
-    } else {
-        println!(
-            "unknown: {} mechanism(s) did not complete ({}), so answers resting on them \
-             are incomplete and will not say so",
-            partial.len(),
-            partial.join(", ")
-        );
+        return Vec::new();
     }
+    vec![format!(
+        "{} mechanism(s) did not complete ({}), so answers resting on them \
+         are incomplete and will not say so",
+        partial.len(),
+        partial.join(", ")
+    )]
 }
 
 /// Languages this index covers only in part, remembered for the process.
@@ -625,6 +642,97 @@ fn note_partial_index(store: &Store) {
     let _ = PARTIAL.set(langs.unwrap_or_default());
 }
 
+/// The format asked for, and the command that was asked, read once per process.
+///
+/// Statics rather than a parameter threaded through forty call sites: both are decided
+/// before the first answer exists and neither can change while one is being built. The
+/// same shape `PARTIAL` already uses, and for the same reason.
+static FORMAT: std::sync::OnceLock<Format> = std::sync::OnceLock::new();
+static COMMAND: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// The command as it would be typed, for the `command` field of a JSON answer.
+///
+/// Taken from the parsed command rather than from `argv`: a reader of the JSON needs to
+/// know which question this answers, and `argv` carries flags, a `--db` path and
+/// whatever shell quoting survived. `for change` and `concept show` are two words
+/// because that is what the caller typed.
+fn command_name(cmd: &Cmd) -> String {
+    match cmd {
+        Cmd::Index { .. } => "index",
+        Cmd::Skill => "skill",
+        Cmd::For { purpose, .. } => match purpose {
+            Purpose::Change => "for change",
+            Purpose::Understand => "for understand",
+            Purpose::Find => "for find",
+        },
+        Cmd::Context { .. } => "context",
+        Cmd::Unreached { .. } => "unreached",
+        Cmd::Outline { .. } => "outline",
+        Cmd::Usage { .. } => "usage",
+        Cmd::Symbol { .. } => "symbol",
+        Cmd::Refs { .. } => "refs",
+        Cmd::Graph { .. } => "graph",
+        Cmd::Rules => "rules",
+        Cmd::Config { .. } => "config",
+        Cmd::Topology => "topology",
+        Cmd::Entrypoints { .. } => "entrypoints",
+        Cmd::Affects { .. } => "affects",
+        Cmd::Runs { .. } => "runs",
+        Cmd::Reaches { .. } => "reaches",
+        Cmd::Path { .. } => "path",
+        Cmd::Expand { .. } => "expand",
+        Cmd::Weak { .. } => "weak",
+        Cmd::Weaklinks { .. } => "weaklinks",
+        Cmd::Verify { .. } => "verify",
+        Cmd::Link { .. } => "link",
+        Cmd::Links { .. } => "links",
+        Cmd::Concept(sub) => match sub {
+            ConceptCmd::Add { .. } => "concept add",
+            ConceptCmd::Link { .. } => "concept link",
+            ConceptCmd::Show { .. } => "concept show",
+            ConceptCmd::List { .. } => "concept list",
+            ConceptCmd::Drop { .. } => "concept drop",
+        },
+        Cmd::Daemon { .. } => "daemon",
+        Cmd::Live { .. } => "live",
+        Cmd::Literal { .. } => "literal",
+        Cmd::Docs { .. } => "docs",
+        Cmd::Status => "status",
+        Cmd::Llm { cmd } => match cmd {
+            LlmCmd::Verify { .. } => "llm verify",
+        },
+    }
+    .to_string()
+}
+
+fn format() -> Format {
+    *FORMAT.get().unwrap_or(&Format::Text)
+}
+
+fn command() -> &'static str {
+    COMMAND.get().map(|s| s.as_str()).unwrap_or("")
+}
+
+/// Print something that carries no envelope today, without inventing one.
+///
+/// `rules` and `config` print a rule pack and a settings list: they are not answers about
+/// a codebase, so they have never ended in `suppressed:`/`unknown:`/`stale:` and adding
+/// those lines now would change text output for no gain (I2). In JSON they still have to
+/// come back as an answer object rather than as a bare page of text, because `--format
+/// json` that sometimes yields JSON is worse than no flag at all.
+fn emit_plain(body: String) {
+    match format() {
+        Format::Text => print!("{body}"),
+        Format::Json => println!("{}", cairn_fmt::Envelope::new(body).json(command())),
+    }
+}
+
+/// Print an answer, and remember what it carried.
+///
+/// Every envelope leaves through here. Printing and recording being one step is the
+/// point: the session log is read to ask why an agent ran the same query four times, and
+/// that question is only answerable if the row count and the "I left something out" flag
+/// in the log are the ones that were in front of it when it decided to ask again.
 fn emit(mut env: cairn_fmt::Envelope) {
     if let Some(partial) = PARTIAL.get().filter(|p| !p.is_empty()) {
         env.unknown.push(format!(
@@ -635,7 +743,13 @@ fn emit(mut env: cairn_fmt::Envelope) {
         ));
     }
     track::observe(env.rows, env.truncated());
-    print!("{}", env.render());
+    // One envelope, two renderings. The session log is written from the envelope rather
+    // than from either rendering, so what was recorded cannot depend on the format the
+    // caller asked for.
+    match format() {
+        Format::Text => print!("{}", env.render()),
+        Format::Json => println!("{}", env.json(command())),
+    }
 }
 
 /// Repo-relative paths mentioned by an answer, for staleness marking.
@@ -1055,6 +1169,8 @@ fn run() -> Result<u8> {
     let cli = Cli::parse();
     let db = cli.db.unwrap_or_else(default_db);
     let cli_budget = cli.budget;
+    let _ = FORMAT.set(cli.format);
+    let _ = COMMAND.set(command_name(&cli.cmd));
     let mut budget = Budget::from_opt(cli.budget);
     // Asked once per invocation, best-effort: a missing daemon is a normal state and
     // must never fail a query, only change what the answer can claim about freshness.
@@ -1711,18 +1827,21 @@ fn run() -> Result<u8> {
                     let where_from = cairn_store::Config::source()
                         .map(|p| p.display().to_string())
                         .unwrap_or_else(|| "defaults (nothing has been set yet)".to_string());
-                    println!("# from: {where_from}");
+                    let mut out = format!("# from: {where_from}\n");
                     let width = cairn_store::config::SETTINGS
                         .iter()
                         .map(|(k, _)| k.len())
                         .max()
                         .unwrap_or(0);
                     for (key, description) in cairn_store::config::SETTINGS {
-                        println!(
+                        use std::fmt::Write as _;
+                        let _ = writeln!(
+                            out,
                             "{key:<width$}  {:<8}  {description}",
                             cfg.get(key).unwrap_or_default()
                         );
                     }
+                    emit_plain(out);
                     Ok(exit::FOUND)
                 }
                 Some(a) => {
@@ -1743,7 +1862,6 @@ fn run() -> Result<u8> {
                 Some(p) if p.exists() => format!("{}", p.display()),
                 _ => "built-in defaults (no rules.yaml beside the index)".to_string(),
             };
-            println!("# effective rule pack, from: {from}");
             match cairn_store::Rules::load(path.as_deref()) {
                 Ok(_) => {}
                 Err(e) => {
@@ -1751,11 +1869,11 @@ fn run() -> Result<u8> {
                     return Ok(exit::ERROR);
                 }
             }
-            if let Some(p) = path.as_deref().filter(|p| p.exists()) {
-                print!("{}", std::fs::read_to_string(p)?);
-            } else {
-                print!("{}", cairn_store::Rules::builtin_text());
-            }
+            let pack = match path.as_deref().filter(|p| p.exists()) {
+                Some(p) => std::fs::read_to_string(p)?,
+                None => cairn_store::Rules::builtin_text().to_string(),
+            };
+            emit_plain(format!("# effective rule pack, from: {from}\n{pack}"));
             Ok(exit::FOUND)
         }
 
@@ -2508,17 +2626,22 @@ fn run() -> Result<u8> {
 
         Cmd::Status => {
             if !db.exists() {
+                // Deliberately not an envelope: there is no index to open, so there is no
+                // answer to wrap. `--format json` is about answers, and a caller that got
+                // one here would have to parse it to find out there is nothing to parse.
                 println!("no index at {}", db.display());
                 println!("degraded: nothing indexed yet - run `cairn index` in this repository");
                 return Ok(exit::DEGRADED);
             }
             let store = open(&db)?;
             let c = store.counts()?;
-            println!("index      {}", db.display());
-            println!("files      {}", c.files);
-            println!("symbols    {}", c.symbols);
-            println!("occurrence {}", c.occurrences);
-            println!("generated  {} files", c.generated_files);
+            use std::fmt::Write as _;
+            let mut body = String::new();
+            let _ = writeln!(body, "index      {}", db.display());
+            let _ = writeln!(body, "files      {}", c.files);
+            let _ = writeln!(body, "symbols    {}", c.symbols);
+            let _ = writeln!(body, "occurrence {}", c.occurrences);
+            let _ = writeln!(body, "generated  {} files", c.generated_files);
 
             // Cross-language linking either found something or it did not, and a zero used
             // to be invisible: `reaches` would report no callers, which reads as "nothing
@@ -2527,49 +2650,74 @@ fn run() -> Result<u8> {
             // for more than one reason.
             let root = db.parent().and_then(|d| d.parent());
             let head = root.and_then(cairn_store::llmverify::head_commit);
-            print!("{}", cairn_fmt::coverage(&store.coverage(head.as_deref())?));
+            body.push_str(&cairn_fmt::coverage(&store.coverage(head.as_deref())?));
+
+            // The parts, built once, and arranged twice below. `status` is the one answer
+            // whose text does not print the envelope last - the stale lines sit in the
+            // middle, above `reindex due:` - and that order is what callers read today, so
+            // it stays (I1). What JSON needs is the same parts as fields, not a different
+            // answer.
+            let mut stale: Vec<String> = Vec::new();
+            // Lines that follow the stale ones in text, and belong to the body in JSON.
+            let mut trailer = String::new();
+            let mut dirty_files: Vec<String> = Vec::new();
 
             let socket = cairn_daemon::socket_path(&db);
-            match cairn_daemon::Client::connect(&socket) {
+            let tracked = match cairn_daemon::Client::connect(&socket) {
                 Some(mut client) => {
                     let st = client.status()?;
                     let d = client.dirty()?;
-                    println!(
+                    let _ = writeln!(
+                        body,
                         "daemon     watching {} ({} files, up {}s)",
                         st.repo, st.files_tracked, st.uptime_secs
                     );
                     if !d.complete {
-                        println!("stale: initial scan still running - the set below is partial");
+                        stale.push(
+                            "initial scan still running - the set below is partial".to_string(),
+                        );
                     }
                     if d.is_empty() && d.complete {
-                        println!("stale: none");
+                        stale.push("none".to_string());
                     } else {
-                        println!(
-                            "stale: {} modified, {} created, {} removed (generation {})",
-                            d.modified.len(),
-                            d.created.len(),
-                            d.removed.len(),
-                            d.generation
-                        );
                         // Created ones included, and first. They were counted and never
                         // named, which is the wrong way round: a modified file is one the
                         // index knows and answers about slightly out of date, while a
                         // created one is a file **nothing** in the index has ever seen —
                         // the case where an answer is not stale but absent, and the reader
                         // has no way to guess which file it was.
-                        for p in d
+                        let named: Vec<&String> = d
                             .created
                             .iter()
                             .chain(&d.modified)
                             .chain(&d.removed)
                             .take(8)
-                        {
-                            println!("       {p}");
+                            .collect();
+                        let mut note = format!(
+                            "{} modified, {} created, {} removed (generation {})",
+                            d.modified.len(),
+                            d.created.len(),
+                            d.removed.len(),
+                            d.generation
+                        );
+                        for p in &named {
+                            let _ = write!(note, "\n       {p}");
                         }
+                        stale.push(note);
+                        dirty_files = d
+                            .created
+                            .iter()
+                            .chain(&d.modified)
+                            .chain(&d.removed)
+                            .cloned()
+                            .collect();
                     }
                     if let Some(why) = &d.reindex_due {
-                        println!("reindex due: {why}");
-                        println!("             run `cairn index <scip...> --repo <dir>`");
+                        let _ = writeln!(trailer, "reindex due: {why}");
+                        let _ = writeln!(
+                            trailer,
+                            "             run `cairn index <scip...> --repo <dir>`"
+                        );
                     }
                     // Drifted files are reported, not signalled by the exit code. Every
                     // other command already works this way: an answer touching a changed
@@ -2577,17 +2725,17 @@ fn run() -> Result<u8> {
                     // be read and most of what it says is still true. `status` returning
                     // 3 for the same condition made it the one command that called a
                     // readable index unreadable.
-                    envelope_tail(&store);
-                    Ok(exit::FOUND)
+                    true
                 }
                 None => {
                     // An unknown dirty set and an empty one look the same in an answer.
                     // Conflating them is the silent staleness this design forbids.
-                    println!("daemon     not running");
-                    println!(
-                        "stale: NOT TRACKED - the file watcher is still starting, so edits \
-                         made since the index was built are not visible yet. `cairn verify \
+                    let _ = writeln!(body, "daemon     not running");
+                    stale.push(
+                        "NOT TRACKED - the file watcher is still starting, so edits made \
+                         since the index was built are not visible yet. `cairn verify \
                          --repo <dir>` is the one-off check"
+                            .to_string(),
                     );
                     // Not degraded, and this is the case that made the distinction matter.
                     // `status` is itself one of the commands that spawns the watcher, so
@@ -2596,10 +2744,36 @@ fn run() -> Result<u8> {
                     // creates and then grades itself on. Measured in the session logs: two
                     // agents got exit 3 here, and the guide tells them 3 means they are in
                     // the wrong directory. Both ignored it and queried on, correctly.
-                    envelope_tail(&store);
-                    Ok(exit::FOUND)
+                    false
+                }
+            };
+
+            let unknown = index_unknown(&store);
+            match format() {
+                Format::Text => {
+                    print!("{body}");
+                    for s in &stale {
+                        println!("stale: {s}");
+                    }
+                    print!("{trailer}");
+                    println!("suppressed: none");
+                    match unknown.first() {
+                        None => println!("unknown: none"),
+                        Some(u) => println!("unknown: {u}"),
+                    }
+                }
+                Format::Json => {
+                    let mut env = cairn_fmt::Envelope::new(format!("{body}{trailer}"));
+                    // `stale: none` is a text convention for an empty section; as a field
+                    // it would be a note claiming there are no notes.
+                    env.stale = stale.iter().filter(|s| *s != "none").cloned().collect();
+                    env.unknown = unknown;
+                    env.stale_files.tracked = Some(tracked);
+                    env.stale_files.dirty = dirty_files;
+                    println!("{}", env.json(command()));
                 }
             }
+            Ok(exit::FOUND)
         }
     }
 }

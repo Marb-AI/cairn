@@ -42,12 +42,75 @@ impl View {
     }
 }
 
+/// The version of the JSON answer model, carried on every JSON answer.
+///
+/// Versioned because a consumer has to be able to tell that the shape changed without
+/// diffing it against what it remembers. Text output is not versioned and does not need
+/// to be: its reader is an agent that reads the page.
+pub const ANSWER_SCHEMA: &str = "cairn.answer/1";
+
+/// One answer, as `--format json` prints it.
+///
+/// Borrowed from the envelope rather than owning a copy: this is built once, on the way
+/// out, and an answer can carry a megabyte of body.
+#[derive(serde::Serialize)]
+pub struct Answer<'a> {
+    pub schema: &'static str,
+    /// The command that produced this, as it would be typed: `refs`, `for change`.
+    pub command: &'a str,
+    pub rows: Option<usize>,
+    pub truncated: bool,
+    pub unknown: &'a [String],
+    pub suppressed: &'a [String],
+    pub stale: Stale<'a>,
+    /// The text answer, exactly as text mode prints it above the envelope lines. The
+    /// three sections are fields here, so repeating them inside the body would be the
+    /// same claim twice and two places for it to drift.
+    pub body: &'a str,
+    /// The answer as fields. `null` until the command has a data builder.
+    pub data: Option<&'a serde_json::Value>,
+}
+
+/// The staleness section of a JSON answer: `StaleFiles` plus the sentences text prints.
+#[derive(serde::Serialize)]
+pub struct Stale<'a> {
+    pub tracked: Option<bool>,
+    pub dirty: &'a [String],
+    pub mentioned: &'a [String],
+    pub notes: &'a [String],
+}
+
+/// Which files an answer rests on, and what is known about their freshness.
+///
+/// The sentences in `Envelope::stale` are what a reader sees; this is the same fact for a
+/// program. Kept beside them rather than parsed back out of them: a consumer that had to
+/// read "3 of the files in this answer changed since indexing: a, b, c" with a regular
+/// expression would be relying on wording nobody promised to keep.
+///
+/// `tracked` carries the distinction D8 exists for. `None` means this answer never asked
+/// — most reports do not —, `Some(false)` that the watcher could not say, and
+/// `Some(true)` that it did. An empty `dirty` with `tracked: Some(false)` is not clean,
+/// and that is precisely the case a bare empty list would hide.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct StaleFiles {
+    pub tracked: Option<bool>,
+    /// Files this answer mentions that have changed since the index was built.
+    pub dirty: Vec<String>,
+    /// Every file the answer mentions — the set `dirty` was drawn from.
+    pub mentioned: Vec<String>,
+}
+
 /// Every response carries the same envelope, so an agent can rely on it being there.
 pub struct Envelope {
     pub body: String,
     pub unknown: Vec<String>,
     pub suppressed: Vec<String>,
     pub stale: Vec<String>,
+    /// What `stale` says, as data. See `StaleFiles`.
+    pub stale_files: StaleFiles,
+    /// The answer as structured data, for `--format json`. `None` while a command still
+    /// has only a text renderer; the envelope around it is there either way.
+    pub data: Option<serde_json::Value>,
     /// How many rows the body carried, where the answer is a list.
     ///
     /// What was *printed*, not what matched. The two differ whenever a limit or the
@@ -67,8 +130,17 @@ impl Envelope {
             unknown: Vec::new(),
             suppressed: Vec::new(),
             stale: Vec::new(),
+            stale_files: StaleFiles::default(),
+            data: None,
             rows: None,
         }
+    }
+
+    /// Attach the answer as data. Text rendering is unaffected: the renderer reads
+    /// `body`, so a command gains JSON without its text output moving (I2).
+    pub fn data(mut self, data: impl serde::Serialize) -> Self {
+        self.data = serde_json::to_value(data).ok();
+        self
     }
 
     pub fn unknown(mut self, msg: impl Into<String>) -> Self {
@@ -113,6 +185,14 @@ impl Envelope {
     /// unknown one look identical in an answer, and treating the second as the first is
     /// exactly the silent staleness the contract forbids (D8).
     pub fn mark_stale(mut self, dirty: Option<&[String]>, mentioned: &[String]) -> Self {
+        // The same facts the sentences below are built from, kept for `--format json`.
+        self.stale_files.mentioned = {
+            let mut m: Vec<String> = mentioned.to_vec();
+            m.sort();
+            m.dedup();
+            m
+        };
+        self.stale_files.tracked = Some(dirty.is_some());
         let Some(dirty) = dirty else {
             // Deliberately not an instruction any more: the watcher starts itself on the
             // first command in a repository, so being told to run one would be telling
@@ -131,6 +211,7 @@ impl Envelope {
             .collect();
         hit.sort();
         hit.dedup();
+        self.stale_files.dirty = hit.iter().map(|p| p.to_string()).collect();
         if !hit.is_empty() {
             self.stale.push(format!(
                 "{} of the files in this answer changed since indexing: {}",
@@ -143,6 +224,44 @@ impl Envelope {
             ));
         }
         self
+    }
+
+    /// The same answer as JSON, for a program rather than a reader.
+    ///
+    /// Beside the text, never instead of it (I2). Text stays the primary format: braces
+    /// and repeated keys cost several times the tokens of an aligned table, and that
+    /// trade is the whole pitch. This is for the consumer that wants fields rather than
+    /// a page — a wrapper, a check in CI, an editor.
+    ///
+    /// Pretty-printed. The reader of this is a program, so the newlines cost nothing it
+    /// cares about, and they make the output of a failing command something a person can
+    /// still read in a terminal.
+    pub fn json(&self, command: &str) -> String {
+        let answer = Answer {
+            schema: ANSWER_SCHEMA,
+            command,
+            rows: self.rows,
+            truncated: self.truncated(),
+            unknown: &self.unknown,
+            suppressed: &self.suppressed,
+            stale: Stale {
+                tracked: self.stale_files.tracked,
+                dirty: &self.stale_files.dirty,
+                mentioned: &self.stale_files.mentioned,
+                notes: &self.stale,
+            },
+            body: &self.body,
+            data: self.data.as_ref(),
+        };
+        // Infallible in practice: every field is a string, a number or a `Value` that
+        // was built by `serde_json` in the first place. A command printing nothing at
+        // all would be a worse failure than printing an envelope saying so.
+        serde_json::to_string_pretty(&answer).unwrap_or_else(|e| {
+            format!(
+                "{{\n  \"schema\": \"{ANSWER_SCHEMA}\",\n  \"command\": \"{command}\",\n  \
+                 \"unknown\": [\"this answer could not be serialised: {e}\"]\n}}"
+            )
+        })
     }
 
     pub fn render(&self) -> String {
