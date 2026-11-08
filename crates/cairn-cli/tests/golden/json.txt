@@ -2,8 +2,8 @@
 # CAIRN_BLESS=1 cargo test --test golden rewrites every file here.
 #
 # A diff in this file is a change in what the tool says. Read it before blessing it:
-# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine, and nothing
-# else in an answer is normalised.
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine and `<epoch>`
+# for when a connector last ran; nothing else in an answer is normalised.
 
 $ cairn --format json status
 exit 0
@@ -24,6 +24,15 @@ exit 0
   },
   "body": "index      <db>\nfiles      16\nsymbols    490\noccurrence 1580\ngenerated  2 files\n\ncoverage   what each mechanism produced, against the tree it was built from\n           indexed -> verified -> verify stale -> verified. `indexed` is the pass\n           having run and matched the tree, which is counting; the rungs above\n           are judgements recorded by `cairn llm verify` and expire with the tree\n  entrypoints    indexed       4 entrypoints, 3 resolve to code, 1 idle\n  cross-api      indexed       2 gRPC services, 5 serve, 8 call links\n  go             indexed       217 symbols, ingested from SCIP with no tree walk to compare\n  python         indexed       273 symbols, ingested from SCIP with no tree walk to compare\ndaemon     not running\n",
   "data": {
+    "connectors": [
+      {
+        "facts": 16,
+        "name": "default",
+        "ran_at": <epoch>,
+        "unknown": [],
+        "version": "0.1.2"
+      }
+    ],
     "coverage": [
       {
         "detail": "4 entrypoints, 3 resolve to code, 1 idle",

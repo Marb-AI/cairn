@@ -628,8 +628,17 @@ fn index_unknown(store: &Store) -> Vec<String> {
 /// thing the answer could not see.
 static PARTIAL: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 
+/// What the connectors behind this index could not determine, remembered for the process.
+///
+/// The same reasoning as `PARTIAL`, for the same reason: a gap only `cairn index` printed
+/// is a gap the reader of an answer never sees. A connector that could not read a compose
+/// file leaves `runs` and `affects` answering from nothing, and neither of them can infer
+/// that by itself.
+static CONNECTOR_GAPS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
 /// Read once, after the store is open, so the note costs one query per process.
 fn note_partial_index(store: &Store) {
+    let _ = CONNECTOR_GAPS.set(store.connector_unknown().unwrap_or_default());
     let langs = store.failed_projects().map(|f| {
         let mut v: Vec<String> = f
             .into_iter()
@@ -741,6 +750,9 @@ fn emit(mut env: cairn_fmt::Envelope) {
              status` says why, and `cairn index` prints it again.",
             partial.join("; ")
         ));
+    }
+    for gap in CONNECTOR_GAPS.get().into_iter().flatten() {
+        env.unknown.push(gap.clone());
     }
     track::observe(env.rows, env.truncated());
     // One envelope, two renderings. The session log is written from the envelope rather
@@ -1338,13 +1350,50 @@ fn run() -> Result<u8> {
                 }
             }
 
-            // Cross-language links are derived once the whole index is in place: the
-            // two sides of a service boundary usually arrive from different SCIP files.
-            let links = store.link_services()?;
-            println!(
-                "services: {} gRPC services, {} serve links, {} call links",
-                links.services, links.serves, links.calls
-            );
+            // Connectors, in manifest order, and then the derivations that build on what
+            // they contributed.
+            //
+            // The order is the fix this phase exists for. Protobuf service links and the
+            // deployment layer used to be two blocks of this function with the weak-link
+            // derivation wedged between them, which happened to work only because
+            // nothing derived depended on the deployment facts yet. With external
+            // connectors contributing edges, anything derived has to run after every
+            // connector or it derives from half an index.
+            {
+                use cairn_store::connect::Connector;
+                let connectors: Vec<Box<dyn Connector>> =
+                    vec![Box::new(cairn_store::connect::DefaultConnector::new())];
+                let ran_at = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                for c in &connectors {
+                    let mut ctx = cairn_store::connect::ConnectorCtx {
+                        store: &mut store,
+                        repo: repo.as_deref(),
+                    };
+                    // A connector that fails does not fail the index: the rest of the
+                    // answer is still worth having, and what is missing is recorded as a
+                    // gap rather than left to be inferred from an absence.
+                    let report = match c.run(&mut ctx) {
+                        Ok(report) => report,
+                        Err(e) => {
+                            eprintln!("cairn: connector {} failed: {e:#}", c.name());
+                            cairn_store::connect::ConnectorReport {
+                                unknown: vec![format!(
+                                    "failed during indexing ({e:#}), so the facts it \
+                                     contributes are missing from every answer here"
+                                )],
+                                ..Default::default()
+                            }
+                        }
+                    };
+                    for line in &report.log {
+                        println!("{line}");
+                    }
+                    store.record_connector_run(c.manifest(), &report, ran_at)?;
+                }
+            }
             // Derive the weak layer here rather than leaving it to a command nobody runs.
             //
             // It was a separate `cairn weak`, and on this repository it had never been
@@ -1363,38 +1412,6 @@ fn run() -> Result<u8> {
                     // Not fatal: the index is useful without it, and the commands that
                     // depend on it now say so rather than reporting a clean bill.
                     Err(e) => eprintln!("cairn: weak-link layer not built: {e:#}"),
-                }
-            }
-            if let Some(root) = repo.as_deref() {
-                let topo = cairn_store::deploy::parse_compose(
-                    root,
-                    &[
-                        "compose.yaml",
-                        "compose.yml",
-                        "docker-compose.yml",
-                        "compose.local.yaml",
-                        "compose.override.yaml",
-                    ],
-                )?;
-                if !topo.services.is_empty() {
-                    let d = store.link_deployment(root, &topo)?;
-                    println!(
-                        "deploy:   {} services from {}, {} with a resolved entrypoint{}",
-                        d.services,
-                        topo.sources.join(" + "),
-                        d.with_entrypoint,
-                        if d.on_demand > 0 {
-                            format!(", {} on-demand entrypoint(s) from cron", d.on_demand)
-                        } else {
-                            String::new()
-                        }
-                    );
-                    // Naming them rather than counting: an unresolved entrypoint makes
-                    // live code look unreachable, which is the failure mode 8.4 warns
-                    // about.
-                    if !d.unresolved.is_empty() {
-                        println!("          unresolved: {}", d.unresolved.join(", "));
-                    }
                 }
             }
             let c = store.counts()?;
@@ -2673,6 +2690,36 @@ fn run() -> Result<u8> {
             let areas = store.coverage(head.as_deref())?;
             body.push_str(&cairn_fmt::coverage(&areas));
 
+            // Which connectors are behind this index. Named rather than counted: with
+            // external connectors, "a fact came from somewhere" is not an answer anybody
+            // can act on, and the first question about a surprising edge is which tool
+            // stated it.
+            //
+            // No timestamp in the text. The facts are rebuilt by the index run that
+            // recorded them, so "when" is the index's own age, which `stale:` already
+            // reports; the exact second is in the JSON, where a consumer can use it.
+            let connectors = store.connector_runs()?;
+            // The built-in one is not listed here, and the JSON carries it anyway. Its
+            // output is already two rows of the coverage block above - `entrypoints` and
+            // `cross-api` are exactly what it produces - so a line naming it would report
+            // the same work twice, and it is the one connector whose version is the
+            // binary's own. What is worth a line is a connector a reader might not know
+            // is running.
+            for c in connectors.iter().filter(|c| c.name != "default") {
+                let _ = writeln!(
+                    body,
+                    "connector  {:<12} {:<8} {} fact(s){}",
+                    c.name,
+                    c.version.as_deref().unwrap_or("-"),
+                    c.facts,
+                    if c.unknown.is_empty() {
+                        String::new()
+                    } else {
+                        format!(", {} gap(s) reported", c.unknown.len())
+                    }
+                );
+            }
+
             // The parts, built once, and arranged twice below. `status` is the one answer
             // whose text does not print the envelope last - the stale lines sit in the
             // middle, above `reindex due:` - and that order is what callers read today, so
@@ -2812,6 +2859,7 @@ fn run() -> Result<u8> {
                                 })
                                 .collect(),
                             daemon: daemon_data,
+                            connectors,
                         },
                     );
                     // `stale: none` is a text convention for an empty section; as a field

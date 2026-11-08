@@ -22,6 +22,7 @@ use rusqlite::Connection;
 /// reads as "nothing failed" — a confident negative from a database that was never asked.
 /// Invalidating it costs one `cairn index` and buys back the one guarantee that matters
 /// here: an answer knows the shape of its own gaps.
+///
 /// v20 adds `symbols.scip`, the full SCIP symbol string. An older index has the hash and
 /// nothing to print from it, so every machine-readable answer would have to omit the one
 /// identifier that outlives the index — and omitting it silently is how a consumer ends
@@ -30,7 +31,11 @@ use rusqlite::Connection;
 /// v21 adds `edges.origin`, which names the connector behind a declared edge. An index
 /// without it cannot say *who* declared a fact, and an unattributed fact is one a reader
 /// cannot go and check.
-pub const SCHEMA_VERSION: i64 = 21;
+///
+/// v22 adds `connectors`: which connectors built this index, what they produced, and what
+/// they could not see. Without it `cairn status` cannot say who contributed a fact and no
+/// answer can carry a connector's gaps.
+pub const SCHEMA_VERSION: i64 = 22;
 
 pub const SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -101,6 +106,20 @@ CREATE TABLE IF NOT EXISTS symbols (
     -- best bridge there is between a feature name and a symbol - "OAuth" often appears
     -- in no identifier at all but in the first line of the docs (architecture 4.5).
     doc           TEXT
+);
+
+-- Connectors this index was built with: what each produced, when, and what it could not
+-- determine. On the rebuildable side on purpose - a connector's facts are derived data,
+-- rebuilt on every index, so a stale row describing a run that no longer happened would
+-- be worse than no row.
+CREATE TABLE IF NOT EXISTS connectors (
+    name    TEXT PRIMARY KEY,
+    version TEXT,
+    ran_at  INTEGER,                      -- unix seconds
+    facts   INTEGER NOT NULL DEFAULT 0,
+    -- Newline-separated. Merged into the `unknown` section of every answer, because a
+    -- gap only `cairn index` printed is a gap the reader of an answer never sees.
+    unknown TEXT
 );
 
 -- Derived relations. One table for every edge kind so that exact (L1), weak (L1-W),

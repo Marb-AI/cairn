@@ -22,6 +22,45 @@
       ],
       "type": "object"
     },
+    "ConnectorRun": {
+      "description": "One connector's last run, as `cairn status` reports it.",
+      "properties": {
+        "facts": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "ran_at": {
+          "description": "Unix seconds. `null` for a connector that is declared but has not run.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "unknown": {
+          "description": "What it could not determine. Carried on every answer, not only here.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "facts",
+        "unknown"
+      ],
+      "type": "object"
+    },
     "DaemonJson": {
       "description": "The watcher behind an answer, when there is one.",
       "properties": {
@@ -124,6 +163,13 @@
     "StatusData": {
       "description": "`cairn status` as data.\n\nThe one answer whose text prints its envelope in the middle rather than at the end,\nso the CLI arranges the parts twice; this is the shape the JSON arrangement publishes.",
       "properties": {
+        "connectors": {
+          "description": "The connectors this index was built with, and what each contributed.",
+          "items": {
+            "$ref": "#/$defs/ConnectorRun"
+          },
+          "type": "array"
+        },
         "coverage": {
           "description": "What each mechanism produced, in the order `coverage` prints them.",
           "items": {
@@ -168,7 +214,8 @@
         "symbols",
         "occurrences",
         "generated_files",
-        "coverage"
+        "coverage",
+        "connectors"
       ],
       "type": "object"
     }

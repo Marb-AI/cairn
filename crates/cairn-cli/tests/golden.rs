@@ -21,8 +21,9 @@
 //!     recording has to be the same on every machine or it cannot be committed. A real
 //!     index is still worth walking, and `scripts/golden-local.sh` does exactly that
 //!     walk against one, into a directory to diff by hand.
-//!   * Paths that differ per machine are replaced by placeholders, and nothing else is
-//!     normalised. Every byte a command prints beyond that is part of the gate.
+//!   * Paths that differ per machine are replaced by placeholders, as is the one clock
+//!     reading an answer carries (when a connector last ran). Nothing else is
+//!     normalised: every other byte a command prints is part of the gate.
 //!   * Stdout *and* the exit code, per invocation. Exit codes are the contract an agent
 //!     branches on (architecture 6.1.1), and a refactor can change one without touching
 //!     a single printed character.
@@ -327,12 +328,27 @@ fn walk(db: &Path, sample: usize) -> Vec<Sampled> {
     all.into_iter().step_by(stride).take(sample).collect()
 }
 
-/// Everything about an answer that is allowed to differ between two machines.
+/// Everything about an answer that is allowed to differ between two runs.
 ///
-/// Only paths. A recording that normalised anything else would stop being a gate for it,
-/// and the drift a gate is for is exactly the kind nobody predicted.
+/// Paths, and the one clock reading an answer carries. A recording that normalised
+/// anything else would stop being a gate for it, and the drift a gate is for is exactly
+/// the kind nobody predicted.
 fn scrub(text: &str, db: &Path, repo: &Path) -> String {
     let mut out = text.to_string();
+    // `ran_at` is when a connector last ran, which for the fixture index is always "just
+    // now". Everything else about the connector — its name, version, what it produced,
+    // what it could not see — is recorded as it stands.
+    while let Some(at) = out.find("\"ran_at\": ") {
+        let value = at + "\"ran_at\": ".len();
+        let end = out[value..]
+            .find(|c: char| !c.is_ascii_digit())
+            .map(|i| value + i)
+            .unwrap_or(out.len());
+        if end == value {
+            break; // `null`, which is stable and says the connector has not run
+        }
+        out.replace_range(value..end, "<epoch>");
+    }
     // Longest first: the database sits inside the scratch directory, and replacing the
     // directory first would leave a half-substituted path behind.
     let db_dir = db.parent().map(|p| p.to_path_buf());
@@ -392,8 +408,8 @@ const COMMITTED_HEADER: &str = "\
 # CAIRN_BLESS=1 cargo test --test golden rewrites every file here.
 #
 # A diff in this file is a change in what the tool says. Read it before blessing it:
-# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine, and nothing
-# else in an answer is normalised.
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine and `<epoch>`
+# for when a connector last ran; nothing else in an answer is normalised.
 ";
 
 const LOCAL_HEADER: &str = "\
@@ -401,8 +417,9 @@ const LOCAL_HEADER: &str = "\
 # scripts/golden-local.sh. Not committed and not compared by any test: produce this twice
 # around a change and diff the two directories.
 #
-# `<db>`, `<dbdir>` and `<repo>` stand in for paths, so two runs against the same checkout
-# are comparable; nothing else in an answer is normalised.
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths and `<epoch>` for when a connector
+# last ran, so two runs against the same checkout are comparable; nothing else in an
+# answer is normalised.
 ";
 
 /// Group the cases into one rendering per file, in case order.

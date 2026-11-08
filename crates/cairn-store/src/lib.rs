@@ -15,6 +15,7 @@ pub mod batch;
 pub mod build;
 pub mod concepts;
 pub mod config;
+pub mod connect;
 pub mod context;
 pub mod conventions;
 pub mod coverage;

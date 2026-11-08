@@ -601,6 +601,8 @@ pub struct StatusData {
     pub coverage: Vec<AreaJson>,
     /// `null` when no daemon is watching this index.
     pub daemon: Option<DaemonJson>,
+    /// The connectors this index was built with, and what each contributed.
+    pub connectors: Vec<cairn_store::connect::ConnectorRun>,
 }
 
 /// One mechanism's coverage: what it produced, and how far it has been checked.

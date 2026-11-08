@@ -2,8 +2,8 @@
 # CAIRN_BLESS=1 cargo test --test golden rewrites every file here.
 #
 # A diff in this file is a change in what the tool says. Read it before blessing it:
-# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine, and nothing
-# else in an answer is normalised.
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine and `<epoch>`
+# for when a connector last ran; nothing else in an answer is normalised.
 
 $ cairn usage ad
 exit 0

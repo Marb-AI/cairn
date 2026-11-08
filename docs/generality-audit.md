@@ -47,6 +47,31 @@ What remains hardcoded is the *shape* of a rule, not its content: the pack can s
 is `<interpreter> -m <module>` but not invent a new kind of target. Adding a language is a
 pack; adding a new way of pointing at code is still a patch.
 
+**Paid again, differently.** The pack made the *content* of these conventions
+configurable; it left them running in the core. They now run as a connector —
+`connect::DefaultConnector` — which is the split D16 and §7.1 planned, and the reason it
+matters is the sentence above: a pack cannot invent a new kind of target, and a connector
+can. Every row of the table is the default connector's business:
+
+| was | now |
+|---|---|
+| `protolink::link_services` called from the index pipeline | `DefaultConnector::run`, first fact it contributes |
+| `deploy::parse_compose` + `link_deployment` in the same pipeline | the same connector, after the service links |
+| `ondemand::scan` reached through `link_deployment` | unchanged, and now inside the connector's boundary |
+
+The move is a move: the code still reads `rules/default.yaml`, still writes
+`service_links` and the deployment tables directly, and the golden recordings are
+identical to the byte. What it buys is that the pipeline no longer names any of these —
+it runs the connectors it has, in manifest order, and derives afterwards. A second
+connector contributing its own kinds of node and edge needs no change to the core, which
+is what makes the remaining ecosystem knowledge *optional* rather than merely
+configurable.
+
+The in-process connector keeps privileged store access, and that is the one asymmetry
+left: external connectors emit facts and are validated, while this one writes tables. It
+is the honest position for a move rather than a rewrite, and it is written down here so
+the next reader does not mistake it for the intended end state.
+
 ## Tier 3 — one genuine layout assumption, and it failed silently (fixed)
 
 `protolink::package_of` derives the proto package by splitting the file path on `/schema/`:
