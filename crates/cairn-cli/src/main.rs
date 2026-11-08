@@ -614,16 +614,18 @@ fn report(argv: &[String], code: u8, elapsed: std::time::Duration) {
 /// two formats: a JSON `status` whose `unknown` disagreed with the text one would be the
 /// silent-gap failure in a new dress.
 fn index_unknown(store: &Store) -> Vec<String> {
+    // `is_trouble`, which is the one definition of severity, rather than a second one
+    // spelled here. This filter said "anything that is not indexed or verified", and
+    // that counts `n/a` as a failure: on a frontend repository every answer carried
+    // "2 mechanism(s) did not complete (entrypoints, cross-api)" when both had said,
+    // correctly, that there is no compose file and no `.proto` for them to read. A gap
+    // note that fires when there is no gap teaches a reader to skim the one line the
+    // whole design puts the honesty in.
     let partial: Vec<String> = store
         .coverage(None)
         .map(|c| {
             c.iter()
-                .filter(|a| {
-                    !matches!(
-                        a.state,
-                        cairn_store::State::Indexed | cairn_store::State::Verified
-                    )
-                })
+                .filter(|a| a.state.is_trouble())
                 .map(|a| a.name.clone())
                 .collect()
         })

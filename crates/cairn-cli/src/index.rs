@@ -44,13 +44,15 @@ pub struct Language {
     pub markers: &'static [&'static str],
     /// Which directories the indexer has to be run in.
     pub roots: RootRule,
-    /// The file that names the modules of a workspace, when the language has one.
+    /// Files that name the members of a workspace, in the order they are consulted.
     ///
-    /// Authoritative where it exists: `go.work` lists exactly the modules that build
-    /// together, which is a better answer than any search of the tree - it includes
-    /// generated modules a walk would have to guess about and excludes ones the
-    /// repository deliberately leaves out.
-    pub workspace_file: Option<&'static str>,
+    /// Authoritative where one exists: a workspace file lists exactly the projects that
+    /// build together. `go.work` includes generated modules a walk would have to guess
+    /// about; `pnpm-workspace.yaml` *excludes* retired ones, and that exclusion is the
+    /// repository's own statement that a change there does nothing. Ignoring it is how
+    /// cairn came to index a retired app, install its stale dependency tree, fail, and
+    /// then report a gap about code that was never part of the build.
+    pub workspace_files: &'static [&'static str],
 }
 
 /// How many places an indexer has to run for one language.
@@ -82,7 +84,7 @@ pub const LANGUAGES: &[Language] = &[
         indexer: "scip-go",
         markers: &["go.mod"],
         roots: RootRule::EveryModule,
-        workspace_file: Some("go.work"),
+        workspace_files: &["go.work"],
     },
     Language {
         name: "python",
@@ -96,7 +98,7 @@ pub const LANGUAGES: &[Language] = &[
         ],
         // One run: a Python package tree below the outermost project is part of it.
         roots: RootRule::Shallowest,
-        workspace_file: None,
+        workspace_files: &[],
     },
     Language {
         // `.js` and `.jsx` are indexed by the same tool and land in the same graph, so
@@ -110,21 +112,46 @@ pub const LANGUAGES: &[Language] = &[
         // refused. What marks a TypeScript project is the file the compiler reads.
         markers: &["tsconfig.json", "jsconfig.json"],
         roots: RootRule::Outermost,
-        workspace_file: None,
+        // pnpm first, because a repository that has both means the pnpm one: npm's
+        // `workspaces` key is often left behind in `package.json` after a move to pnpm.
+        workspace_files: &["pnpm-workspace.yaml", "package.json"],
     },
 ];
 
-/// The module directories a workspace file names, as repo-relative absolute paths.
+/// The project directories a workspace file names.
 ///
-/// `go.work` is the only shape read today and the parse is deliberately dumb: the `use`
-/// entries, one per line or in a parenthesised block, which is all the file is. A module
-/// it names that is not on disk is dropped rather than guessed at - that is the state a
-/// fresh checkout of a repository with generated modules is in, and pointing an indexer
-/// at a directory that does not exist produces an error instead of an answer.
+/// Three shapes, dispatched on the file name, because that is what the ecosystems wrote:
+///
+/// * `go.work` — `use` entries, one per line or in a parenthesised block.
+/// * `pnpm-workspace.yaml` — a `packages:` list of globs, **negations included**. The
+///   negation is the point: a repository that retires an app writes `!apps/old` there,
+///   and that is its statement that a change in it does nothing. cairn used to index it
+///   anyway - installing its stale lockfile, failing, and then reporting a gap about code
+///   that was never in the build.
+/// * `package.json` — the `workspaces` key, as an array or as `{ "packages": [...] }`.
+///
+/// A member that is not on disk is dropped rather than guessed at: that is the state of a
+/// fresh checkout whose generated modules have not been produced yet, and pointing an
+/// indexer at a directory that is not there produces an error instead of an answer.
 fn workspace_members(repo: &Path, file: &Path) -> Vec<PathBuf> {
     let Ok(text) = std::fs::read_to_string(file) else {
         return Vec::new();
     };
+    let name = file
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default();
+    let patterns = match name {
+        "go.work" => return go_work_members(repo, &text),
+        "pnpm-workspace.yaml" => yaml_packages(&text),
+        "package.json" => json_workspaces(&text),
+        _ => Vec::new(),
+    };
+    expand_members(repo, &patterns)
+}
+
+/// `use` entries of a `go.work`, as directories that hold a module.
+fn go_work_members(repo: &Path, text: &str) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut in_block = false;
     for raw in text.lines() {
@@ -137,7 +164,7 @@ fn workspace_members(repo: &Path, file: &Path) -> Vec<PathBuf> {
                 in_block = false;
                 continue;
             }
-            push_member(repo, line, &mut out);
+            push_member(repo, line, "go.mod", &mut out);
             continue;
         }
         if let Some(rest) = line.strip_prefix("use") {
@@ -145,7 +172,7 @@ fn workspace_members(repo: &Path, file: &Path) -> Vec<PathBuf> {
             if rest == "(" {
                 in_block = true;
             } else if !rest.is_empty() {
-                push_member(repo, rest, &mut out);
+                push_member(repo, rest, "go.mod", &mut out);
             }
         }
     }
@@ -154,18 +181,124 @@ fn workspace_members(repo: &Path, file: &Path) -> Vec<PathBuf> {
     out
 }
 
-fn push_member(repo: &Path, entry: &str, out: &mut Vec<PathBuf>) {
+fn push_member(repo: &Path, entry: &str, marker: &str, out: &mut Vec<PathBuf>) {
     let cleaned = entry.trim().trim_matches('"').trim_start_matches("./");
     if cleaned.is_empty() || cleaned == "." {
         out.push(repo.to_path_buf());
         return;
     }
     let path = repo.join(cleaned);
-    // Only what is there. A `go.work` in a fresh checkout names generated modules that
-    // codegen has not produced yet, and a missing one is not a project to index.
-    if path.join("go.mod").exists() {
+    // Only what is there, and only if it is the kind of project the file claims.
+    if path.join(marker).exists() {
         out.push(path);
     }
+}
+
+/// The `packages:` list of a `pnpm-workspace.yaml`, as written.
+///
+/// A deliberately small reader: a `packages:` key followed by `- "glob"` items. Enough
+/// for every workspace file this has to understand, and it keeps a YAML dependency out of
+/// a decision this important - what it cannot parse, it says nothing about, and the walk
+/// takes over.
+fn yaml_packages(text: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut in_packages = false;
+    for raw in text.lines() {
+        let line = raw.split('#').next().unwrap_or("");
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !line.starts_with(char::is_whitespace) && trimmed.starts_with("packages:") {
+            in_packages = true;
+            continue;
+        }
+        if in_packages {
+            match trimmed.strip_prefix("- ") {
+                Some(item) => out.push(item.trim().trim_matches(['"', '\'']).to_string()),
+                // A key at any indentation ends the list.
+                None if trimmed.ends_with(':') => in_packages = false,
+                None => {}
+            }
+        }
+    }
+    out
+}
+
+/// The `workspaces` key of a `package.json`, in both shapes npm accepts.
+fn json_workspaces(text: &str) -> Vec<String> {
+    let Ok(doc) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Vec::new();
+    };
+    let value = &doc["workspaces"];
+    let list = if value.is_array() {
+        value.as_array()
+    } else {
+        value["packages"].as_array()
+    };
+    list.map(|items| {
+        items
+            .iter()
+            .filter_map(|i| i.as_str())
+            .map(String::from)
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
+/// Turn workspace globs into the directories they actually name.
+///
+/// Only the one wildcard shape these files use in practice - `apps/*`, `packages/*` - and
+/// a leading `!` removes whatever the positive patterns matched. A pattern this cannot
+/// read matches nothing, which falls back to the walk rather than inventing a member.
+fn expand_members(repo: &Path, patterns: &[String]) -> Vec<PathBuf> {
+    let mut included: Vec<PathBuf> = Vec::new();
+    let mut excluded: Vec<PathBuf> = Vec::new();
+    for pattern in patterns {
+        let (negated, glob) = match pattern.strip_prefix('!') {
+            Some(rest) => (true, rest.trim()),
+            None => (false, pattern.as_str()),
+        };
+        let matched = match glob.split_once('*') {
+            None => {
+                let path = repo.join(glob.trim_start_matches("./"));
+                if path.is_dir() {
+                    vec![path]
+                } else {
+                    Vec::new()
+                }
+            }
+            Some((prefix, suffix)) => {
+                // `apps/*` and `apps/*/thing`: the children of the prefix, filtered by
+                // whatever follows the star.
+                let base = repo.join(prefix.trim_end_matches('/').trim_start_matches("./"));
+                let mut found = Vec::new();
+                if let Ok(entries) = std::fs::read_dir(&base) {
+                    for e in entries.flatten() {
+                        let p = e.path();
+                        if !p.is_dir() {
+                            continue;
+                        }
+                        let tail = suffix.trim_start_matches('/');
+                        let candidate = if tail.is_empty() { p } else { p.join(tail) };
+                        if candidate.is_dir() {
+                            found.push(candidate);
+                        }
+                    }
+                }
+                found
+            }
+        };
+        if negated {
+            excluded.extend(matched);
+        } else {
+            included.extend(matched);
+        }
+    }
+    included.retain(|p| !excluded.iter().any(|x| p == x));
+    included.sort();
+    included.dedup();
+    included
 }
 
 /// Extensions cairn cannot index, named so a warning can say which language was skipped
@@ -306,16 +439,30 @@ pub fn scan(repo: &Path) -> Result<Survey> {
                 .unwrap_or_else(|| repo.to_path_buf());
             let mut roots = vec![shallowest];
             // The workspace file first, where the language has one and the repository
-            // wrote one: it names the modules that build together, which is a stronger
-            // answer than anything a walk can conclude.
-            let from_workspace = lang
-                .workspace_file
+            // wrote one: it names the projects that build together, which is a stronger
+            // answer than anything a walk can conclude - and the only place an
+            // *exclusion* is written down at all.
+            let members: Vec<PathBuf> = lang
+                .workspace_files
+                .iter()
                 .map(|f| repo.join(f))
-                .filter(|p| p.exists())
+                .find(|p| p.exists())
                 .map(|p| workspace_members(repo, &p))
                 .unwrap_or_default();
-            if !from_workspace.is_empty() {
-                roots = from_workspace;
+            if !members.is_empty() {
+                // The language's own markers, kept to the ones a member contains. For Go
+                // the marker *is* the member (`go.mod` in each `use` entry); for a
+                // JavaScript workspace a member may hold one tsconfig or none.
+                let inside = |p: &PathBuf| members.iter().any(|m| p.starts_with(m));
+                let mut chosen: Vec<PathBuf> = all_markers
+                    .get(lang.name)
+                    .map(|all| all.iter().filter(|p| inside(p)).cloned().collect())
+                    .unwrap_or_default();
+                chosen.sort();
+                chosen.dedup();
+                if !chosen.is_empty() {
+                    roots = chosen;
+                }
             } else if let Some(all) = all_markers.get(lang.name) {
                 let mut chosen: Vec<PathBuf> = match lang.roots {
                     RootRule::Shallowest => Vec::new(),
@@ -916,6 +1063,53 @@ mod tests {
             survey.found[0].roots,
             vec![dir.clone(), dir.join("services/inner")],
             "both modules have to be indexed, and in a fixed order"
+        );
+    }
+
+    #[test]
+    fn a_pnpm_workspace_excludes_what_it_says_it_excludes() {
+        // The exclusion is the repository's own statement that a change there does
+        // nothing. cairn used to index the retired app anyway: it installed its stale
+        // lockfile, failed, warned that answers about that code were incomplete - about
+        // code that was never in the build - and in an earlier measured round it put a
+        // retired app's symbols in front of an agent whose task penalised naming them.
+        let mut files = vec![
+            (
+                "pnpm-workspace.yaml".to_string(),
+                "packages:\n  - \"apps/*\"\n  # retired\n  - \"!apps/old\"\n".to_string(),
+            ),
+            ("apps/live/tsconfig.json".to_string(), "{}".to_string()),
+            ("apps/old/tsconfig.json".to_string(), "{}".to_string()),
+        ];
+        files.extend(many("apps/live/src", "ts", 12));
+        files.extend(many("apps/old/src", "ts", 12));
+        let dir = tree("pnpm-workspace", &refs(&files));
+        let survey = scan(&dir).unwrap();
+        assert_eq!(
+            survey.found[0].roots,
+            vec![dir.join("apps/live")],
+            "the excluded app is not a project to index"
+        );
+    }
+
+    #[test]
+    fn npm_workspaces_in_package_json_are_read_too() {
+        let mut files = vec![
+            (
+                "package.json".to_string(),
+                "{\"workspaces\": [\"packages/*\"]}".to_string(),
+            ),
+            ("packages/a/tsconfig.json".to_string(), "{}".to_string()),
+            ("tools/scripts/tsconfig.json".to_string(), "{}".to_string()),
+        ];
+        files.extend(many("packages/a/src", "ts", 10));
+        files.extend(many("tools/scripts", "ts", 6));
+        let dir = tree("npm-workspaces", &refs(&files));
+        let survey = scan(&dir).unwrap();
+        assert_eq!(
+            survey.found[0].roots,
+            vec![dir.join("packages/a")],
+            "a tsconfig outside every workspace member is not a project of this workspace"
         );
     }
 
