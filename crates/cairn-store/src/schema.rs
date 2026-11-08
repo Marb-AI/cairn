@@ -26,7 +26,11 @@ use rusqlite::Connection;
 /// nothing to print from it, so every machine-readable answer would have to omit the one
 /// identifier that outlives the index — and omitting it silently is how a consumer ends
 /// up keying on handles, which are only stable while the index is.
-pub const SCHEMA_VERSION: i64 = 20;
+///
+/// v21 adds `edges.origin`, which names the connector behind a declared edge. An index
+/// without it cannot say *who* declared a fact, and an unattributed fact is one a reader
+/// cannot go and check.
+pub const SCHEMA_VERSION: i64 = 21;
 
 pub const SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -118,7 +122,11 @@ CREATE TABLE IF NOT EXISTS edges (
     note       TEXT,
     -- Set when the anchor file changed after a manual edge was recorded, so the edge
     -- may no longer hold. Never auto-cleared: only a fresh judgement clears it.
-    needs_review INTEGER NOT NULL DEFAULT 0
+    needs_review INTEGER NOT NULL DEFAULT 0,
+    -- Which connector stated this edge, for `source = 4` (Declared); null otherwise.
+    -- "L1, declared" without a name leaves a reader unable to ask the next question,
+    -- and two connectors contributing edges of the same kind would be indistinguishable.
+    origin     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS occurrences (

@@ -127,7 +127,14 @@ impl Store {
                 "SELECT count(*) FROM files WHERE content_hash IS NULL",
             )?,
             weak_edges: one("SELECT count(*) FROM edges WHERE kind = 2")?,
-            manual_edges: one("SELECT count(*) FROM edges WHERE source >= 2")?,
+            // The authored set spelled out. `source >= 2` was true while the enum
+            // stopped at Human; a connector's edges are source 4 and are not anybody's
+            // assertion, so the old spelling would have counted them as manual and
+            // flagged them for review whenever their anchor file changed.
+            manual_edges: one(&format!(
+                "SELECT count(*) FROM edges WHERE source IN {}",
+                crate::AUTHORED_SOURCES
+            ))?,
             concepts: one("SELECT count(*) FROM k.concepts")?,
             concept_links: one("SELECT count(*) FROM k.concept_links")?,
             concept_links_unanchored: one(
@@ -188,13 +195,14 @@ impl Store {
     /// claim masquerade as a fact, and silently dropping it would throw away work the
     /// static pass could not do (architecture 18.3).
     fn count_stale_manual_edges(&self, root: &Path) -> Result<i64> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare(&format!(
             "SELECT DISTINCT p.s, f.content_hash
                FROM edges e
                JOIN files f   ON f.id = e.file_id
                JOIN strings p ON p.id = f.path_id
-              WHERE e.source >= 2",
-        )?;
+              WHERE e.source IN {}",
+            crate::AUTHORED_SOURCES
+        ))?;
         let rows = stmt.query_map([], |r| {
             Ok((r.get::<_, String>(0)?, r.get::<_, Option<Vec<u8>>>(1)?))
         })?;
@@ -215,11 +223,13 @@ impl Store {
     pub fn flag_stale_manual_edges(&self, root: &Path) -> Result<i64> {
         let mut to_flag: Vec<i64> = Vec::new();
         {
-            let mut stmt = self.conn.prepare(
+            let mut stmt = self.conn.prepare(&format!(
                 "SELECT f.id, p.s, f.content_hash
                    FROM files f JOIN strings p ON p.id = f.path_id
-                  WHERE f.id IN (SELECT DISTINCT file_id FROM edges WHERE source >= 2)",
-            )?;
+                  WHERE f.id IN (SELECT DISTINCT file_id FROM edges
+                                  WHERE source IN {})",
+                crate::AUTHORED_SOURCES
+            ))?;
             let rows = stmt.query_map([], |r| {
                 Ok((
                     r.get::<_, i64>(0)?,
@@ -242,7 +252,11 @@ impl Store {
         let mut n = 0;
         for file_id in to_flag {
             n += self.conn.execute(
-                "UPDATE edges SET needs_review = 1 WHERE file_id = ?1 AND source >= 2",
+                &format!(
+                    "UPDATE edges SET needs_review = 1
+                      WHERE file_id = ?1 AND source IN {}",
+                    crate::AUTHORED_SOURCES
+                ),
                 params![file_id],
             )? as i64;
         }
@@ -304,10 +318,7 @@ impl Store {
             Ok(AssertedLink {
                 src: r.get(0)?,
                 dst: r.get(1)?,
-                source: match r.get::<_, i64>(2)? {
-                    3 => crate::EdgeSource::Human,
-                    _ => crate::EdgeSource::Agent,
-                },
+                source: crate::EdgeSource::from_i64(r.get::<_, i64>(2)?),
                 note: r.get(3)?,
                 needs_review: r.get::<_, i64>(4)? != 0,
                 anchor: {

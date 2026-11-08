@@ -9,9 +9,20 @@ use anyhow::Result;
 use rusqlite::params;
 use std::collections::HashSet;
 
-/// One step out from a symbol: where it lands, how the edge was derived, and the call
-/// site when there is one.
-pub type Neighbour = (i64, EdgeSource, Option<String>);
+/// One step out from a symbol: where it lands, how the edge was derived, who declared
+/// it, and the call site when there is one.
+///
+/// A struct rather than the tuple it used to be: `origin` made it a four-tuple, and
+/// `(i64, EdgeSource, Option<String>, Option<String>)` at three call sites is a puzzle
+/// every time it is read.
+pub struct Neighbour {
+    pub symbol_id: i64,
+    pub source: EdgeSource,
+    /// Which connector stated the edge, for a declared one; `None` otherwise.
+    pub origin: Option<String>,
+    /// Where the edge was observed, as `file:line`.
+    pub site: Option<String>,
+}
 
 /// Which way an edge is followed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +43,8 @@ pub struct WalkNode {
     /// Where the edge was observed, for call edges.
     pub site: Option<String>,
     pub source: EdgeSource,
+    /// Which connector stated the edge, for a declared one; `None` otherwise.
+    pub origin: Option<String>,
     /// Children that existed but were cut by `fanout`.
     pub truncated_children: usize,
 }
@@ -69,6 +82,7 @@ impl Store {
             parent: None,
             site: None,
             source: EdgeSource::Scip,
+            origin: None,
             truncated_children: 0,
         });
 
@@ -81,20 +95,21 @@ impl Store {
                 let parent_id = walk.nodes[idx].symbol.id;
                 let (rows, total) = self.neighbours(parent_id, kind, dir, fanout, exclude_tests)?;
                 let mut added = 0;
-                for (sym_id, source, site) in rows {
-                    if !seen.insert(sym_id) {
+                for n in rows {
+                    if !seen.insert(n.symbol_id) {
                         walk.revisited += 1;
                         continue;
                     }
-                    let Some(sym) = self.symbol(sym_id)? else {
+                    let Some(sym) = self.symbol(n.symbol_id)? else {
                         continue;
                     };
                     walk.nodes.push(WalkNode {
                         symbol: sym,
                         depth: level,
                         parent: Some(idx),
-                        site,
-                        source,
+                        site: n.site,
+                        source: n.source,
+                        origin: n.origin,
                         truncated_children: 0,
                     });
                     next.push(walk.nodes.len() - 1);
@@ -140,12 +155,12 @@ impl Store {
             let mut next = Vec::new();
             for parent_id in frontier {
                 let (rows, _) = self.neighbours(parent_id, kind, dir, fanout, exclude_tests)?;
-                for (sym_id, _, _) in rows {
-                    if !seen.insert(sym_id) {
+                for n in rows {
+                    if !seen.insert(n.symbol_id) {
                         continue;
                     }
-                    reached.push(sym_id);
-                    next.push(sym_id);
+                    reached.push(n.symbol_id);
+                    next.push(n.symbol_id);
                 }
             }
             if next.is_empty() {
@@ -210,9 +225,10 @@ impl Store {
         } else {
             ""
         };
+        let rank = crate::SOURCE_RANK_SQL;
         let sql = format!(
             r#"
-            SELECT e.{to_col}, e.source, p.s, MAX(e.line)
+            SELECT e.{to_col}, e.source, p.s, MAX(e.line), e.origin
               FROM edges e
               LEFT JOIN files   f ON f.id = e.file_id
               LEFT JOIN strings p ON p.id = f.path_id
@@ -222,7 +238,7 @@ impl Store {
                AND (?4 = 0 OR coalesce(otherf.is_test, 0) = 0)
                {noise_filter}
              GROUP BY e.{to_col}
-             ORDER BY e.source ASC, e.confidence DESC
+             ORDER BY {rank} ASC, e.confidence DESC
              LIMIT ?3
             "#
         );
@@ -236,14 +252,12 @@ impl Store {
                     (Some(p), Some(l)) => Some(format!("{p}:{}", l + 1)),
                     _ => None,
                 };
-                Ok((
-                    r.get::<_, i64>(0)?,
-                    match r.get::<_, i64>(1)? {
-                        1 => EdgeSource::Weak,
-                        _ => EdgeSource::Scip,
-                    },
+                Ok(Neighbour {
+                    symbol_id: r.get::<_, i64>(0)?,
+                    source: EdgeSource::from_i64(r.get::<_, i64>(1)?),
+                    origin: r.get::<_, Option<String>>(4)?,
                     site,
-                ))
+                })
             },
         )?;
         let mut out = Vec::new();

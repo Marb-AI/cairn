@@ -448,6 +448,7 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::EdgeSource;
     use rusqlite::params;
 
     /// Build a handler class with three members: two RPC methods and a helper.
@@ -543,6 +544,127 @@ mod tests {
             "nothing is served, so nothing is a handler"
         );
         assert!(store.own_handler_members(ty, &handlers).unwrap().is_empty());
+    }
+
+    /// A service whose start command lands in `entry.py`, and a symbol in another file
+    /// reached from it by exactly one edge — whose source the caller chooses.
+    ///
+    /// The point of the fixture is that nothing else connects the two. Whatever the
+    /// answer says about the second symbol, it says because of that one edge.
+    fn one_edge_from_an_entrypoint(store: &Store, source: i64, origin: Option<&str>) -> (i64, i64) {
+        let c = &store.conn;
+        let sid = |s: &str| -> i64 {
+            c.execute("INSERT OR IGNORE INTO strings(s) VALUES (?1)", params![s])
+                .unwrap();
+            c.query_row("SELECT id FROM strings WHERE s = ?1", params![s], |r| {
+                r.get(0)
+            })
+            .unwrap()
+        };
+        let file = |path: &str| -> i64 {
+            c.execute(
+                "INSERT INTO files(path_id, lang, generated) VALUES (?1, 1, 0)",
+                params![sid(path)],
+            )
+            .unwrap();
+            c.last_insert_rowid()
+        };
+        let entry_file = file("entry.py");
+        let other_file = file("w.py");
+        let add = |name: &str, hash: u8, in_file: i64| -> i64 {
+            c.execute(
+                "INSERT INTO symbols(hash, name_id, kind, lang, ref_count, def_file_id)
+                 VALUES (?1, ?2, 3, 1, 0, ?3)",
+                params![vec![hash; 16], sid(name), in_file],
+            )
+            .unwrap();
+            c.last_insert_rowid()
+        };
+        let main = add("main", 1, entry_file);
+        let target = add("charge", 2, other_file);
+        c.execute(
+            "INSERT INTO deploy_services(name, command, entry_file)
+             VALUES ('api', 'python -m entry', ?1)",
+            params![entry_file],
+        )
+        .unwrap();
+        c.execute(
+            "INSERT INTO edges(src_symbol, dst_symbol, kind, file_id, line, confidence,
+                               source, origin)
+             VALUES (?1, ?2, 0, ?3, 1, 1.0, ?4, ?5)",
+            params![main, target, entry_file, source, origin],
+        )
+        .unwrap();
+        (main, target)
+    }
+
+    #[test]
+    fn a_declared_edge_carries_a_blast_radius_like_an_exact_one() {
+        // The whole point of the tier: a fact a connector states is as exact as one SCIP
+        // derived, so it has to travel the same way. If `Declared` were filtered out
+        // anywhere on this path, the answer would be "no service runs this" — the
+        // confident negative this project keeps finding and fixing.
+        let store = Store::open_in_memory().unwrap();
+        let (main, target) =
+            one_edge_from_an_entrypoint(&store, EdgeSource::Declared as i64, Some("w17"));
+
+        let radius = store
+            .walk_ids(target, EdgeKind::Calls, Direction::In, 4, 50, false)
+            .unwrap();
+        assert!(
+            radius.contains(&main),
+            "the declared caller is not in the blast radius: {radius:?}"
+        );
+
+        let walk = store
+            .walk(target, EdgeKind::Calls, Direction::In, 4, 50, false)
+            .unwrap();
+        let caller = walk
+            .nodes
+            .iter()
+            .find(|n| n.symbol.id == main)
+            .expect("the declared caller is a node of the walk");
+        assert_eq!(caller.source, EdgeSource::Declared);
+        assert_eq!(caller.origin.as_deref(), Some("w17"));
+        assert_eq!(
+            caller.source.label_with_origin(caller.origin.as_deref()),
+            "L1, declared by w17",
+            "a declared edge has to name the connector that stated it, or a reader \
+             cannot go and check it"
+        );
+        assert_eq!(
+            caller.source.rank(),
+            EdgeSource::Scip.rank(),
+            "L1 either way"
+        );
+
+        let affects = store.affects(target, 4, 50).unwrap();
+        let services: Vec<&str> = affects
+            .in_process
+            .iter()
+            .map(|p| p.service.as_str())
+            .collect();
+        assert_eq!(
+            services,
+            vec!["api"],
+            "the service reaches it only through the declared edge, so this is what that \
+             edge is for"
+        );
+    }
+
+    #[test]
+    fn an_authored_edge_is_still_the_only_thing_verify_calls_manual() {
+        // `source >= 2` used to mean "hand-authored". Declared is 4 and is not: it is
+        // derived data, rebuilt on every index, and counting it as somebody's assertion
+        // would put a connector's output in the column a reviewer reads as claims to
+        // re-check.
+        let store = Store::open_in_memory().unwrap();
+        one_edge_from_an_entrypoint(&store, EdgeSource::Declared as i64, Some("w17"));
+        assert_eq!(store.verify(None).unwrap().manual_edges, 0);
+
+        let store = Store::open_in_memory().unwrap();
+        one_edge_from_an_entrypoint(&store, EdgeSource::Agent as i64, None);
+        assert_eq!(store.verify(None).unwrap().manual_edges, 1);
     }
 
     #[test]

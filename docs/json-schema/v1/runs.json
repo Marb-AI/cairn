@@ -134,7 +134,7 @@
           "type": "integer"
         },
         "source": {
-          "description": "How the row was reached, where it arrived through an edge: `L1, exact`,\n`L2, agent-asserted`. `null` when the row is the answer's own subject.",
+          "description": "How the row was reached, where it arrived through an edge: `L1, exact`,\n`L2, agent-asserted`, `L1, declared by w17`. `null` when the row is the answer's\nown subject.\n\nA string rather than a tier name because a declared edge carries the connector\nthat stated it, and a reader who cannot tell which tool said so cannot go and\ncheck.",
           "type": [
             "string",
             "null"

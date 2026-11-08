@@ -359,8 +359,13 @@ pub struct SymbolJson {
     pub generated: bool,
     pub refs: i64,
     /// How the row was reached, where it arrived through an edge: `L1, exact`,
-    /// `L2, agent-asserted`. `null` when the row is the answer's own subject.
-    pub source: Option<&'static str>,
+    /// `L2, agent-asserted`, `L1, declared by w17`. `null` when the row is the answer's
+    /// own subject.
+    ///
+    /// A string rather than a tier name because a declared edge carries the connector
+    /// that stated it, and a reader who cannot tell which tool said so cannot go and
+    /// check.
+    pub source: Option<String>,
 }
 
 impl SymbolJson {
@@ -381,9 +386,9 @@ impl SymbolJson {
         }
     }
 
-    pub fn from_source(s: &SymbolRow, source: EdgeSource) -> SymbolJson {
+    pub fn from_source(s: &SymbolRow, source: EdgeSource, origin: Option<&str>) -> SymbolJson {
         SymbolJson {
-            source: Some(source.label()),
+            source: Some(source.label_with_origin(origin)),
             ..SymbolJson::of(s)
         }
     }
@@ -899,7 +904,13 @@ pub fn walk(
                 let tag = if node.source == EdgeSource::Scip {
                     String::new()
                 } else {
-                    format!("  [{}]", node.source.label())
+                    // A declared edge names its connector here, because "L1, declared"
+                    // on its own leaves the reader without the one thing that makes it
+                    // checkable.
+                    format!(
+                        "  [{}]",
+                        node.source.label_with_origin(node.origin.as_deref())
+                    )
                 };
                 format!("{indent}{}{site}{tag}", symbol_line(&node.symbol))
             }
@@ -910,7 +921,7 @@ pub fn walk(
         }
         shown = i + 1;
         as_data.push(WalkNodeJson {
-            symbol: SymbolJson::from_source(&node.symbol, node.source),
+            symbol: SymbolJson::from_source(&node.symbol, node.source, node.origin.as_deref()),
             depth: node.depth,
             parent: node.parent,
             site: node.site.clone(),
