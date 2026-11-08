@@ -1,0 +1,35 @@
+# Recorded output of one cairn command against the fixture corpus. Do not edit by hand:
+# CAIRN_BLESS=1 cargo test --test golden rewrites every file here.
+#
+# A diff in this file is a change in what the tool says. Read it before blessing it:
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine, and nothing
+# else in an answer is normalised.
+
+$ cairn docs
+exit 0
+1 documents, 3 sections, ~492 words        [L0-M, exact]
+  README.md                                      492w  Fixture corpus
+                                                 What it is shaped to exercise · Regenerating the SCIP indexes
+suppressed: none
+unknown: headings and spans only, never the prose. This says which document and which lines; what they say is in the file
+stale: none
+
+$ cairn docs README.md
+exit 0
+3 sections, ~492 words        [L0-M, exact]
+  Fixture corpus                                         283w  README.md:1-36
+    What it is shaped to exercise                        165w  README.md:10-28
+    Regenerating the SCIP indexes                         44w  README.md:29-36
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn docs --about telemetry
+exit 1
+0 sections for "telemetry": 0 are about it, 0 mention it   [L0-M, exact]
+  Each is a range to read, not a file to open. `about` means a heading names it.
+  (nothing. `cairn docs` lists what is indexed - if the documentation for this lives outside the repository, nothing here can see it)
+suppressed: none
+unknown: a plain substring, case-insensitive: this finds where a subject is written about, not what is said about it. Synonyms and paraphrases are not matched, and nothing here reads the prose for meaning
+stale: none
+

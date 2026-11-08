@@ -1,0 +1,28 @@
+# Recorded output of one cairn command against the fixture corpus. Do not edit by hand:
+# CAIRN_BLESS=1 cargo test --test golden rewrites every file here.
+#
+# A diff in this file is a change in what the tool says. Read it before blessing it:
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine, and nothing
+# else in an answer is normalised.
+
+$ cairn status
+exit 0
+index      <db>
+files      16
+symbols    490
+occurrence 1580
+generated  2 files
+
+coverage   what each mechanism produced, against the tree it was built from
+           indexed -> verified -> verify stale -> verified. `indexed` is the pass
+           having run and matched the tree, which is counting; the rungs above
+           are judgements recorded by `cairn llm verify` and expire with the tree
+  entrypoints    indexed       4 entrypoints, 3 resolve to code, 1 idle
+  cross-api      indexed       2 gRPC services, 5 serve, 8 call links
+  go             indexed       217 symbols, ingested from SCIP with no tree walk to compare
+  python         indexed       273 symbols, ingested from SCIP with no tree walk to compare
+daemon     not running
+stale: NOT TRACKED - the file watcher is still starting, so edits made since the index was built are not visible yet. `cairn verify --repo <dir>` is the one-off check
+suppressed: none
+unknown: none
+

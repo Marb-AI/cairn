@@ -54,7 +54,7 @@ a week.
 
 ## Tests
 
-Three layers, and each exists because the one before it was not enough.
+Four layers, and each exists because the one before it was not enough.
 
 - **Unit tests** cover the pure functions: symbol parsing, command shapes, naming
   conventions.
@@ -64,6 +64,25 @@ Three layers, and each exists because the one before it was not enough.
   at: it walks the index at a fixed stride and runs every read command against each symbol
   it lands on, asserting only what must hold for *any* symbol — no panic, an exit code from
   the contract, an envelope on every answer, nothing over a time ceiling.
+- **The golden recordings** (`crates/cairn-cli/tests/golden.rs`) take the same walk and
+  record the bytes: stdout and the exit code of every read command, committed under
+  `tests/golden/`. The three layers above all assert something *about* an answer, so none
+  of them would notice a refactor that reworded a note, dropped a column or moved a line
+  while keeping every assertion true. A diff here is a change in what the tool says; read
+  it, then `CAIRN_BLESS=1 cargo test --test golden` to accept it.
+
+The recordings are made from the fixture corpus, because one that differed per machine
+could not be committed — and sixteen files is not where a refactor hides. The same walk
+runs against a real index, into a directory rather than against expectations:
+
+```
+scripts/golden-local.sh ~/work/backend /tmp/golden-before
+# rebuild with the change
+scripts/golden-local.sh ~/work/backend /tmp/golden-after
+diff -ru /tmp/golden-before /tmp/golden-after
+```
+
+Not part of CI and not a test — nothing there asserts anything, and the diff is the output.
 
 The last two need an index, and a fresh clone has none, so both fall back to a fixture
 corpus in `crates/cairn-cli/tests/fixtures/` — an invented Go and Python codebase shaped

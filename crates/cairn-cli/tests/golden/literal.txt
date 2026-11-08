@@ -1,0 +1,578 @@
+# Recorded output of one cairn command against the fixture corpus. Do not edit by hand:
+# CAIRN_BLESS=1 cargo test --test golden rewrites every file here.
+#
+# A diff in this file is a change in what the tool says. Read it before blessing it:
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine, and nothing
+# else in an answer is normalised.
+
+$ cairn literal telemetry --repo <repo>
+exit 0
+14 literals containing "telemetry", 0 inside a function   [L0, exact]
+  srcgo/cmd/collector/main.go:11  (module level)
+           8 | 	"fmt"
+           9 | 	"os"
+          10 | 
+      >   11 | 	"telemetry.example/srcgo/gen/telemetry"
+          12 | 	"telemetry.example/srcgo/internal/ingest"
+          13 | 	"telemetry.example/srcgo/internal/notify"
+          14 | 	"telemetry.example/srcgo/internal/station"
+  srcgo/cmd/collector/main.go:12  (module level)
+           9 | 	"os"
+          10 | 
+          11 | 	"telemetry.example/srcgo/gen/telemetry"
+      >   12 | 	"telemetry.example/srcgo/internal/ingest"
+          13 | 	"telemetry.example/srcgo/internal/notify"
+          14 | 	"telemetry.example/srcgo/internal/station"
+          15 | )
+  srcgo/cmd/collector/main.go:13  (module level)
+          10 | 
+          11 | 	"telemetry.example/srcgo/gen/telemetry"
+          12 | 	"telemetry.example/srcgo/internal/ingest"
+      >   13 | 	"telemetry.example/srcgo/internal/notify"
+          14 | 	"telemetry.example/srcgo/internal/station"
+          15 | )
+          16 | 
+  srcgo/cmd/collector/main.go:14  (module level)
+          11 | 	"telemetry.example/srcgo/gen/telemetry"
+          12 | 	"telemetry.example/srcgo/internal/ingest"
+          13 | 	"telemetry.example/srcgo/internal/notify"
+      >   14 | 	"telemetry.example/srcgo/internal/station"
+          15 | )
+          16 | 
+          17 | // loopbackConn stands in for a real connection so the module builds without a gRPC
+  srcgo/internal/ingest/screen.go:6  (module level)
+           3 | import (
+           4 | 	"fmt"
+           5 | 
+      >    6 | 	"telemetry.example/srcgo/gen/telemetry"
+           7 | 	"telemetry.example/srcgo/internal/station"
+           8 | )
+           9 | 
+  srcgo/internal/ingest/screen.go:7  (module level)
+           4 | 	"fmt"
+           5 | 
+           6 | 	"telemetry.example/srcgo/gen/telemetry"
+      >    7 | 	"telemetry.example/srcgo/internal/station"
+           8 | )
+           9 | 
+          10 | // Verdict is what screening decided about one reading.
+  srcgo/internal/ingest/service.go:9  (module level)
+           6 | 	"context"
+           7 | 	"fmt"
+           8 | 
+      >    9 | 	"telemetry.example/srcgo/gen/telemetry"
+          10 | 	"telemetry.example/srcgo/internal/notify"
+          11 | 	"telemetry.example/srcgo/internal/station"
+          12 | )
+  srcgo/internal/ingest/service.go:10  (module level)
+           7 | 	"fmt"
+           8 | 
+           9 | 	"telemetry.example/srcgo/gen/telemetry"
+      >   10 | 	"telemetry.example/srcgo/internal/notify"
+          11 | 	"telemetry.example/srcgo/internal/station"
+          12 | )
+          13 | 
+  srcgo/internal/ingest/service.go:11  (module level)
+           8 | 
+           9 | 	"telemetry.example/srcgo/gen/telemetry"
+          10 | 	"telemetry.example/srcgo/internal/notify"
+      >   11 | 	"telemetry.example/srcgo/internal/station"
+          12 | )
+          13 | 
+          14 | // maxBatch bounds one upload. A collector that has been offline for a week would
+  srcgo/internal/ingest/service_test.go:7  (module level)
+           4 | 	"context"
+           5 | 	"testing"
+           6 | 
+      >    7 | 	"telemetry.example/srcgo/gen/telemetry"
+           8 | 	"telemetry.example/srcgo/internal/notify"
+           9 | 	"telemetry.example/srcgo/internal/station"
+          10 | )
+  srcgo/internal/ingest/service_test.go:8  (module level)
+           5 | 	"testing"
+           6 | 
+           7 | 	"telemetry.example/srcgo/gen/telemetry"
+      >    8 | 	"telemetry.example/srcgo/internal/notify"
+           9 | 	"telemetry.example/srcgo/internal/station"
+          10 | )
+          11 | 
+  srcgo/internal/ingest/service_test.go:9  (module level)
+           6 | 
+           7 | 	"telemetry.example/srcgo/gen/telemetry"
+           8 | 	"telemetry.example/srcgo/internal/notify"
+      >    9 | 	"telemetry.example/srcgo/internal/station"
+          10 | )
+          11 | 
+          12 | // stubConn records what would have gone over the wire.
+  srcgo/internal/notify/alerter.go:10  (module level)
+           7 | 	"context"
+           8 | 	"sync"
+           9 | 
+      >   10 | 	"telemetry.example/srcgo/gen/telemetry"
+          11 | )
+          12 | 
+          13 | // Alerter sends alerts and remembers which stations are already alarming, so a station
+  srcpy/alerting/__init__.py:1  (module level)
+      >    1 | """Alerting side of the telemetry network."""
+           2 | 
+           3 | __all__ = ["dispatch", "models", "rules", "service", "worker"]
+suppressed: none
+unknown: string literals only, from the languages that are indexed. A name built at run time - concatenated, formatted, or read from config - is not a literal and is not here
+stale: none
+
+$ cairn literal severe --repo <repo>
+exit 0
+14 literals containing "severe", 10 inside a function   [L0, exact]
+  srcgo/internal/ingest/screen.go:42  in Screen.Judge [yz]
+          39 | 	}
+          40 | 	corrected := s.correct(r.Celsius, site)
+          41 | 	if corrected <= -25 {
+      >   42 | 		return Verdict{Alarming: true, Reason: "severe cold"}
+          43 | 	}
+          44 | 	if corrected >= 40 {
+          45 | 		return Verdict{Alarming: true, Reason: "severe heat"}
+  srcgo/internal/ingest/screen.go:45  in Screen.Judge [yz]
+          42 | 		return Verdict{Alarming: true, Reason: "severe cold"}
+          43 | 	}
+          44 | 	if corrected >= 40 {
+      >   45 | 		return Verdict{Alarming: true, Reason: "severe heat"}
+          46 | 	}
+          47 | 	return Verdict{}
+          48 | }
+  srcpy/alerting/rules.py:27  in Judgement.escalates [x5i]
+          24 | 
+          25 |     @property
+          26 |     def escalates(self) -> bool:
+      >   27 |         return self.severity in ("critical", "severe")
+          28 | 
+          29 | 
+          30 | def classify(celsius: float, humidity: float) -> Judgement:
+  srcpy/alerting/rules.py:35  in classify [cf]
+          32 |     if not plausible(celsius, humidity):
+          33 |         return Judgement(False, "info", "implausible reading, ignored")
+          34 |     if celsius <= SEVERE_COLD_C:
+      >   35 |         return Judgement(True, "critical", "severe cold")
+          36 |     if celsius >= SEVERE_HEAT_C:
+          37 |         return Judgement(True, "critical", "severe heat")
+          38 |     if celsius <= FROST_C and humidity >= 90:
+  srcpy/alerting/rules.py:37  in classify [cf]
+          34 |     if celsius <= SEVERE_COLD_C:
+          35 |         return Judgement(True, "critical", "severe cold")
+          36 |     if celsius >= SEVERE_HEAT_C:
+      >   37 |         return Judgement(True, "critical", "severe heat")
+          38 |     if celsius <= FROST_C and humidity >= 90:
+          39 |         return Judgement(True, "severe", "freezing fog likely")
+          40 |     if celsius <= FROST_C:
+  srcpy/alerting/rules.py:39  in classify [cf]
+          36 |     if celsius >= SEVERE_HEAT_C:
+          37 |         return Judgement(True, "critical", "severe heat")
+          38 |     if celsius <= FROST_C and humidity >= 90:
+      >   39 |         return Judgement(True, "severe", "freezing fog likely")
+          40 |     if celsius <= FROST_C:
+          41 |         return Judgement(True, "warning", "frost")
+          42 |     return Judgement(False, "info", "nominal")
+  srcpy/alerting/rules.py:75  in severity_rank [4y]
+          72 | 
+          73 | def severity_rank(severity: str) -> int:
+          74 |     """Order severities so two judgements can be compared."""
+      >   75 |     return {"info": 0, "warning": 1, "severe": 2, "critical": 3}.get(severity, 0)
+          76 | 
+          77 | 
+          78 | def worst(judgements: list[Judgement]) -> Judgement | None:
+  srcpy/tests/test_rules.py:52  in test_severity_rank_is_total [ju]
+          49 | 
+          50 | 
+          51 | def test_severity_rank_is_total() -> None:
+      >   52 |     ranks = [severity_rank(s) for s in ("info", "warning", "severe", "critical")]
+          53 |     assert ranks == sorted(ranks)
+          54 | 
+          55 | 
+  srcpy/tests/test_rules.py:58  in test_dispatch_reaches_a_registered_handler [2p9]
+          55 | 
+          56 | def test_dispatch_reaches_a_registered_handler() -> None:
+          57 |     store = AlertStore()
+      >   58 |     alert = store.open_alert("alp-01", "severe cold", -30.0)
+          59 |     assert "alp-01" in dispatch(alert, store)
+          60 | 
+          61 | 
+  srcpy/tests/test_rules.py:71  in test_every_reason_is_registered_once [g5t]
+          68 | def test_every_reason_is_registered_once() -> None:
+          69 |     reasons = registered_reasons()
+          70 |     assert len(reasons) == len(set(reasons))
+      >   71 |     assert "severe cold" in reasons
+          72 | 
+          73 | 
+          74 | def test_an_alert_closes_once() -> None:
+  srcpy/alerting/dispatch.py:40  (module level)
+          37 |     return sorted(_REGISTRY)
+          38 | 
+          39 | 
+      >   40 | @register("severe cold")
+          41 | def handle_severe_cold(alert: Alert, store: AlertStore) -> str:
+          42 |     state = store.state_for(alert.station_id)
+          43 |     if state.should_escalate():
+  srcpy/alerting/dispatch.py:48  (module level)
+          45 |     return f"watch: {alert.station_id} at {alert.celsius:.1f} C"
+          46 | 
+          47 | 
+      >   48 | @register("severe heat")
+          49 | def handle_severe_heat(alert: Alert, store: AlertStore) -> str:
+          50 |     state = store.state_for(alert.station_id)
+          51 |     if state.should_escalate(threshold=2):
+  srcpy/alerting/dispatch.py:83  (module level)
+          80 | # empty across a whole real repository for an unknown length of time while every answer
+          81 | # reported it as clean, and CI could not have noticed because the fixture gave it nothing
+          82 | # to find.
+      >   83 | PAGING_HANDLERS = ["handle_severe_cold", "handle_severe_heat"]
+          84 | 
+          85 | 
+          86 | def pages_a_human(handler_name: str) -> bool:
+  srcpy/alerting/dispatch.py:83  (module level)
+          80 | # empty across a whole real repository for an unknown length of time while every answer
+          81 | # reported it as clean, and CI could not have noticed because the fixture gave it nothing
+          82 | # to find.
+      >   83 | PAGING_HANDLERS = ["handle_severe_cold", "handle_severe_heat"]
+          84 | 
+          85 | 
+          86 | def pages_a_human(handler_name: str) -> bool:
+suppressed: none
+unknown: string literals only, from the languages that are indexed. A name built at run time - concatenated, formatted, or read from config - is not a literal and is not here
+stale: none
+
+$ cairn literal station_id --repo <repo>
+exit 0
+7 literals containing "station_id", 7 inside a function   [L0, exact]
+  srcpy/alerting/dispatch.py:44  in handle_severe_cold [p6]
+          41 | def handle_severe_cold(alert: Alert, store: AlertStore) -> str:
+          42 |     state = store.state_for(alert.station_id)
+          43 |     if state.should_escalate():
+      >   44 |         return f"escalate: {alert.station_id} has been freezing for {state.consecutive_alarming} readings"
+          45 |     return f"watch: {alert.station_id} at {alert.celsius:.1f} C"
+          46 | 
+          47 | 
+  srcpy/alerting/dispatch.py:45  in handle_severe_cold [p6]
+          42 |     state = store.state_for(alert.station_id)
+          43 |     if state.should_escalate():
+          44 |         return f"escalate: {alert.station_id} has been freezing for {state.consecutive_alarming} readings"
+      >   45 |     return f"watch: {alert.station_id} at {alert.celsius:.1f} C"
+          46 | 
+          47 | 
+          48 | @register("severe heat")
+  srcpy/alerting/dispatch.py:52  in handle_severe_heat [5uq]
+          49 | def handle_severe_heat(alert: Alert, store: AlertStore) -> str:
+          50 |     state = store.state_for(alert.station_id)
+          51 |     if state.should_escalate(threshold=2):
+      >   52 |         return f"escalate: {alert.station_id} is overheating"
+          53 |     return f"watch: {alert.station_id} at {alert.celsius:.1f} C"
+          54 | 
+          55 | 
+  srcpy/alerting/dispatch.py:53  in handle_severe_heat [5uq]
+          50 |     state = store.state_for(alert.station_id)
+          51 |     if state.should_escalate(threshold=2):
+          52 |         return f"escalate: {alert.station_id} is overheating"
+      >   53 |     return f"watch: {alert.station_id} at {alert.celsius:.1f} C"
+          54 | 
+          55 | 
+          56 | @register("frost")
+  srcpy/alerting/dispatch.py:58  in handle_frost [kp]
+          55 | 
+          56 | @register("frost")
+          57 | def handle_frost(alert: Alert, store: AlertStore) -> str:
+      >   58 |     return f"advise: frost at {alert.station_id}"
+          59 | 
+          60 | 
+          61 | @register("freezing fog likely")
+  srcpy/alerting/dispatch.py:63  in handle_freezing_fog [6b]
+          60 | 
+          61 | @register("freezing fog likely")
+          62 | def handle_freezing_fog(alert: Alert, store: AlertStore) -> str:
+      >   63 |     return f"advise: freezing fog at {alert.station_id}"
+          64 | 
+          65 | 
+          66 | def handle_unknown(alert: Alert, store: AlertStore) -> str:
+  srcpy/tests/test_rules.py:95  in test_alert_row_round_trips [3ij]
+          92 | def test_alert_row_round_trips() -> None:
+          93 |     alert = Alert(station_id="alp-01", reason="frost", celsius=-1.0)
+          94 |     row = alert.as_row()
+      >   95 |     assert row["station_id"] == "alp-01"
+suppressed: none
+unknown: string literals only, from the languages that are indexed. A name built at run time - concatenated, formatted, or read from config - is not a literal and is not here
+stale: none
+
+$ cairn literal server --repo <repo>
+exit 1
+0 literals containing "server", 0 inside a function   [L0, exact]
+  (no literal contains that. Only Python and Go are scanned, comments are skipped, and nothing outside a string is here - for those, grep)
+suppressed: none
+unknown: string literals only, from the languages that are indexed. A name built at run time - concatenated, formatted, or read from config - is not a literal and is not here
+stale: none
+
+$ cairn literal '' --repo <repo>
+exit 0
+30 literals containing "", 30 inside a function   [L0, exact]
+  srcgo/cmd/collector/main.go:39  in seedRegistry [3s]
+          36 | 
+          37 | func seedRegistry() *station.Registry {
+          38 | 	reg := station.NewRegistry(1024)
+      >   39 | 	_ = reg.Add(&station.Station{ID: "alp-01", Label: "Alp Ridge", Altitude: 1200, Tags: []string{"mountain"}})
+          40 | 	_ = reg.Add(&station.Station{ID: "dune-02", Label: "Dune Flat", Altitude: 12})
+          41 | 	_ = reg.Add(&station.Station{ID: "fjord-03", Label: "Fjord Head", Altitude: 340, Retired: true})
+          42 | 	return reg
+  srcgo/cmd/collector/main.go:39  in seedRegistry [3s]
+          36 | 
+          37 | func seedRegistry() *station.Registry {
+          38 | 	reg := station.NewRegistry(1024)
+      >   39 | 	_ = reg.Add(&station.Station{ID: "alp-01", Label: "Alp Ridge", Altitude: 1200, Tags: []string{"mountain"}})
+          40 | 	_ = reg.Add(&station.Station{ID: "dune-02", Label: "Dune Flat", Altitude: 12})
+          41 | 	_ = reg.Add(&station.Station{ID: "fjord-03", Label: "Fjord Head", Altitude: 340, Retired: true})
+          42 | 	return reg
+  srcgo/cmd/collector/main.go:39  in seedRegistry [3s]
+          36 | 
+          37 | func seedRegistry() *station.Registry {
+          38 | 	reg := station.NewRegistry(1024)
+      >   39 | 	_ = reg.Add(&station.Station{ID: "alp-01", Label: "Alp Ridge", Altitude: 1200, Tags: []string{"mountain"}})
+          40 | 	_ = reg.Add(&station.Station{ID: "dune-02", Label: "Dune Flat", Altitude: 12})
+          41 | 	_ = reg.Add(&station.Station{ID: "fjord-03", Label: "Fjord Head", Altitude: 340, Retired: true})
+          42 | 	return reg
+  srcgo/cmd/collector/main.go:40  in seedRegistry [3s]
+          37 | func seedRegistry() *station.Registry {
+          38 | 	reg := station.NewRegistry(1024)
+          39 | 	_ = reg.Add(&station.Station{ID: "alp-01", Label: "Alp Ridge", Altitude: 1200, Tags: []string{"mountain"}})
+      >   40 | 	_ = reg.Add(&station.Station{ID: "dune-02", Label: "Dune Flat", Altitude: 12})
+          41 | 	_ = reg.Add(&station.Station{ID: "fjord-03", Label: "Fjord Head", Altitude: 340, Retired: true})
+          42 | 	return reg
+          43 | }
+  srcgo/cmd/collector/main.go:40  in seedRegistry [3s]
+          37 | func seedRegistry() *station.Registry {
+          38 | 	reg := station.NewRegistry(1024)
+          39 | 	_ = reg.Add(&station.Station{ID: "alp-01", Label: "Alp Ridge", Altitude: 1200, Tags: []string{"mountain"}})
+      >   40 | 	_ = reg.Add(&station.Station{ID: "dune-02", Label: "Dune Flat", Altitude: 12})
+          41 | 	_ = reg.Add(&station.Station{ID: "fjord-03", Label: "Fjord Head", Altitude: 340, Retired: true})
+          42 | 	return reg
+          43 | }
+  srcgo/cmd/collector/main.go:41  in seedRegistry [3s]
+          38 | 	reg := station.NewRegistry(1024)
+          39 | 	_ = reg.Add(&station.Station{ID: "alp-01", Label: "Alp Ridge", Altitude: 1200, Tags: []string{"mountain"}})
+          40 | 	_ = reg.Add(&station.Station{ID: "dune-02", Label: "Dune Flat", Altitude: 12})
+      >   41 | 	_ = reg.Add(&station.Station{ID: "fjord-03", Label: "Fjord Head", Altitude: 340, Retired: true})
+          42 | 	return reg
+          43 | }
+          44 | 
+  srcgo/cmd/collector/main.go:41  in seedRegistry [3s]
+          38 | 	reg := station.NewRegistry(1024)
+          39 | 	_ = reg.Add(&station.Station{ID: "alp-01", Label: "Alp Ridge", Altitude: 1200, Tags: []string{"mountain"}})
+          40 | 	_ = reg.Add(&station.Station{ID: "dune-02", Label: "Dune Flat", Altitude: 12})
+      >   41 | 	_ = reg.Add(&station.Station{ID: "fjord-03", Label: "Fjord Head", Altitude: 340, Retired: true})
+          42 | 	return reg
+          43 | }
+          44 | 
+  srcgo/cmd/collector/main.go:54  in run [9t]
+          51 | 	telemetry.RegisterTelemetryServiceServer(srv, svc)
+          52 | 
+          53 | 	total, retired := reg.Counts()
+      >   54 | 	fmt.Printf("collector ready: %d stations, %d retired\n", total, retired)
+          55 | 	return nil
+          56 | }
+          57 | 
+  srcgo/cmd/collector/main.go:60  in main [nn]
+          57 | 
+          58 | func main() {
+          59 | 	if err := run(); err != nil {
+      >   60 | 		fmt.Fprintln(os.Stderr, "collector:", err)
+          61 | 		os.Exit(1)
+          62 | 	}
+          63 | }
+  srcgo/internal/ingest/screen.go:32  in Screen.Judge [yz]
+          29 | // Judge screens one reading against one station.
+          30 | func (s *Screen) Judge(r *telemetry.Reading, site *station.Station) Verdict {
+          31 | 	if r.Celsius < s.MinCelsius || r.Celsius > s.MaxCelsius {
+      >   32 | 		return Verdict{Reject: true, Reason: fmt.Sprintf("%.1f C is out of range", r.Celsius)}
+          33 | 	}
+          34 | 	if r.Humidity < 0 || r.Humidity > 100 {
+          35 | 		return Verdict{Reject: true, Reason: "humidity out of range"}
+  srcgo/internal/ingest/screen.go:35  in Screen.Judge [yz]
+          32 | 		return Verdict{Reject: true, Reason: fmt.Sprintf("%.1f C is out of range", r.Celsius)}
+          33 | 	}
+          34 | 	if r.Humidity < 0 || r.Humidity > 100 {
+      >   35 | 		return Verdict{Reject: true, Reason: "humidity out of range"}
+          36 | 	}
+          37 | 	if site.Retired {
+          38 | 		return Verdict{Reject: true, Reason: "station has retired"}
+  srcgo/internal/ingest/screen.go:38  in Screen.Judge [yz]
+          35 | 		return Verdict{Reject: true, Reason: "humidity out of range"}
+          36 | 	}
+          37 | 	if site.Retired {
+      >   38 | 		return Verdict{Reject: true, Reason: "station has retired"}
+          39 | 	}
+          40 | 	corrected := s.correct(r.Celsius, site)
+          41 | 	if corrected <= -25 {
+  srcgo/internal/ingest/screen.go:42  in Screen.Judge [yz]
+          39 | 	}
+          40 | 	corrected := s.correct(r.Celsius, site)
+          41 | 	if corrected <= -25 {
+      >   42 | 		return Verdict{Alarming: true, Reason: "severe cold"}
+          43 | 	}
+          44 | 	if corrected >= 40 {
+          45 | 		return Verdict{Alarming: true, Reason: "severe heat"}
+  srcgo/internal/ingest/screen.go:45  in Screen.Judge [yz]
+          42 | 		return Verdict{Alarming: true, Reason: "severe cold"}
+          43 | 	}
+          44 | 	if corrected >= 40 {
+      >   45 | 		return Verdict{Alarming: true, Reason: "severe heat"}
+          46 | 	}
+          47 | 	return Verdict{}
+          48 | }
+  srcgo/internal/ingest/service.go:40  in Service.UploadReadings [ez5]
+          37 | // UploadReadings is the hot path: one call per collector per interval.
+          38 | func (s *Service) UploadReadings(ctx context.Context, batch *telemetry.ReadingBatch) (*telemetry.IngestAck, error) {
+          39 | 	if batch == nil {
+      >   40 | 		return nil, fmt.Errorf("empty batch")
+          41 | 	}
+          42 | 	if len(batch.Readings) > maxBatch {
+          43 | 		return nil, fmt.Errorf("batch of %d exceeds the limit of %d", len(batch.Readings), maxBatch)
+  srcgo/internal/ingest/service.go:43  in Service.UploadReadings [ez5]
+          40 | 		return nil, fmt.Errorf("empty batch")
+          41 | 	}
+          42 | 	if len(batch.Readings) > maxBatch {
+      >   43 | 		return nil, fmt.Errorf("batch of %d exceeds the limit of %d", len(batch.Readings), maxBatch)
+          44 | 	}
+          45 | 	ack := &telemetry.IngestAck{}
+          46 | 	for _, r := range batch.Readings {
+  srcgo/internal/ingest/service_test.go:25  in newFixture [zb]
+          22 | func newFixture(t *testing.T) (*Service, *stubConn) {
+          23 | 	t.Helper()
+          24 | 	reg := station.NewRegistry(0)
+      >   25 | 	if err := reg.Add(&station.Station{ID: "alp-01", Label: "Alp Ridge", Altitude: 1200}); err != nil {
+          26 | 		t.Fatalf("seeding the registry: %v", err)
+          27 | 	}
+          28 | 	conn := &stubConn{}
+  srcgo/internal/ingest/service_test.go:25  in newFixture [zb]
+          22 | func newFixture(t *testing.T) (*Service, *stubConn) {
+          23 | 	t.Helper()
+          24 | 	reg := station.NewRegistry(0)
+      >   25 | 	if err := reg.Add(&station.Station{ID: "alp-01", Label: "Alp Ridge", Altitude: 1200}); err != nil {
+          26 | 		t.Fatalf("seeding the registry: %v", err)
+          27 | 	}
+          28 | 	conn := &stubConn{}
+  srcgo/internal/ingest/service_test.go:26  in newFixture [zb]
+          23 | 	t.Helper()
+          24 | 	reg := station.NewRegistry(0)
+          25 | 	if err := reg.Add(&station.Station{ID: "alp-01", Label: "Alp Ridge", Altitude: 1200}); err != nil {
+      >   26 | 		t.Fatalf("seeding the registry: %v", err)
+          27 | 	}
+          28 | 	conn := &stubConn{}
+          29 | 	return NewService(reg, notify.NewAlerter(conn), telemetry.NewAlertServiceClient(conn)), conn
+  srcgo/internal/ingest/service_test.go:35  in TestUploadAcceptsAPlainReading [kd]
+          32 | func TestUploadAcceptsAPlainReading(t *testing.T) {
+          33 | 	svc, _ := newFixture(t)
+          34 | 	ack, err := svc.UploadReadings(context.Background(), &telemetry.ReadingBatch{
+      >   35 | 		Readings: []*telemetry.Reading{{StationId: "alp-01", Celsius: 4, Humidity: 50}},
+          36 | 	})
+          37 | 	if err != nil {
+          38 | 		t.Fatalf("upload: %v", err)
+  srcgo/internal/ingest/service_test.go:38  in TestUploadAcceptsAPlainReading [kd]
+          35 | 		Readings: []*telemetry.Reading{{StationId: "alp-01", Celsius: 4, Humidity: 50}},
+          36 | 	})
+          37 | 	if err != nil {
+      >   38 | 		t.Fatalf("upload: %v", err)
+          39 | 	}
+          40 | 	if ack.Accepted != 1 || ack.Rejected != 0 {
+          41 | 		t.Errorf("want 1/0, got %d/%d", ack.Accepted, ack.Rejected)
+  srcgo/internal/ingest/service_test.go:41  in TestUploadAcceptsAPlainReading [kd]
+          38 | 		t.Fatalf("upload: %v", err)
+          39 | 	}
+          40 | 	if ack.Accepted != 1 || ack.Rejected != 0 {
+      >   41 | 		t.Errorf("want 1/0, got %d/%d", ack.Accepted, ack.Rejected)
+          42 | 	}
+          43 | }
+          44 | 
+  srcgo/internal/ingest/service_test.go:48  in TestUploadRejectsAFaultySensor [r3]
+          45 | func TestUploadRejectsAFaultySensor(t *testing.T) {
+          46 | 	svc, _ := newFixture(t)
+          47 | 	ack, _ := svc.UploadReadings(context.Background(), &telemetry.ReadingBatch{
+      >   48 | 		Readings: []*telemetry.Reading{{StationId: "alp-01", SensorFault: true}},
+          49 | 	})
+          50 | 	if ack.Rejected != 1 {
+          51 | 		t.Errorf("a faulty sensor must be rejected, got %d", ack.Rejected)
+  srcgo/internal/ingest/service_test.go:51  in TestUploadRejectsAFaultySensor [r3]
+          48 | 		Readings: []*telemetry.Reading{{StationId: "alp-01", SensorFault: true}},
+          49 | 	})
+          50 | 	if ack.Rejected != 1 {
+      >   51 | 		t.Errorf("a faulty sensor must be rejected, got %d", ack.Rejected)
+          52 | 	}
+          53 | }
+          54 | 
+  srcgo/internal/ingest/service_test.go:58  in TestUploadRejectsAnUnknownStation [v8]
+          55 | func TestUploadRejectsAnUnknownStation(t *testing.T) {
+          56 | 	svc, _ := newFixture(t)
+          57 | 	ack, _ := svc.UploadReadings(context.Background(), &telemetry.ReadingBatch{
+      >   58 | 		Readings: []*telemetry.Reading{{StationId: "nowhere", Celsius: 4}},
+          59 | 	})
+          60 | 	if ack.Rejected != 1 {
+          61 | 		t.Errorf("an unknown station must be rejected, got %d", ack.Rejected)
+  srcgo/internal/ingest/service_test.go:61  in TestUploadRejectsAnUnknownStation [v8]
+          58 | 		Readings: []*telemetry.Reading{{StationId: "nowhere", Celsius: 4}},
+          59 | 	})
+          60 | 	if ack.Rejected != 1 {
+      >   61 | 		t.Errorf("an unknown station must be rejected, got %d", ack.Rejected)
+          62 | 	}
+          63 | }
+          64 | 
+  srcgo/internal/ingest/service_test.go:68  in TestSevereColdCrossesTheBoundary [33]
+          65 | func TestSevereColdCrossesTheBoundary(t *testing.T) {
+          66 | 	svc, conn := newFixture(t)
+          67 | 	_, _ = svc.UploadReadings(context.Background(), &telemetry.ReadingBatch{
+      >   68 | 		Readings: []*telemetry.Reading{{StationId: "alp-01", Celsius: -40, Humidity: 30}},
+          69 | 	})
+          70 | 	if len(conn.calls) != 1 {
+          71 | 		t.Fatalf("want one alert call, got %v", conn.calls)
+  srcgo/internal/ingest/service_test.go:71  in TestSevereColdCrossesTheBoundary [33]
+          68 | 		Readings: []*telemetry.Reading{{StationId: "alp-01", Celsius: -40, Humidity: 30}},
+          69 | 	})
+          70 | 	if len(conn.calls) != 1 {
+      >   71 | 		t.Fatalf("want one alert call, got %v", conn.calls)
+          72 | 	}
+          73 | }
+          74 | 
+  srcgo/internal/ingest/service_test.go:79  in TestOversizedBatchIsRefused [v9]
+          76 | 	svc, _ := newFixture(t)
+          77 | 	batch := &telemetry.ReadingBatch{Readings: make([]*telemetry.Reading, maxBatch+1)}
+          78 | 	if _, err := svc.UploadReadings(context.Background(), batch); err == nil {
+      >   79 | 		t.Errorf("a batch over the limit must be refused")
+          80 | 	}
+          81 | }
+          82 | 
+  srcgo/internal/ingest/service_test.go:85  in TestDescribeStationReportsTheRegistry [q4]
+          82 | 
+          83 | func TestDescribeStationReportsTheRegistry(t *testing.T) {
+          84 | 	svc, _ := newFixture(t)
+      >   85 | 	info, err := svc.DescribeStation(context.Background(), &telemetry.StationQuery{StationId: "alp-01"})
+          86 | 	if err != nil {
+          87 | 		t.Fatalf("describe: %v", err)
+          88 | 	}
+suppressed: none
+unknown: string literals only, from the languages that are indexed. A name built at run time - concatenated, formatted, or read from config - is not a literal and is not here
+stale: none
+
+$ cairn literal Altitude --repo <repo>
+exit 0
+1 literals containing "Altitude", 1 inside a function   [L0, exact]
+  srcgo/internal/ingest/service_test.go:90  in TestDescribeStationReportsTheRegistry [q4]
+          87 | 		t.Fatalf("describe: %v", err)
+          88 | 	}
+          89 | 	if info.Altitude != 1200 {
+      >   90 | 		t.Errorf("got altitude %d", info.Altitude)
+          91 | 	}
+          92 | }
+suppressed: none
+unknown: string literals only, from the languages that are indexed. A name built at run time - concatenated, formatted, or read from config - is not a literal and is not here
+stale: none
+
+$ cairn literal GetRaised --repo <repo>
+exit 1
+0 literals containing "GetRaised", 0 inside a function   [L0, exact]
+  (no literal contains that. Only Python and Go are scanned, comments are skipped, and nothing outside a string is here - for those, grep)
+suppressed: none
+unknown: string literals only, from the languages that are indexed. A name built at run time - concatenated, formatted, or read from config - is not a literal and is not here
+stale: none
+

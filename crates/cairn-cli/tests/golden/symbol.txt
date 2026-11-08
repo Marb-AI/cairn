@@ -1,0 +1,92 @@
+# Recorded output of one cairn command against the fixture corpus. Do not edit by hand:
+# CAIRN_BLESS=1 cargo test --test golden rewrites every file here.
+#
+# A diff in this file is a change in what the tool says. Read it before blessing it:
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine, and nothing
+# else in an answer is normalised.
+
+$ cairn symbol Dispatcher
+exit 1
+0 matches for "Dispatcher"
+(nothing matched)
+suppressed: none
+unknown: nothing by that name. indexed: srcgo/ (go), srcpy/ (py) - if the code you mean lives elsewhere, it is not in this index and grep is the tool
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn symbol handle_severe_cold
+exit 0
+1 matches for "handle_severe_cold"
+ALL 1 matches ARE IN ONE FILE: srcpy/alerting/dispatch.py. Reading it is probably cheaper than further queries.
+[p6] handle_severe_cold                       fn     py  srcpy/alerting/dispatch.py:41-45
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn symbol Registry
+exit 0
+5 matches for "Registry"
+[vs] Registry                                 type   go  srcgo/internal/station/registry.go:39
+[ie8] _REGISTRY                                value  py  srcpy/alerting/dispatch.py:17
+[9te] NewRegistry                              fn     go  srcgo/internal/station/registry.go:47-49
+[3s] seedRegistry                             fn     go  srcgo/cmd/collector/main.go:37-43
+[q4] TestDescribeStationReportsTheRegistry    fn     go  srcgo/internal/ingest/service_test.go:83-92
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn symbol ingest
+exit 0
+3 matches for "ingest"
+[3z] IngestAck                                type   go  srcgo/gen/telemetry/telemetry.pb.go:29
+[d7g] IngestAck                                type   py  srcpy/schema/telemetry/__init__.py:29-31
+[aq] telemetry.example/srcgo/internal/ingest  module go  srcgo/internal/ingest/screen.go:1
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn symbol ThisSymbolDoesNotExistAnywhere
+exit 1
+0 matches for "ThisSymbolDoesNotExistAnywhere"
+(nothing matched)
+suppressed: none
+unknown: nothing by that name. indexed: srcgo/ (go), srcpy/ (py) - if the code you mean lives elsewhere, it is not in this index and grep is the tool
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn symbol server
+exit 0
+7 matches for "server"
+[ad] server                                   type   go  srcgo/cmd/collector/main.go:26
+[cx] Service.UnimplementedTelemetryServiceSe~ value  go  srcgo/internal/ingest/service.go:20
+[yh] TelemetryServiceServer                   type   go  srcgo/gen/telemetry/telemetry.pb.go:168
+[vu] RegisterTelemetryServiceServer           fn     go  srcgo/gen/telemetry/telemetry.pb.go:193-195
+[2i] UnimplementedTelemetryServiceServer      type   go  srcgo/gen/telemetry/telemetry.pb.go:175
+[5z] TelemetryServiceServer.mustEmbedUnimple~ value  go  srcgo/gen/telemetry/telemetry.pb.go:171
+[xt] UnimplementedTelemetryServiceServer.mus~ fn     go  srcgo/gen/telemetry/telemetry.pb.go:185
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn symbol ''
+exit 2
+
+
+$ cairn symbol Altitude
+exit 0
+4 matches for "Altitude"
+[wh] Station.Altitude                         value  go  srcgo/internal/station/registry.go:18
+[ri] StationInfo.Altitude                     value  go  srcgo/gen/telemetry/telemetry.pb.go:56
+[2g] StationInfo.altitude                     value  py  srcpy/schema/telemetry/__init__.py:56
+[8x] StationInfo.GetAltitude                  fn     go  srcgo/gen/telemetry/telemetry.pb.go:160-165
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn symbol GetRaised
+exit 0
+1 matches for "GetRaised"
+ALL 1 matches ARE IN ONE FILE: srcgo/gen/telemetry/telemetry.pb.go. Reading it is probably cheaper than further queries.
+[8d] AlertAck.GetRaised                       fn     go  srcgo/gen/telemetry/telemetry.pb.go:132-137
+suppressed: none
+unknown: every match is in generated code, which usually means the thing you meant is not indexed under this name. indexed: srcgo/ (go), srcpy/ (py)
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+

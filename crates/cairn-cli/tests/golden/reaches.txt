@@ -1,0 +1,448 @@
+# Recorded output of one cairn command against the fixture corpus. Do not edit by hand:
+# CAIRN_BLESS=1 cargo test --test golden rewrites every file here.
+#
+# A diff in this file is a change in what the tool says. Read it before blessing it:
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine, and nothing
+# else in an answer is normalised.
+
+$ cairn reaches ad
+exit 1
+[ad] server — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches ad --outgoing
+exit 1
+[ad] server — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches ne
+exit 1
+[ne]  — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches ne --outgoing
+exit 1
+[ne]  — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches wh
+exit 1
+[wh] Station.Altitude — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches wh --outgoing
+exit 1
+[wh] Station.Altitude — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches 8d
+exit 1
+[8d] AlertAck.GetRaised — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches 8d --outgoing
+exit 1
+[8d] AlertAck.GetRaised — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches dk
+exit 1
+[dk] AlertRequest.Celsius — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches dk --outgoing
+exit 1
+[dk] AlertRequest.Celsius — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches ph
+exit 1
+[ph] unimplementedError — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches ph --outgoing
+exit 1
+[ph] unimplementedError — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches 2ig
+exit 1
+[2ig] 2 — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches 2ig --outgoing
+exit 1
+[2ig] 2 — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches 7r
+exit 0
+[7r] Service.rejected — 3 callers across gRPC        [L1, convention]
+  answered for the enclosing type [cj] Service: a service binding names the handler, not each of its RPC methods
+  via: serves telemetry.TelemetryService
+  (reaches it, in the other language)
+  [qun] Worker                                   type   py  srcpy/alerting/worker.py:19-42  [telemetry.TelemetryService]
+  [ej] Worker.__init__                          fn     py  srcpy/alerting/worker.py:22-25  [telemetry.TelemetryService]
+  [yq] build_worker                             fn     py  srcpy/alerting/worker.py:45-46  [telemetry.TelemetryService]
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches 7r --outgoing
+exit 1
+[7r] Service.rejected — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches q4
+exit 1
+[q4] TestDescribeStationReportsTheRegistry — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches q4 --outgoing
+exit 1
+[q4] TestDescribeStationReportsTheRegistry — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches bj
+exit 1
+[bj] Mutex.Unlock — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches bj --outgoing
+exit 1
+[bj] Mutex.Unlock — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches pu
+exit 1
+[pu] ToLower — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches pu --outgoing
+exit 1
+[pu] ToLower — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches d7
+exit 1
+[d7] store — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches d7 --outgoing
+exit 1
+[d7] store — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches yha
+exit 1
+[yha] Alert — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches yha --outgoing
+exit 1
+[yha] Alert — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches 7y
+exit 1
+[7y] Field.name — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches 7y --outgoing
+exit 1
+[7y] Field.name — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches sp
+exit 1
+[sp] self — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches sp --outgoing
+exit 1
+[sp] self — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches zu
+exit 1
+[zu] AlertStore.__init__ — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches zu --outgoing
+exit 1
+[zu] AlertStore.__init__ — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches z7
+exit 1
+[z7] dict.items — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches z7 --outgoing
+exit 1
+[z7] dict.items — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches 4mg
+exit 1
+[4mg] celsius — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches 4mg --outgoing
+exit 1
+[4mg] celsius — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches c4
+exit 1
+[c4] key — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches c4 --outgoing
+exit 1
+[c4] key — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches t4
+exit 1
+[t4] __init__ — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches t4 --outgoing
+exit 1
+[t4] __init__ — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches fm
+exit 1
+[fm] station_id — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches fm --outgoing
+exit 0
+[fm] station_id — 4 targets across gRPC        [L1, convention]
+  answered for the enclosing type [qun] Worker: a service binding names the handler, not each of its RPC methods
+  via: calls telemetry.TelemetryService
+  (reached by it, in the other language)
+  [9t] run                                      fn     go  srcgo/cmd/collector/main.go:45-56  [telemetry.TelemetryService]
+  [2i] UnimplementedTelemetryServiceServer      type   go  srcgo/gen/telemetry/telemetry.pb.go:175  [telemetry.TelemetryService]
+  [xt] UnimplementedTelemetryServiceServer.mus~ fn     go  srcgo/gen/telemetry/telemetry.pb.go:185  [telemetry.TelemetryService]
+  [cj] Service                                  type   go  srcgo/internal/ingest/service.go:19  [telemetry.TelemetryService]
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches jz
+exit 1
+[jz] SystemExit — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches jz --outgoing
+exit 1
+[jz] SystemExit — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches 3jq
+exit 1
+[3jq] TelemetryServiceStub.__init__ — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches 3jq --outgoing
+exit 1
+[3jq] TelemetryServiceStub.__init__ — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches 2p9
+exit 1
+[2p9] test_dispatch_reaches_a_registered_handler — 0 callers across gRPC        [L1, convention]
+  (reaches it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+
+$ cairn reaches 2p9 --outgoing
+exit 1
+[2p9] test_dispatch_reaches_a_registered_handler — 0 targets across gRPC        [L1, convention]
+  (reached by it, in the other language)
+  (nothing on the other side of a service boundary)
+suppressed: none
+unknown: these edges come from the protobuf generator's naming convention, not from a compiler. They are exact where the convention holds, and blind to any service wired up by hand or reached over a transport other than the generated client.
+stale: none
+

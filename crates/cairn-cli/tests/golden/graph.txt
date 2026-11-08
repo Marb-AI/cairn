@@ -1,0 +1,1411 @@
+# Recorded output of one cairn command against the fixture corpus. Do not edit by hand:
+# CAIRN_BLESS=1 cargo test --test golden rewrites every file here.
+#
+# A diff in this file is a change in what the tool says. Read it before blessing it:
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine, and nothing
+# else in an answer is normalised.
+
+$ cairn graph ad --aspect callers
+exit 0
+callers of [ad] server   depth=2 fanout=8   [L1, exact]
+[ad] server                                   type   go  srcgo/cmd/collector/main.go:26
+  [e6] server.RegisterHandler                   fn     go  srcgo/cmd/collector/main.go:30-35  @ srcgo/cmd/collector/main.go:30
+  [9t] run                                      fn     go  srcgo/cmd/collector/main.go:45-56  @ srcgo/cmd/collector/main.go:50
+    [nn] main                                     fn     go  srcgo/cmd/collector/main.go:58-63  @ srcgo/cmd/collector/main.go:59
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph ad --aspect calls
+exit 1
+calls from [ad] server   depth=2 fanout=8   [L1, exact]
+[ad] server                                   type   go  srcgo/cmd/collector/main.go:26
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph ad --aspect impls
+exit 1
+implementations of [ad] server   depth=2 fanout=8   [L1, exact]
+[ad] server                                   type   go  srcgo/cmd/collector/main.go:26
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph ad --aspect tests
+exit 1
+tests reaching [ad] server                          [L1, exact]
+  (no test reaches this symbol through the call graph)
+suppressed: none
+unknown: no test reaches this through static calls; a test may still exercise it dynamically (fixtures, parametrisation, reflection)
+stale: none
+
+$ cairn graph ad --aspect callers --view list
+exit 0
+callers of [ad] server   depth=2 fanout=8   [L1, exact]
+[ad] server                                   type   go  srcgo/cmd/collector/main.go:26
+[e6] server.RegisterHandler                   fn     go  srcgo/cmd/collector/main.go:30-35
+[9t] run                                      fn     go  srcgo/cmd/collector/main.go:45-56
+[nn] main                                     fn     go  srcgo/cmd/collector/main.go:58-63
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph ad --aspect callers --exclude-tests
+exit 0
+callers of [ad] server   depth=2 fanout=8   [L1, exact]
+[ad] server                                   type   go  srcgo/cmd/collector/main.go:26
+  [e6] server.RegisterHandler                   fn     go  srcgo/cmd/collector/main.go:30-35  @ srcgo/cmd/collector/main.go:30
+  [9t] run                                      fn     go  srcgo/cmd/collector/main.go:45-56  @ srcgo/cmd/collector/main.go:50
+    [nn] main                                     fn     go  srcgo/cmd/collector/main.go:58-63  @ srcgo/cmd/collector/main.go:59
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph ne --aspect callers
+exit 1
+callers of [ne]    depth=2 fanout=8   [L1, exact]
+[ne]                                          local  go  <no definition indexed>
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph ne --aspect calls
+exit 1
+calls from [ne]    depth=2 fanout=8   [L1, exact]
+[ne]                                          local  go  <no definition indexed>
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph ne --aspect impls
+exit 1
+implementations of [ne]    depth=2 fanout=8   [L1, exact]
+[ne]                                          local  go  <no definition indexed>
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph ne --aspect tests
+exit 1
+tests reaching [ne]                           [L1, exact]
+  (no test reaches this symbol through the call graph)
+suppressed: none
+unknown: no test reaches this through static calls; a test may still exercise it dynamically (fixtures, parametrisation, reflection)
+stale: none
+
+$ cairn graph ne --aspect callers --view list
+exit 1
+callers of [ne]    depth=2 fanout=8   [L1, exact]
+[ne]                                          local  go  <no definition indexed>
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph ne --aspect callers --exclude-tests
+exit 1
+callers of [ne]    depth=2 fanout=8   [L1, exact]
+[ne]                                          local  go  <no definition indexed>
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph wh --aspect callers
+exit 0
+callers of [wh] Station.Altitude   depth=2 fanout=8   [L1, exact]
+[wh] Station.Altitude                         value  go  srcgo/internal/station/registry.go:18
+  [3s] seedRegistry                             fn     go  srcgo/cmd/collector/main.go:37-43  @ srcgo/cmd/collector/main.go:41
+  [2w] Screen.correct                           fn     go  srcgo/internal/ingest/screen.go:51-56  @ srcgo/internal/ingest/screen.go:55
+  [9b] Station.Elevated                         fn     go  srcgo/internal/station/registry.go:24-26  @ srcgo/internal/station/registry.go:25
+  [i8] Service.DescribeStation                  fn     go  srcgo/internal/ingest/service.go:59-70  @ srcgo/internal/ingest/service.go:67
+  [zb] newFixture                               fn     go  srcgo/internal/ingest/service_test.go:22-30  @ srcgo/internal/ingest/service_test.go:25
+  [u8] TestAddAndLookup                         fn     go  srcgo/internal/station/registry_test.go:5-17  @ srcgo/internal/station/registry_test.go:7
+    [9t] run                                      fn     go  srcgo/cmd/collector/main.go:45-56  @ srcgo/cmd/collector/main.go:46
+    [yz] Screen.Judge                             fn     go  srcgo/internal/ingest/screen.go:30-48  @ srcgo/internal/ingest/screen.go:40
+    [q4] TestDescribeStationReportsTheRegistry    fn     go  srcgo/internal/ingest/service_test.go:83-92  @ srcgo/internal/ingest/service_test.go:85
+    [v8] TestUploadRejectsAnUnknownStation        fn     go  srcgo/internal/ingest/service_test.go:55-63  @ srcgo/internal/ingest/service_test.go:56
+    [r3] TestUploadRejectsAFaultySensor           fn     go  srcgo/internal/ingest/service_test.go:45-53  @ srcgo/internal/ingest/service_test.go:46
+    [33] TestSevereColdCrossesTheBoundary         fn     go  srcgo/internal/ingest/service_test.go:65-73  @ srcgo/internal/ingest/service_test.go:66
+    [kd] TestUploadAcceptsAPlainReading           fn     go  srcgo/internal/ingest/service_test.go:32-43  @ srcgo/internal/ingest/service_test.go:33
+    [v9] TestOversizedBatchIsRefused              fn     go  srcgo/internal/ingest/service_test.go:75-81  @ srcgo/internal/ingest/service_test.go:76
+suppressed (2):
+  3 neighbours beyond --fanout
+  3 nodes reachable by more than one path, shown once
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph wh --aspect calls
+exit 1
+calls from [wh] Station.Altitude   depth=2 fanout=8   [L1, exact]
+[wh] Station.Altitude                         value  go  srcgo/internal/station/registry.go:18
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph wh --aspect impls
+exit 1
+implementations of [wh] Station.Altitude   depth=2 fanout=8   [L1, exact]
+[wh] Station.Altitude                         value  go  srcgo/internal/station/registry.go:18
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph wh --aspect tests
+exit 0
+tests reaching [wh] Station.Altitude                          [L1, exact]
+  [zb] newFixture                               fn     go  srcgo/internal/ingest/service_test.go:22-30
+  [u8] TestAddAndLookup                         fn     go  srcgo/internal/station/registry_test.go:5-17
+  [q4] TestDescribeStationReportsTheRegistry    fn     go  srcgo/internal/ingest/service_test.go:83-92
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn graph wh --aspect callers --view list
+exit 0
+callers of [wh] Station.Altitude   depth=2 fanout=8   [L1, exact]
+[wh] Station.Altitude                         value  go  srcgo/internal/station/registry.go:18
+[3s] seedRegistry                             fn     go  srcgo/cmd/collector/main.go:37-43
+[2w] Screen.correct                           fn     go  srcgo/internal/ingest/screen.go:51-56
+[9b] Station.Elevated                         fn     go  srcgo/internal/station/registry.go:24-26
+[i8] Service.DescribeStation                  fn     go  srcgo/internal/ingest/service.go:59-70
+[zb] newFixture                               fn     go  srcgo/internal/ingest/service_test.go:22-30
+[u8] TestAddAndLookup                         fn     go  srcgo/internal/station/registry_test.go:5-17
+[9t] run                                      fn     go  srcgo/cmd/collector/main.go:45-56
+[yz] Screen.Judge                             fn     go  srcgo/internal/ingest/screen.go:30-48
+[q4] TestDescribeStationReportsTheRegistry    fn     go  srcgo/internal/ingest/service_test.go:83-92
+[v8] TestUploadRejectsAnUnknownStation        fn     go  srcgo/internal/ingest/service_test.go:55-63
+[r3] TestUploadRejectsAFaultySensor           fn     go  srcgo/internal/ingest/service_test.go:45-53
+[33] TestSevereColdCrossesTheBoundary         fn     go  srcgo/internal/ingest/service_test.go:65-73
+[kd] TestUploadAcceptsAPlainReading           fn     go  srcgo/internal/ingest/service_test.go:32-43
+[v9] TestOversizedBatchIsRefused              fn     go  srcgo/internal/ingest/service_test.go:75-81
+suppressed (2):
+  3 neighbours beyond --fanout
+  3 nodes reachable by more than one path, shown once
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph wh --aspect callers --exclude-tests
+exit 0
+callers of [wh] Station.Altitude   depth=2 fanout=8   [L1, exact]
+[wh] Station.Altitude                         value  go  srcgo/internal/station/registry.go:18
+  [3s] seedRegistry                             fn     go  srcgo/cmd/collector/main.go:37-43  @ srcgo/cmd/collector/main.go:41
+  [2w] Screen.correct                           fn     go  srcgo/internal/ingest/screen.go:51-56  @ srcgo/internal/ingest/screen.go:55
+  [9b] Station.Elevated                         fn     go  srcgo/internal/station/registry.go:24-26  @ srcgo/internal/station/registry.go:25
+  [i8] Service.DescribeStation                  fn     go  srcgo/internal/ingest/service.go:59-70  @ srcgo/internal/ingest/service.go:67
+    [9t] run                                      fn     go  srcgo/cmd/collector/main.go:45-56  @ srcgo/cmd/collector/main.go:46
+    [yz] Screen.Judge                             fn     go  srcgo/internal/ingest/screen.go:30-48  @ srcgo/internal/ingest/screen.go:40
+suppressed (2):
+  1 neighbours beyond --fanout
+  1 nodes reachable by more than one path, shown once
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 8d --aspect callers
+exit 1
+callers of [8d] AlertAck.GetRaised   depth=2 fanout=8   [L1, exact]
+[8d] AlertAck.GetRaised                       fn     go  srcgo/gen/telemetry/telemetry.pb.go:132-137
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 8d --aspect calls
+exit 1
+calls from [8d] AlertAck.GetRaised   depth=2 fanout=8   [L1, exact]
+[8d] AlertAck.GetRaised                       fn     go  srcgo/gen/telemetry/telemetry.pb.go:132-137
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 8d --aspect impls
+exit 1
+implementations of [8d] AlertAck.GetRaised   depth=2 fanout=8   [L1, exact]
+[8d] AlertAck.GetRaised                       fn     go  srcgo/gen/telemetry/telemetry.pb.go:132-137
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 8d --aspect tests
+exit 1
+tests reaching [8d] AlertAck.GetRaised                          [L1, exact]
+  (no test reaches this symbol through the call graph)
+suppressed: none
+unknown: no test reaches this through static calls; a test may still exercise it dynamically (fixtures, parametrisation, reflection)
+stale: none
+
+$ cairn graph 8d --aspect callers --view list
+exit 1
+callers of [8d] AlertAck.GetRaised   depth=2 fanout=8   [L1, exact]
+[8d] AlertAck.GetRaised                       fn     go  srcgo/gen/telemetry/telemetry.pb.go:132-137
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 8d --aspect callers --exclude-tests
+exit 1
+callers of [8d] AlertAck.GetRaised   depth=2 fanout=8   [L1, exact]
+[8d] AlertAck.GetRaised                       fn     go  srcgo/gen/telemetry/telemetry.pb.go:132-137
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph dk --aspect callers
+exit 0
+callers of [dk] AlertRequest.Celsius   depth=2 fanout=8   [L1, exact]
+[dk] AlertRequest.Celsius                     value  go  srcgo/gen/telemetry/telemetry.pb.go:38
+  [q8] Alerter.Raise                            fn     go  srcgo/internal/notify/alerter.go:31-51  @ srcgo/internal/notify/alerter.go:44
+    [85] Service.accept                           fn     go  srcgo/internal/ingest/service.go:73-94  @ srcgo/internal/ingest/service.go:87
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph dk --aspect calls
+exit 1
+calls from [dk] AlertRequest.Celsius   depth=2 fanout=8   [L1, exact]
+[dk] AlertRequest.Celsius                     value  go  srcgo/gen/telemetry/telemetry.pb.go:38
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph dk --aspect impls
+exit 1
+implementations of [dk] AlertRequest.Celsius   depth=2 fanout=8   [L1, exact]
+[dk] AlertRequest.Celsius                     value  go  srcgo/gen/telemetry/telemetry.pb.go:38
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph dk --aspect tests
+exit 1
+tests reaching [dk] AlertRequest.Celsius                          [L1, exact]
+  (no test reaches this symbol through the call graph)
+suppressed: none
+unknown: no test reaches this through static calls; a test may still exercise it dynamically (fixtures, parametrisation, reflection)
+stale: none
+
+$ cairn graph dk --aspect callers --view list
+exit 0
+callers of [dk] AlertRequest.Celsius   depth=2 fanout=8   [L1, exact]
+[dk] AlertRequest.Celsius                     value  go  srcgo/gen/telemetry/telemetry.pb.go:38
+[q8] Alerter.Raise                            fn     go  srcgo/internal/notify/alerter.go:31-51
+[85] Service.accept                           fn     go  srcgo/internal/ingest/service.go:73-94
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph dk --aspect callers --exclude-tests
+exit 0
+callers of [dk] AlertRequest.Celsius   depth=2 fanout=8   [L1, exact]
+[dk] AlertRequest.Celsius                     value  go  srcgo/gen/telemetry/telemetry.pb.go:38
+  [q8] Alerter.Raise                            fn     go  srcgo/internal/notify/alerter.go:31-51  @ srcgo/internal/notify/alerter.go:44
+    [85] Service.accept                           fn     go  srcgo/internal/ingest/service.go:73-94  @ srcgo/internal/ingest/service.go:87
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph ph --aspect callers
+exit 0
+callers of [ph] unimplementedError   depth=2 fanout=8   [L1, exact]
+[ph] unimplementedError                       type   go  srcgo/gen/telemetry/telemetry.pb.go:233
+  [cv] errUnimplemented                         value  go  srcgo/gen/telemetry/telemetry.pb.go:237  @ srcgo/gen/telemetry/telemetry.pb.go:237
+  [a7] unimplementedError.Error                 fn     go  srcgo/gen/telemetry/telemetry.pb.go:235  @ srcgo/gen/telemetry/telemetry.pb.go:235
+    [uh] UnimplementedTelemetryServiceServer.Upl~ fn     go  srcgo/gen/telemetry/telemetry.pb.go:177-179  @ srcgo/gen/telemetry/telemetry.pb.go:178
+    [7t] UnimplementedTelemetryServiceServer.Des~ fn     go  srcgo/gen/telemetry/telemetry.pb.go:181-183  @ srcgo/gen/telemetry/telemetry.pb.go:182
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph ph --aspect calls
+exit 1
+calls from [ph] unimplementedError   depth=2 fanout=8   [L1, exact]
+[ph] unimplementedError                       type   go  srcgo/gen/telemetry/telemetry.pb.go:233
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph ph --aspect impls
+exit 1
+implementations of [ph] unimplementedError   depth=2 fanout=8   [L1, exact]
+[ph] unimplementedError                       type   go  srcgo/gen/telemetry/telemetry.pb.go:233
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph ph --aspect tests
+exit 1
+tests reaching [ph] unimplementedError                          [L1, exact]
+  (no test reaches this symbol through the call graph)
+suppressed: none
+unknown: no test reaches this through static calls; a test may still exercise it dynamically (fixtures, parametrisation, reflection)
+stale: none
+
+$ cairn graph ph --aspect callers --view list
+exit 0
+callers of [ph] unimplementedError   depth=2 fanout=8   [L1, exact]
+[ph] unimplementedError                       type   go  srcgo/gen/telemetry/telemetry.pb.go:233
+[cv] errUnimplemented                         value  go  srcgo/gen/telemetry/telemetry.pb.go:237
+[a7] unimplementedError.Error                 fn     go  srcgo/gen/telemetry/telemetry.pb.go:235
+[uh] UnimplementedTelemetryServiceServer.Upl~ fn     go  srcgo/gen/telemetry/telemetry.pb.go:177-179
+[7t] UnimplementedTelemetryServiceServer.Des~ fn     go  srcgo/gen/telemetry/telemetry.pb.go:181-183
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph ph --aspect callers --exclude-tests
+exit 0
+callers of [ph] unimplementedError   depth=2 fanout=8   [L1, exact]
+[ph] unimplementedError                       type   go  srcgo/gen/telemetry/telemetry.pb.go:233
+  [cv] errUnimplemented                         value  go  srcgo/gen/telemetry/telemetry.pb.go:237  @ srcgo/gen/telemetry/telemetry.pb.go:237
+  [a7] unimplementedError.Error                 fn     go  srcgo/gen/telemetry/telemetry.pb.go:235  @ srcgo/gen/telemetry/telemetry.pb.go:235
+    [uh] UnimplementedTelemetryServiceServer.Upl~ fn     go  srcgo/gen/telemetry/telemetry.pb.go:177-179  @ srcgo/gen/telemetry/telemetry.pb.go:178
+    [7t] UnimplementedTelemetryServiceServer.Des~ fn     go  srcgo/gen/telemetry/telemetry.pb.go:181-183  @ srcgo/gen/telemetry/telemetry.pb.go:182
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 2ig --aspect callers
+exit 1
+callers of [2ig] 2   depth=2 fanout=8   [L1, exact]
+[2ig] 2                                        local  go  <no definition indexed>
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 2ig --aspect calls
+exit 1
+calls from [2ig] 2   depth=2 fanout=8   [L1, exact]
+[2ig] 2                                        local  go  <no definition indexed>
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 2ig --aspect impls
+exit 1
+implementations of [2ig] 2   depth=2 fanout=8   [L1, exact]
+[2ig] 2                                        local  go  <no definition indexed>
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 2ig --aspect tests
+exit 1
+tests reaching [2ig] 2                          [L1, exact]
+  (no test reaches this symbol through the call graph)
+suppressed: none
+unknown: no test reaches this through static calls; a test may still exercise it dynamically (fixtures, parametrisation, reflection)
+stale: none
+
+$ cairn graph 2ig --aspect callers --view list
+exit 1
+callers of [2ig] 2   depth=2 fanout=8   [L1, exact]
+[2ig] 2                                        local  go  <no definition indexed>
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 2ig --aspect callers --exclude-tests
+exit 1
+callers of [2ig] 2   depth=2 fanout=8   [L1, exact]
+[2ig] 2                                        local  go  <no definition indexed>
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 7r --aspect callers
+exit 0
+callers of [7r] Service.rejected   depth=2 fanout=8   [L1, exact]
+[7r] Service.rejected                         value  go  srcgo/internal/ingest/service.go:29
+  [v7] Service.Totals                           fn     go  srcgo/internal/ingest/service.go:97-99  @ srcgo/internal/ingest/service.go:98
+  [ez5] Service.UploadReadings                   fn     go  srcgo/internal/ingest/service.go:38-56  @ srcgo/internal/ingest/service.go:54
+    [v8] TestUploadRejectsAnUnknownStation        fn     go  srcgo/internal/ingest/service_test.go:55-63  @ srcgo/internal/ingest/service_test.go:57
+    [r3] TestUploadRejectsAFaultySensor           fn     go  srcgo/internal/ingest/service_test.go:45-53  @ srcgo/internal/ingest/service_test.go:47
+    [33] TestSevereColdCrossesTheBoundary         fn     go  srcgo/internal/ingest/service_test.go:65-73  @ srcgo/internal/ingest/service_test.go:67
+    [kd] TestUploadAcceptsAPlainReading           fn     go  srcgo/internal/ingest/service_test.go:32-43  @ srcgo/internal/ingest/service_test.go:34
+    [v9] TestOversizedBatchIsRefused              fn     go  srcgo/internal/ingest/service_test.go:75-81  @ srcgo/internal/ingest/service_test.go:78
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 7r --aspect calls
+exit 1
+calls from [7r] Service.rejected   depth=2 fanout=8   [L1, exact]
+[7r] Service.rejected                         value  go  srcgo/internal/ingest/service.go:29
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 7r --aspect impls
+exit 1
+implementations of [7r] Service.rejected   depth=2 fanout=8   [L1, exact]
+[7r] Service.rejected                         value  go  srcgo/internal/ingest/service.go:29
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 7r --aspect tests
+exit 0
+tests reaching [7r] Service.rejected                          [L1, exact]
+  [kd] TestUploadAcceptsAPlainReading           fn     go  srcgo/internal/ingest/service_test.go:32-43
+  [r3] TestUploadRejectsAFaultySensor           fn     go  srcgo/internal/ingest/service_test.go:45-53
+  [v8] TestUploadRejectsAnUnknownStation        fn     go  srcgo/internal/ingest/service_test.go:55-63
+  [33] TestSevereColdCrossesTheBoundary         fn     go  srcgo/internal/ingest/service_test.go:65-73
+  [v9] TestOversizedBatchIsRefused              fn     go  srcgo/internal/ingest/service_test.go:75-81
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn graph 7r --aspect callers --view list
+exit 0
+callers of [7r] Service.rejected   depth=2 fanout=8   [L1, exact]
+[7r] Service.rejected                         value  go  srcgo/internal/ingest/service.go:29
+[v7] Service.Totals                           fn     go  srcgo/internal/ingest/service.go:97-99
+[ez5] Service.UploadReadings                   fn     go  srcgo/internal/ingest/service.go:38-56
+[v8] TestUploadRejectsAnUnknownStation        fn     go  srcgo/internal/ingest/service_test.go:55-63
+[r3] TestUploadRejectsAFaultySensor           fn     go  srcgo/internal/ingest/service_test.go:45-53
+[33] TestSevereColdCrossesTheBoundary         fn     go  srcgo/internal/ingest/service_test.go:65-73
+[kd] TestUploadAcceptsAPlainReading           fn     go  srcgo/internal/ingest/service_test.go:32-43
+[v9] TestOversizedBatchIsRefused              fn     go  srcgo/internal/ingest/service_test.go:75-81
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 7r --aspect callers --exclude-tests
+exit 0
+callers of [7r] Service.rejected   depth=2 fanout=8   [L1, exact]
+[7r] Service.rejected                         value  go  srcgo/internal/ingest/service.go:29
+  [v7] Service.Totals                           fn     go  srcgo/internal/ingest/service.go:97-99  @ srcgo/internal/ingest/service.go:98
+  [ez5] Service.UploadReadings                   fn     go  srcgo/internal/ingest/service.go:38-56  @ srcgo/internal/ingest/service.go:54
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph q4 --aspect callers
+exit 1
+callers of [q4] TestDescribeStationReportsTheRegistry   depth=2 fanout=8   [L1, exact]
+[q4] TestDescribeStationReportsTheRegistry    fn     go  srcgo/internal/ingest/service_test.go:83-92
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph q4 --aspect calls
+exit 0
+calls from [q4] TestDescribeStationReportsTheRegistry   depth=2 fanout=8   [L1, exact]
+[q4] TestDescribeStationReportsTheRegistry    fn     go  srcgo/internal/ingest/service_test.go:83-92
+  [i8] Service.DescribeStation                  fn     go  srcgo/internal/ingest/service.go:59-70  @ srcgo/internal/ingest/service_test.go:85
+  [zb] newFixture                               fn     go  srcgo/internal/ingest/service_test.go:22-30  @ srcgo/internal/ingest/service_test.go:84
+    [ma] Station.ID                               value  go  srcgo/internal/station/registry.go:16  @ srcgo/internal/ingest/service.go:65
+    [9r] Station.Label                            value  go  srcgo/internal/station/registry.go:17  @ srcgo/internal/ingest/service.go:66
+    [wh] Station.Altitude                         value  go  srcgo/internal/station/registry.go:18  @ srcgo/internal/ingest/service.go:67
+    [f7] Station.Retired                          value  go  srcgo/internal/station/registry.go:19  @ srcgo/internal/ingest/service.go:68
+    [cj] Service                                  type   go  srcgo/internal/ingest/service.go:19  @ srcgo/internal/ingest/service.go:59
+    [qz] Service.stations                         value  go  srcgo/internal/ingest/service.go:22  @ srcgo/internal/ingest/service.go:60
+    [2s] Registry.Lookup                          fn     go  srcgo/internal/station/registry.go:69-77  @ srcgo/internal/ingest/service.go:60
+    [fa] telemetry.example/srcgo/internal/notify  module go  srcgo/internal/notify/alerter.go:4  @ srcgo/internal/ingest/service_test.go:29
+    [np] telemetry.example/srcgo/internal/station module go  srcgo/internal/station/registry.go:2  @ srcgo/internal/ingest/service_test.go:25
+    [9te] NewRegistry                              fn     go  srcgo/internal/station/registry.go:47-49  @ srcgo/internal/ingest/service_test.go:24
+    [nph] Registry.Add                             fn     go  srcgo/internal/station/registry.go:52-66  @ srcgo/internal/ingest/service_test.go:25
+    [ms] Station                                  type   go  srcgo/internal/station/registry.go:15  @ srcgo/internal/ingest/service_test.go:25
+suppressed (2):
+  7 neighbours beyond --fanout
+  3 nodes reachable by more than one path, shown once
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph q4 --aspect impls
+exit 1
+implementations of [q4] TestDescribeStationReportsTheRegistry   depth=2 fanout=8   [L1, exact]
+[q4] TestDescribeStationReportsTheRegistry    fn     go  srcgo/internal/ingest/service_test.go:83-92
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph q4 --aspect tests
+exit 1
+tests reaching [q4] TestDescribeStationReportsTheRegistry                          [L1, exact]
+  (no test reaches this symbol through the call graph)
+suppressed: none
+unknown: no test reaches this through static calls; a test may still exercise it dynamically (fixtures, parametrisation, reflection)
+stale: none
+
+$ cairn graph q4 --aspect callers --view list
+exit 1
+callers of [q4] TestDescribeStationReportsTheRegistry   depth=2 fanout=8   [L1, exact]
+[q4] TestDescribeStationReportsTheRegistry    fn     go  srcgo/internal/ingest/service_test.go:83-92
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph q4 --aspect callers --exclude-tests
+exit 1
+callers of [q4] TestDescribeStationReportsTheRegistry   depth=2 fanout=8   [L1, exact]
+[q4] TestDescribeStationReportsTheRegistry    fn     go  srcgo/internal/ingest/service_test.go:83-92
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph bj --aspect callers
+exit 0
+callers of [bj] Mutex.Unlock   depth=2 fanout=8   [L1, exact]
+[bj] Mutex.Unlock                             fn     go  <no definition indexed>
+  [q8] Alerter.Raise                            fn     go  srcgo/internal/notify/alerter.go:31-51  @ srcgo/internal/notify/alerter.go:39
+  [r6] Alerter.Clear                            fn     go  srcgo/internal/notify/alerter.go:54-63  @ srcgo/internal/notify/alerter.go:58
+  [zf] Alerter.forget                           fn     go  srcgo/internal/notify/alerter.go:66-70  @ srcgo/internal/notify/alerter.go:69
+  [he] Alerter.Stats                            fn     go  srcgo/internal/notify/alerter.go:73-77  @ srcgo/internal/notify/alerter.go:75
+    [85] Service.accept                           fn     go  srcgo/internal/ingest/service.go:73-94  @ srcgo/internal/ingest/service.go:87
+suppressed (2):
+  1 neighbours beyond --fanout
+  1 nodes reachable by more than one path, shown once
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph bj --aspect calls
+exit 1
+calls from [bj] Mutex.Unlock   depth=2 fanout=8   [L1, exact]
+[bj] Mutex.Unlock                             fn     go  <no definition indexed>
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph bj --aspect impls
+exit 1
+implementations of [bj] Mutex.Unlock   depth=2 fanout=8   [L1, exact]
+[bj] Mutex.Unlock                             fn     go  <no definition indexed>
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph bj --aspect tests
+exit 1
+tests reaching [bj] Mutex.Unlock                          [L1, exact]
+  (no test reaches this symbol through the call graph)
+suppressed: none
+unknown: no test reaches this through static calls; a test may still exercise it dynamically (fixtures, parametrisation, reflection)
+stale: none
+
+$ cairn graph bj --aspect callers --view list
+exit 0
+callers of [bj] Mutex.Unlock   depth=2 fanout=8   [L1, exact]
+[bj] Mutex.Unlock                             fn     go  <no definition indexed>
+[q8] Alerter.Raise                            fn     go  srcgo/internal/notify/alerter.go:31-51
+[r6] Alerter.Clear                            fn     go  srcgo/internal/notify/alerter.go:54-63
+[zf] Alerter.forget                           fn     go  srcgo/internal/notify/alerter.go:66-70
+[he] Alerter.Stats                            fn     go  srcgo/internal/notify/alerter.go:73-77
+[85] Service.accept                           fn     go  srcgo/internal/ingest/service.go:73-94
+suppressed (2):
+  1 neighbours beyond --fanout
+  1 nodes reachable by more than one path, shown once
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph bj --aspect callers --exclude-tests
+exit 0
+callers of [bj] Mutex.Unlock   depth=2 fanout=8   [L1, exact]
+[bj] Mutex.Unlock                             fn     go  <no definition indexed>
+  [q8] Alerter.Raise                            fn     go  srcgo/internal/notify/alerter.go:31-51  @ srcgo/internal/notify/alerter.go:39
+  [r6] Alerter.Clear                            fn     go  srcgo/internal/notify/alerter.go:54-63  @ srcgo/internal/notify/alerter.go:58
+  [zf] Alerter.forget                           fn     go  srcgo/internal/notify/alerter.go:66-70  @ srcgo/internal/notify/alerter.go:69
+  [he] Alerter.Stats                            fn     go  srcgo/internal/notify/alerter.go:73-77  @ srcgo/internal/notify/alerter.go:75
+    [85] Service.accept                           fn     go  srcgo/internal/ingest/service.go:73-94  @ srcgo/internal/ingest/service.go:87
+suppressed (2):
+  1 neighbours beyond --fanout
+  1 nodes reachable by more than one path, shown once
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph pu --aspect callers
+exit 0
+callers of [pu] ToLower   depth=2 fanout=8   [L1, exact]
+[pu] ToLower                                  fn     go  <no definition indexed>
+  [5x] normaliseID                              fn     go  srcgo/internal/station/registry.go:116-118  @ srcgo/internal/station/registry.go:117
+    [bz] TestNormaliseID                          fn     go  srcgo/internal/station/registry_test.go:48-52  @ srcgo/internal/station/registry_test.go:49
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph pu --aspect calls
+exit 1
+calls from [pu] ToLower   depth=2 fanout=8   [L1, exact]
+[pu] ToLower                                  fn     go  <no definition indexed>
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph pu --aspect impls
+exit 1
+implementations of [pu] ToLower   depth=2 fanout=8   [L1, exact]
+[pu] ToLower                                  fn     go  <no definition indexed>
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph pu --aspect tests
+exit 0
+tests reaching [pu] ToLower                          [L1, exact]
+  [bz] TestNormaliseID                          fn     go  srcgo/internal/station/registry_test.go:48-52
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn graph pu --aspect callers --view list
+exit 0
+callers of [pu] ToLower   depth=2 fanout=8   [L1, exact]
+[pu] ToLower                                  fn     go  <no definition indexed>
+[5x] normaliseID                              fn     go  srcgo/internal/station/registry.go:116-118
+[bz] TestNormaliseID                          fn     go  srcgo/internal/station/registry_test.go:48-52
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph pu --aspect callers --exclude-tests
+exit 0
+callers of [pu] ToLower   depth=2 fanout=8   [L1, exact]
+[pu] ToLower                                  fn     go  <no definition indexed>
+  [5x] normaliseID                              fn     go  srcgo/internal/station/registry.go:116-118  @ srcgo/internal/station/registry.go:117
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph d7 --aspect callers
+exit 0
+callers of [d7] store   depth=2 fanout=8   [L1, exact]
+[d7] store                                    param  py  srcpy/alerting/dispatch.py:41
+  [p6] handle_severe_cold                       fn     py  srcpy/alerting/dispatch.py:41-45  @ srcpy/alerting/dispatch.py:42
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph d7 --aspect calls
+exit 1
+calls from [d7] store   depth=2 fanout=8   [L1, exact]
+[d7] store                                    param  py  srcpy/alerting/dispatch.py:41
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph d7 --aspect impls
+exit 1
+implementations of [d7] store   depth=2 fanout=8   [L1, exact]
+[d7] store                                    param  py  srcpy/alerting/dispatch.py:41
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph d7 --aspect tests
+exit 1
+tests reaching [d7] store                          [L1, exact]
+  (no test reaches this symbol through the call graph)
+suppressed: none
+unknown: no test reaches this through static calls; a test may still exercise it dynamically (fixtures, parametrisation, reflection)
+stale: none
+
+$ cairn graph d7 --aspect callers --view list
+exit 0
+callers of [d7] store   depth=2 fanout=8   [L1, exact]
+[d7] store                                    param  py  srcpy/alerting/dispatch.py:41
+[p6] handle_severe_cold                       fn     py  srcpy/alerting/dispatch.py:41-45
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph d7 --aspect callers --exclude-tests
+exit 0
+callers of [d7] store   depth=2 fanout=8   [L1, exact]
+[d7] store                                    param  py  srcpy/alerting/dispatch.py:41
+  [p6] handle_severe_cold                       fn     py  srcpy/alerting/dispatch.py:41-45  @ srcpy/alerting/dispatch.py:42
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph yha --aspect callers
+exit 0
+callers of [yha] Alert   depth=2 fanout=8   [L1, exact]
+[yha] Alert                                    type   py  srcpy/alerting/models.py:50-72
+  [k8m] Handler                                  value  py  srcpy/alerting/dispatch.py:15  @ srcpy/alerting/dispatch.py:15
+  [pf] dispatch                                 fn     py  srcpy/alerting/dispatch.py:30-33  @ srcpy/alerting/dispatch.py:30
+  [p6] handle_severe_cold                       fn     py  srcpy/alerting/dispatch.py:41-45  @ srcpy/alerting/dispatch.py:41
+  [5uq] handle_severe_heat                       fn     py  srcpy/alerting/dispatch.py:49-53  @ srcpy/alerting/dispatch.py:49
+  [kp] handle_frost                             fn     py  srcpy/alerting/dispatch.py:57-58  @ srcpy/alerting/dispatch.py:57
+  [6b] handle_freezing_fog                      fn     py  srcpy/alerting/dispatch.py:62-63  @ srcpy/alerting/dispatch.py:62
+  [ch] handle_unknown                           fn     py  srcpy/alerting/dispatch.py:66-68  @ srcpy/alerting/dispatch.py:66
+  [zu] AlertStore.__init__                      fn     py  srcpy/alerting/models.py:96-98  @ srcpy/alerting/models.py:97
+    [p3] register                                 fn     py  srcpy/alerting/dispatch.py:20-27  @ srcpy/alerting/dispatch.py:20
+    [v75] wrap                                     fn     py  srcpy/alerting/dispatch.py:23-25  @ srcpy/alerting/dispatch.py:23
+    [ie8] _REGISTRY                                value  py  srcpy/alerting/dispatch.py:17  @ srcpy/alerting/dispatch.py:17
+    [up] AlertService.raise_alert                 fn     py  srcpy/alerting/service.py:24-35  @ srcpy/alerting/service.py:33
+    [2p9] test_dispatch_reaches_a_registered_hand~ fn     py  srcpy/tests/test_rules.py:56-59  @ srcpy/tests/test_rules.py:59
+    [acb] test_dispatch_falls_back_for_an_unknown~ fn     py  srcpy/tests/test_rules.py:62-65  @ srcpy/tests/test_rules.py:65
+suppressed (2):
+  6 neighbours beyond --fanout
+  2 nodes reachable by more than one path, shown once
+unknown: 3 references sit outside any function body (imports, module-level use) and have no caller
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph yha --aspect calls
+exit 0
+calls from [yha] Alert   depth=2 fanout=8   [L1, exact]
+[yha] Alert                                    type   py  srcpy/alerting/models.py:50-72
+  [6w] Field                                    type   py  srcpy/alerting/models.py:15-31  @ srcpy/alerting/models.py:60
+  [rj] Record                                   type   py  srcpy/alerting/models.py:34-47  @ srcpy/alerting/models.py:50
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph yha --aspect impls
+exit 1
+implementations of [yha] Alert   depth=2 fanout=8   [L1, exact]
+[yha] Alert                                    type   py  srcpy/alerting/models.py:50-72
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph yha --aspect tests
+exit 0
+tests reaching [yha] Alert                          [L1, exact]
+  [3ij] test_alert_row_round_trips               fn     py  srcpy/tests/test_rules.py:92-95
+  [2p9] test_dispatch_reaches_a_registered_hand~ fn     py  srcpy/tests/test_rules.py:56-59
+  [acb] test_dispatch_falls_back_for_an_unknown~ fn     py  srcpy/tests/test_rules.py:62-65
+  [tp] test_an_alert_closes_once                fn     py  srcpy/tests/test_rules.py:74-80
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn graph yha --aspect callers --view list
+exit 0
+callers of [yha] Alert   depth=2 fanout=8   [L1, exact]
+[yha] Alert                                    type   py  srcpy/alerting/models.py:50-72
+[k8m] Handler                                  value  py  srcpy/alerting/dispatch.py:15
+[pf] dispatch                                 fn     py  srcpy/alerting/dispatch.py:30-33
+[p6] handle_severe_cold                       fn     py  srcpy/alerting/dispatch.py:41-45
+[5uq] handle_severe_heat                       fn     py  srcpy/alerting/dispatch.py:49-53
+[kp] handle_frost                             fn     py  srcpy/alerting/dispatch.py:57-58
+[6b] handle_freezing_fog                      fn     py  srcpy/alerting/dispatch.py:62-63
+[ch] handle_unknown                           fn     py  srcpy/alerting/dispatch.py:66-68
+[zu] AlertStore.__init__                      fn     py  srcpy/alerting/models.py:96-98
+[p3] register                                 fn     py  srcpy/alerting/dispatch.py:20-27
+[v75] wrap                                     fn     py  srcpy/alerting/dispatch.py:23-25
+[ie8] _REGISTRY                                value  py  srcpy/alerting/dispatch.py:17
+[up] AlertService.raise_alert                 fn     py  srcpy/alerting/service.py:24-35
+[2p9] test_dispatch_reaches_a_registered_hand~ fn     py  srcpy/tests/test_rules.py:56-59
+[acb] test_dispatch_falls_back_for_an_unknown~ fn     py  srcpy/tests/test_rules.py:62-65
+suppressed (2):
+  6 neighbours beyond --fanout
+  2 nodes reachable by more than one path, shown once
+unknown: 3 references sit outside any function body (imports, module-level use) and have no caller
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph yha --aspect callers --exclude-tests
+exit 0
+callers of [yha] Alert   depth=2 fanout=8   [L1, exact]
+[yha] Alert                                    type   py  srcpy/alerting/models.py:50-72
+  [k8m] Handler                                  value  py  srcpy/alerting/dispatch.py:15  @ srcpy/alerting/dispatch.py:15
+  [pf] dispatch                                 fn     py  srcpy/alerting/dispatch.py:30-33  @ srcpy/alerting/dispatch.py:30
+  [p6] handle_severe_cold                       fn     py  srcpy/alerting/dispatch.py:41-45  @ srcpy/alerting/dispatch.py:41
+  [5uq] handle_severe_heat                       fn     py  srcpy/alerting/dispatch.py:49-53  @ srcpy/alerting/dispatch.py:49
+  [kp] handle_frost                             fn     py  srcpy/alerting/dispatch.py:57-58  @ srcpy/alerting/dispatch.py:57
+  [6b] handle_freezing_fog                      fn     py  srcpy/alerting/dispatch.py:62-63  @ srcpy/alerting/dispatch.py:62
+  [ch] handle_unknown                           fn     py  srcpy/alerting/dispatch.py:66-68  @ srcpy/alerting/dispatch.py:66
+  [zu] AlertStore.__init__                      fn     py  srcpy/alerting/models.py:96-98  @ srcpy/alerting/models.py:97
+    [p3] register                                 fn     py  srcpy/alerting/dispatch.py:20-27  @ srcpy/alerting/dispatch.py:20
+    [v75] wrap                                     fn     py  srcpy/alerting/dispatch.py:23-25  @ srcpy/alerting/dispatch.py:23
+    [ie8] _REGISTRY                                value  py  srcpy/alerting/dispatch.py:17  @ srcpy/alerting/dispatch.py:17
+    [up] AlertService.raise_alert                 fn     py  srcpy/alerting/service.py:24-35  @ srcpy/alerting/service.py:33
+suppressed (2):
+  4 neighbours beyond --fanout
+  1 nodes reachable by more than one path, shown once
+unknown: 3 references sit outside any function body (imports, module-level use) and have no caller
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 7y --aspect callers
+exit 0
+callers of [7y] Field.name   depth=2 fanout=8   [L1, exact]
+[7y] Field.name                               value  py  srcpy/alerting/models.py:20
+  [3w] Field.__set_name__                       fn     py  srcpy/alerting/models.py:22-23  @ srcpy/alerting/models.py:23
+  [t3] Field.__get__                            fn     py  srcpy/alerting/models.py:25-28  @ srcpy/alerting/models.py:28
+  [2mp] Field.__set__                            fn     py  srcpy/alerting/models.py:30-31  @ srcpy/alerting/models.py:31
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 7y --aspect calls
+exit 1
+calls from [7y] Field.name   depth=2 fanout=8   [L1, exact]
+[7y] Field.name                               value  py  srcpy/alerting/models.py:20
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 7y --aspect impls
+exit 1
+implementations of [7y] Field.name   depth=2 fanout=8   [L1, exact]
+[7y] Field.name                               value  py  srcpy/alerting/models.py:20
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 7y --aspect tests
+exit 1
+tests reaching [7y] Field.name                          [L1, exact]
+  (no test reaches this symbol through the call graph)
+suppressed: none
+unknown: no test reaches this through static calls; a test may still exercise it dynamically (fixtures, parametrisation, reflection)
+stale: none
+
+$ cairn graph 7y --aspect callers --view list
+exit 0
+callers of [7y] Field.name   depth=2 fanout=8   [L1, exact]
+[7y] Field.name                               value  py  srcpy/alerting/models.py:20
+[3w] Field.__set_name__                       fn     py  srcpy/alerting/models.py:22-23
+[t3] Field.__get__                            fn     py  srcpy/alerting/models.py:25-28
+[2mp] Field.__set__                            fn     py  srcpy/alerting/models.py:30-31
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 7y --aspect callers --exclude-tests
+exit 0
+callers of [7y] Field.name   depth=2 fanout=8   [L1, exact]
+[7y] Field.name                               value  py  srcpy/alerting/models.py:20
+  [3w] Field.__set_name__                       fn     py  srcpy/alerting/models.py:22-23  @ srcpy/alerting/models.py:23
+  [t3] Field.__get__                            fn     py  srcpy/alerting/models.py:25-28  @ srcpy/alerting/models.py:28
+  [2mp] Field.__set__                            fn     py  srcpy/alerting/models.py:30-31  @ srcpy/alerting/models.py:31
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph sp --aspect callers
+exit 0
+callers of [sp] self   depth=2 fanout=8   [L1, exact]
+[sp] self                                     param  py  srcpy/alerting/models.py:46
+  [fj] Record.__repr__                          fn     py  srcpy/alerting/models.py:46-47  @ srcpy/alerting/models.py:47
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph sp --aspect calls
+exit 1
+calls from [sp] self   depth=2 fanout=8   [L1, exact]
+[sp] self                                     param  py  srcpy/alerting/models.py:46
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph sp --aspect impls
+exit 1
+implementations of [sp] self   depth=2 fanout=8   [L1, exact]
+[sp] self                                     param  py  srcpy/alerting/models.py:46
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph sp --aspect tests
+exit 1
+tests reaching [sp] self                          [L1, exact]
+  (no test reaches this symbol through the call graph)
+suppressed: none
+unknown: no test reaches this through static calls; a test may still exercise it dynamically (fixtures, parametrisation, reflection)
+stale: none
+
+$ cairn graph sp --aspect callers --view list
+exit 0
+callers of [sp] self   depth=2 fanout=8   [L1, exact]
+[sp] self                                     param  py  srcpy/alerting/models.py:46
+[fj] Record.__repr__                          fn     py  srcpy/alerting/models.py:46-47
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph sp --aspect callers --exclude-tests
+exit 0
+callers of [sp] self   depth=2 fanout=8   [L1, exact]
+[sp] self                                     param  py  srcpy/alerting/models.py:46
+  [fj] Record.__repr__                          fn     py  srcpy/alerting/models.py:46-47  @ srcpy/alerting/models.py:47
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph zu --aspect callers
+exit 1
+callers of [zu] AlertStore.__init__   depth=2 fanout=8   [L1, exact]
+[zu] AlertStore.__init__                      fn     py  srcpy/alerting/models.py:96-98
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph zu --aspect calls
+exit 0
+calls from [zu] AlertStore.__init__   depth=2 fanout=8   [L1, exact]
+[zu] AlertStore.__init__                      fn     py  srcpy/alerting/models.py:96-98
+  [yha] Alert                                    type   py  srcpy/alerting/models.py:50-72  @ srcpy/alerting/models.py:97
+  [pd] StationState                             type   py  srcpy/alerting/models.py:75-90  @ srcpy/alerting/models.py:98
+    [6w] Field                                    type   py  srcpy/alerting/models.py:15-31  @ srcpy/alerting/models.py:60
+    [rj] Record                                   type   py  srcpy/alerting/models.py:34-47  @ srcpy/alerting/models.py:50
+suppressed (2):
+  2 neighbours beyond --fanout
+  2 nodes reachable by more than one path, shown once
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph zu --aspect impls
+exit 1
+implementations of [zu] AlertStore.__init__   depth=2 fanout=8   [L1, exact]
+[zu] AlertStore.__init__                      fn     py  srcpy/alerting/models.py:96-98
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph zu --aspect tests
+exit 1
+tests reaching [zu] AlertStore.__init__                          [L1, exact]
+  (no test reaches this symbol through the call graph)
+suppressed: none
+unknown: no test reaches this through static calls; a test may still exercise it dynamically (fixtures, parametrisation, reflection)
+stale: none
+
+$ cairn graph zu --aspect callers --view list
+exit 1
+callers of [zu] AlertStore.__init__   depth=2 fanout=8   [L1, exact]
+[zu] AlertStore.__init__                      fn     py  srcpy/alerting/models.py:96-98
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph zu --aspect callers --exclude-tests
+exit 1
+callers of [zu] AlertStore.__init__   depth=2 fanout=8   [L1, exact]
+[zu] AlertStore.__init__                      fn     py  srcpy/alerting/models.py:96-98
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph z7 --aspect callers
+exit 0
+callers of [z7] dict.items   depth=2 fanout=8   [L1, exact]
+[z7] dict.items                               fn     py  <no definition indexed>
+  [kf] Record.__init__                          fn     py  srcpy/alerting/models.py:39-41  @ srcpy/alerting/models.py:40
+  [gjx] Record.as_row                            fn     py  srcpy/alerting/models.py:43-44  @ srcpy/alerting/models.py:44
+    [fj] Record.__repr__                          fn     py  srcpy/alerting/models.py:46-47  @ srcpy/alerting/models.py:47
+    [3ij] test_alert_row_round_trips               fn     py  srcpy/tests/test_rules.py:92-95  @ srcpy/tests/test_rules.py:94
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph z7 --aspect calls
+exit 1
+calls from [z7] dict.items   depth=2 fanout=8   [L1, exact]
+[z7] dict.items                               fn     py  <no definition indexed>
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph z7 --aspect impls
+exit 1
+implementations of [z7] dict.items   depth=2 fanout=8   [L1, exact]
+[z7] dict.items                               fn     py  <no definition indexed>
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph z7 --aspect tests
+exit 0
+tests reaching [z7] dict.items                          [L1, exact]
+  [3ij] test_alert_row_round_trips               fn     py  srcpy/tests/test_rules.py:92-95
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn graph z7 --aspect callers --view list
+exit 0
+callers of [z7] dict.items   depth=2 fanout=8   [L1, exact]
+[z7] dict.items                               fn     py  <no definition indexed>
+[kf] Record.__init__                          fn     py  srcpy/alerting/models.py:39-41
+[gjx] Record.as_row                            fn     py  srcpy/alerting/models.py:43-44
+[fj] Record.__repr__                          fn     py  srcpy/alerting/models.py:46-47
+[3ij] test_alert_row_round_trips               fn     py  srcpy/tests/test_rules.py:92-95
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph z7 --aspect callers --exclude-tests
+exit 0
+callers of [z7] dict.items   depth=2 fanout=8   [L1, exact]
+[z7] dict.items                               fn     py  <no definition indexed>
+  [kf] Record.__init__                          fn     py  srcpy/alerting/models.py:39-41  @ srcpy/alerting/models.py:40
+  [gjx] Record.as_row                            fn     py  srcpy/alerting/models.py:43-44  @ srcpy/alerting/models.py:44
+    [fj] Record.__repr__                          fn     py  srcpy/alerting/models.py:46-47  @ srcpy/alerting/models.py:47
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 4mg --aspect callers
+exit 0
+callers of [4mg] celsius   depth=2 fanout=8   [L1, exact]
+[4mg] celsius                                  param  py  srcpy/alerting/rules.py:30
+  [cf] classify                                 fn     py  srcpy/alerting/rules.py:30-42  @ srcpy/alerting/rules.py:40
+    [up] AlertService.raise_alert                 fn     py  srcpy/alerting/service.py:24-35  @ srcpy/alerting/service.py:25
+    [tnn] test_severe_cold_is_critical             fn     py  srcpy/tests/test_rules.py:14-18  @ srcpy/tests/test_rules.py:15
+    [3jh] test_nominal_is_not_alarming             fn     py  srcpy/tests/test_rules.py:21-22  @ srcpy/tests/test_rules.py:22
+    [yvq] test_freezing_fog_needs_both_conditions  fn     py  srcpy/tests/test_rules.py:25-27  @ srcpy/tests/test_rules.py:27
+    [bq] test_an_implausible_reading_is_ignored_~ fn     py  srcpy/tests/test_rules.py:30-33  @ srcpy/tests/test_rules.py:31
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 4mg --aspect calls
+exit 1
+calls from [4mg] celsius   depth=2 fanout=8   [L1, exact]
+[4mg] celsius                                  param  py  srcpy/alerting/rules.py:30
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 4mg --aspect impls
+exit 1
+implementations of [4mg] celsius   depth=2 fanout=8   [L1, exact]
+[4mg] celsius                                  param  py  srcpy/alerting/rules.py:30
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 4mg --aspect tests
+exit 0
+tests reaching [4mg] celsius                          [L1, exact]
+  [tnn] test_severe_cold_is_critical             fn     py  srcpy/tests/test_rules.py:14-18
+  [3jh] test_nominal_is_not_alarming             fn     py  srcpy/tests/test_rules.py:21-22
+  [yvq] test_freezing_fog_needs_both_conditions  fn     py  srcpy/tests/test_rules.py:25-27
+  [bq] test_an_implausible_reading_is_ignored_~ fn     py  srcpy/tests/test_rules.py:30-33
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn graph 4mg --aspect callers --view list
+exit 0
+callers of [4mg] celsius   depth=2 fanout=8   [L1, exact]
+[4mg] celsius                                  param  py  srcpy/alerting/rules.py:30
+[cf] classify                                 fn     py  srcpy/alerting/rules.py:30-42
+[up] AlertService.raise_alert                 fn     py  srcpy/alerting/service.py:24-35
+[tnn] test_severe_cold_is_critical             fn     py  srcpy/tests/test_rules.py:14-18
+[3jh] test_nominal_is_not_alarming             fn     py  srcpy/tests/test_rules.py:21-22
+[yvq] test_freezing_fog_needs_both_conditions  fn     py  srcpy/tests/test_rules.py:25-27
+[bq] test_an_implausible_reading_is_ignored_~ fn     py  srcpy/tests/test_rules.py:30-33
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 4mg --aspect callers --exclude-tests
+exit 0
+callers of [4mg] celsius   depth=2 fanout=8   [L1, exact]
+[4mg] celsius                                  param  py  srcpy/alerting/rules.py:30
+  [cf] classify                                 fn     py  srcpy/alerting/rules.py:30-42  @ srcpy/alerting/rules.py:40
+    [up] AlertService.raise_alert                 fn     py  srcpy/alerting/service.py:24-35  @ srcpy/alerting/service.py:25
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph c4 --aspect callers
+exit 0
+callers of [c4] key   depth=2 fanout=8   [L1, exact]
+[c4] key                                      param  py  <no definition indexed>
+  [gh] worst                                    fn     py  srcpy/alerting/rules.py:78-82  @ srcpy/alerting/rules.py:82
+    [36] test_worst_picks_the_highest_severity    fn     py  srcpy/tests/test_rules.py:41-44  @ srcpy/tests/test_rules.py:42
+    [4x] test_worst_of_nothing_is_none            fn     py  srcpy/tests/test_rules.py:47-48  @ srcpy/tests/test_rules.py:48
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph c4 --aspect calls
+exit 1
+calls from [c4] key   depth=2 fanout=8   [L1, exact]
+[c4] key                                      param  py  <no definition indexed>
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph c4 --aspect impls
+exit 1
+implementations of [c4] key   depth=2 fanout=8   [L1, exact]
+[c4] key                                      param  py  <no definition indexed>
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph c4 --aspect tests
+exit 0
+tests reaching [c4] key                          [L1, exact]
+  [36] test_worst_picks_the_highest_severity    fn     py  srcpy/tests/test_rules.py:41-44
+  [4x] test_worst_of_nothing_is_none            fn     py  srcpy/tests/test_rules.py:47-48
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn graph c4 --aspect callers --view list
+exit 0
+callers of [c4] key   depth=2 fanout=8   [L1, exact]
+[c4] key                                      param  py  <no definition indexed>
+[gh] worst                                    fn     py  srcpy/alerting/rules.py:78-82
+[36] test_worst_picks_the_highest_severity    fn     py  srcpy/tests/test_rules.py:41-44
+[4x] test_worst_of_nothing_is_none            fn     py  srcpy/tests/test_rules.py:47-48
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph c4 --aspect callers --exclude-tests
+exit 0
+callers of [c4] key   depth=2 fanout=8   [L1, exact]
+[c4] key                                      param  py  <no definition indexed>
+  [gh] worst                                    fn     py  srcpy/alerting/rules.py:78-82  @ srcpy/alerting/rules.py:82
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph t4 --aspect callers
+exit 1
+callers of [t4] __init__   depth=2 fanout=8   [L1, exact]
+[t4] __init__                                 ?      py  srcpy/schema/telemetry/__init__.py:1
+suppressed: none
+unknown: 2 references sit outside any function body (imports, module-level use) and have no caller
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph t4 --aspect calls
+exit 1
+calls from [t4] __init__   depth=2 fanout=8   [L1, exact]
+[t4] __init__                                 ?      py  srcpy/schema/telemetry/__init__.py:1
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph t4 --aspect impls
+exit 1
+implementations of [t4] __init__   depth=2 fanout=8   [L1, exact]
+[t4] __init__                                 ?      py  srcpy/schema/telemetry/__init__.py:1
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph t4 --aspect tests
+exit 1
+tests reaching [t4] __init__                          [L1, exact]
+  (no test reaches this symbol through the call graph)
+suppressed: none
+unknown: no test reaches this through static calls; a test may still exercise it dynamically (fixtures, parametrisation, reflection)
+stale: none
+
+$ cairn graph t4 --aspect callers --view list
+exit 1
+callers of [t4] __init__   depth=2 fanout=8   [L1, exact]
+[t4] __init__                                 ?      py  srcpy/schema/telemetry/__init__.py:1
+suppressed: none
+unknown: 2 references sit outside any function body (imports, module-level use) and have no caller
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph t4 --aspect callers --exclude-tests
+exit 1
+callers of [t4] __init__   depth=2 fanout=8   [L1, exact]
+[t4] __init__                                 ?      py  srcpy/schema/telemetry/__init__.py:1
+suppressed: none
+unknown: 2 references sit outside any function body (imports, module-level use) and have no caller
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph fm --aspect callers
+exit 0
+callers of [fm] station_id   depth=2 fanout=8   [L1, exact]
+[fm] station_id                               param  py  srcpy/alerting/worker.py:33
+  [gr3] Worker.feed                              fn     py  srcpy/alerting/worker.py:33-37  @ srcpy/alerting/worker.py:35
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph fm --aspect calls
+exit 1
+calls from [fm] station_id   depth=2 fanout=8   [L1, exact]
+[fm] station_id                               param  py  srcpy/alerting/worker.py:33
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph fm --aspect impls
+exit 1
+implementations of [fm] station_id   depth=2 fanout=8   [L1, exact]
+[fm] station_id                               param  py  srcpy/alerting/worker.py:33
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph fm --aspect tests
+exit 1
+tests reaching [fm] station_id                          [L1, exact]
+  (no test reaches this symbol through the call graph)
+suppressed: none
+unknown: no test reaches this through static calls; a test may still exercise it dynamically (fixtures, parametrisation, reflection)
+stale: none
+
+$ cairn graph fm --aspect callers --view list
+exit 0
+callers of [fm] station_id   depth=2 fanout=8   [L1, exact]
+[fm] station_id                               param  py  srcpy/alerting/worker.py:33
+[gr3] Worker.feed                              fn     py  srcpy/alerting/worker.py:33-37
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph fm --aspect callers --exclude-tests
+exit 0
+callers of [fm] station_id   depth=2 fanout=8   [L1, exact]
+[fm] station_id                               param  py  srcpy/alerting/worker.py:33
+  [gr3] Worker.feed                              fn     py  srcpy/alerting/worker.py:33-37  @ srcpy/alerting/worker.py:35
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph jz --aspect callers
+exit 1
+callers of [jz] SystemExit   depth=2 fanout=8   [L1, exact]
+[jz] SystemExit                               type   py  <no definition indexed>
+suppressed: none
+unknown: 1 references sit outside any function body (imports, module-level use) and have no caller
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph jz --aspect calls
+exit 1
+calls from [jz] SystemExit   depth=2 fanout=8   [L1, exact]
+[jz] SystemExit                               type   py  <no definition indexed>
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph jz --aspect impls
+exit 1
+implementations of [jz] SystemExit   depth=2 fanout=8   [L1, exact]
+[jz] SystemExit                               type   py  <no definition indexed>
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph jz --aspect tests
+exit 1
+tests reaching [jz] SystemExit                          [L1, exact]
+  (no test reaches this symbol through the call graph)
+suppressed: none
+unknown: no test reaches this through static calls; a test may still exercise it dynamically (fixtures, parametrisation, reflection)
+stale: none
+
+$ cairn graph jz --aspect callers --view list
+exit 1
+callers of [jz] SystemExit   depth=2 fanout=8   [L1, exact]
+[jz] SystemExit                               type   py  <no definition indexed>
+suppressed: none
+unknown: 1 references sit outside any function body (imports, module-level use) and have no caller
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph jz --aspect callers --exclude-tests
+exit 1
+callers of [jz] SystemExit   depth=2 fanout=8   [L1, exact]
+[jz] SystemExit                               type   py  <no definition indexed>
+suppressed: none
+unknown: 1 references sit outside any function body (imports, module-level use) and have no caller
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 3jq --aspect callers
+exit 1
+callers of [3jq] TelemetryServiceStub.__init__   depth=2 fanout=8   [L1, exact]
+[3jq] TelemetryServiceStub.__init__            fn     py  srcpy/schema/telemetry/__init__.py:73-74
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 3jq --aspect calls
+exit 1
+calls from [3jq] TelemetryServiceStub.__init__   depth=2 fanout=8   [L1, exact]
+[3jq] TelemetryServiceStub.__init__            fn     py  srcpy/schema/telemetry/__init__.py:73-74
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 3jq --aspect impls
+exit 1
+implementations of [3jq] TelemetryServiceStub.__init__   depth=2 fanout=8   [L1, exact]
+[3jq] TelemetryServiceStub.__init__            fn     py  srcpy/schema/telemetry/__init__.py:73-74
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 3jq --aspect tests
+exit 1
+tests reaching [3jq] TelemetryServiceStub.__init__                          [L1, exact]
+  (no test reaches this symbol through the call graph)
+suppressed: none
+unknown: no test reaches this through static calls; a test may still exercise it dynamically (fixtures, parametrisation, reflection)
+stale: none
+
+$ cairn graph 3jq --aspect callers --view list
+exit 1
+callers of [3jq] TelemetryServiceStub.__init__   depth=2 fanout=8   [L1, exact]
+[3jq] TelemetryServiceStub.__init__            fn     py  srcpy/schema/telemetry/__init__.py:73-74
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 3jq --aspect callers --exclude-tests
+exit 1
+callers of [3jq] TelemetryServiceStub.__init__   depth=2 fanout=8   [L1, exact]
+[3jq] TelemetryServiceStub.__init__            fn     py  srcpy/schema/telemetry/__init__.py:73-74
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 2p9 --aspect callers
+exit 1
+callers of [2p9] test_dispatch_reaches_a_registered_handler   depth=2 fanout=8   [L1, exact]
+[2p9] test_dispatch_reaches_a_registered_hand~ fn     py  srcpy/tests/test_rules.py:56-59
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 2p9 --aspect calls
+exit 0
+calls from [2p9] test_dispatch_reaches_a_registered_handler   depth=2 fanout=8   [L1, exact]
+[2p9] test_dispatch_reaches_a_registered_hand~ fn     py  srcpy/tests/test_rules.py:56-59
+  [pf] dispatch                                 fn     py  srcpy/alerting/dispatch.py:30-33  @ srcpy/tests/test_rules.py:59
+  [3j] AlertStore                               type   py  srcpy/alerting/models.py:93-125  @ srcpy/tests/test_rules.py:57
+  [xs] AlertStore.open_alert                    fn     py  srcpy/alerting/models.py:100-108  @ srcpy/tests/test_rules.py:58
+    [ch] handle_unknown                           fn     py  srcpy/alerting/dispatch.py:66-68  @ srcpy/alerting/dispatch.py:32
+    [yha] Alert                                    type   py  srcpy/alerting/models.py:50-72  @ srcpy/alerting/dispatch.py:30
+    [ie8] _REGISTRY                                value  py  srcpy/alerting/dispatch.py:17  @ srcpy/alerting/dispatch.py:32
+    [vsd] Alert.reason                             value  py  srcpy/alerting/models.py:56  @ srcpy/alerting/dispatch.py:32
+    [cv4] AlertStore._alerts                       value  py  srcpy/alerting/models.py:97  @ srcpy/alerting/models.py:107
+suppressed (2):
+  2 neighbours beyond --fanout
+  2 nodes reachable by more than one path, shown once
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 2p9 --aspect impls
+exit 1
+implementations of [2p9] test_dispatch_reaches_a_registered_handler   depth=2 fanout=8   [L1, exact]
+[2p9] test_dispatch_reaches_a_registered_hand~ fn     py  srcpy/tests/test_rules.py:56-59
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 2p9 --aspect tests
+exit 1
+tests reaching [2p9] test_dispatch_reaches_a_registered_handler                          [L1, exact]
+  (no test reaches this symbol through the call graph)
+suppressed: none
+unknown: no test reaches this through static calls; a test may still exercise it dynamically (fixtures, parametrisation, reflection)
+stale: none
+
+$ cairn graph 2p9 --aspect callers --view list
+exit 1
+callers of [2p9] test_dispatch_reaches_a_registered_handler   depth=2 fanout=8   [L1, exact]
+[2p9] test_dispatch_reaches_a_registered_hand~ fn     py  srcpy/tests/test_rules.py:56-59
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn graph 2p9 --aspect callers --exclude-tests
+exit 1
+callers of [2p9] test_dispatch_reaches_a_registered_handler   depth=2 fanout=8   [L1, exact]
+[2p9] test_dispatch_reaches_a_registered_hand~ fn     py  srcpy/tests/test_rules.py:56-59
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+

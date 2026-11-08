@@ -1,0 +1,199 @@
+# Recorded output of one cairn command against the fixture corpus. Do not edit by hand:
+# CAIRN_BLESS=1 cargo test --test golden rewrites every file here.
+#
+# A diff in this file is a change in what the tool says. Read it before blessing it:
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine, and nothing
+# else in an answer is normalised.
+
+$ cairn weaklinks ad
+exit 1
+string literals naming [ad] server          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks ne
+exit 1
+string literals naming [ne]           [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks wh
+exit 1
+string literals naming [wh] Station.Altitude          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks 8d
+exit 1
+string literals naming [8d] AlertAck.GetRaised          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks dk
+exit 1
+string literals naming [dk] AlertRequest.Celsius          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks ph
+exit 1
+string literals naming [ph] unimplementedError          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks 2ig
+exit 1
+string literals naming [2ig] 2          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks 7r
+exit 1
+string literals naming [7r] Service.rejected          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks q4
+exit 1
+string literals naming [q4] TestDescribeStationReportsTheRegistry          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks bj
+exit 1
+string literals naming [bj] Mutex.Unlock          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks pu
+exit 1
+string literals naming [pu] ToLower          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks d7
+exit 1
+string literals naming [d7] store          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks yha
+exit 1
+string literals naming [yha] Alert          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks 7y
+exit 1
+string literals naming [7y] Field.name          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks sp
+exit 1
+string literals naming [sp] self          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks zu
+exit 1
+string literals naming [zu] AlertStore.__init__          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks z7
+exit 1
+string literals naming [z7] dict.items          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks 4mg
+exit 1
+string literals naming [4mg] celsius          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks c4
+exit 1
+string literals naming [c4] key          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks t4
+exit 1
+string literals naming [t4] __init__          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks fm
+exit 1
+string literals naming [fm] station_id          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks jz
+exit 1
+string literals naming [jz] SystemExit          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks 3jq
+exit 1
+string literals naming [3jq] TelemetryServiceStub.__init__          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn weaklinks 2p9
+exit 1
+string literals naming [2p9] test_dispatch_reaches_a_registered_handler          [L1-W, unverified]
+  (no literal in the repo spells this name)
+suppressed: none
+unknown: none
+stale: none
+

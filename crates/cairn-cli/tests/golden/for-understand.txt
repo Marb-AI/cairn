@@ -1,0 +1,240 @@
+# Recorded output of one cairn command against the fixture corpus. Do not edit by hand:
+# CAIRN_BLESS=1 cargo test --test golden rewrites every file here.
+#
+# A diff in this file is a change in what the tool says. Read it before blessing it:
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine, and nothing
+# else in an answer is normalised.
+
+$ cairn for understand ad --repo <repo>
+exit 1
+[ad] server calls nothing across a service boundary  (from `cairn reaches ad --outgoing`)
+calls nothing this index can follow in its own language  (from `cairn graph ad --aspect calls`)
+runs in: telemetry-collector  (from `cairn runs ad`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand ne --repo <repo>
+exit 1
+[ne]  calls nothing across a service boundary  (from `cairn reaches ne --outgoing`)
+calls nothing this index can follow in its own language  (from `cairn graph ne --aspect calls`)
+no deployed service is known to run this  (from `cairn runs ne`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand wh --repo <repo>
+exit 1
+[wh] Station.Altitude calls nothing across a service boundary  (from `cairn reaches wh --outgoing`)
+calls nothing this index can follow in its own language  (from `cairn graph wh --aspect calls`)
+runs in: telemetry-collector  (from `cairn runs wh`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand 8d --repo <repo>
+exit 1
+[8d] AlertAck.GetRaised calls nothing across a service boundary  (from `cairn reaches 8d --outgoing`)
+calls nothing this index can follow in its own language  (from `cairn graph 8d --aspect calls`)
+runs in: telemetry-collector  (from `cairn runs 8d`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand dk --repo <repo>
+exit 1
+[dk] AlertRequest.Celsius calls nothing across a service boundary  (from `cairn reaches dk --outgoing`)
+calls nothing this index can follow in its own language  (from `cairn graph dk --aspect calls`)
+runs in: telemetry-collector  (from `cairn runs dk`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand ph --repo <repo>
+exit 1
+[ph] unimplementedError calls nothing across a service boundary  (from `cairn reaches ph --outgoing`)
+calls nothing this index can follow in its own language  (from `cairn graph ph --aspect calls`)
+runs in: telemetry-collector  (from `cairn runs ph`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand 2ig --repo <repo>
+exit 1
+[2ig] 2 calls nothing across a service boundary  (from `cairn reaches 2ig --outgoing`)
+calls nothing this index can follow in its own language  (from `cairn graph 2ig --aspect calls`)
+no deployed service is known to run this  (from `cairn runs 2ig`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand 7r --repo <repo>
+exit 1
+[7r] Service.rejected calls nothing across a service boundary  (from `cairn reaches 7r --outgoing`)
+calls nothing this index can follow in its own language  (from `cairn graph 7r --aspect calls`)
+runs in: telemetry-collector  (from `cairn runs 7r`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand q4 --repo <repo>
+exit 0
+[q4] TestDescribeStationReportsTheRegistry calls nothing across a service boundary  (from `cairn reaches q4 --outgoing`)
+calls, in its own language:
+  [i8] Service.DescribeStation  srcgo/internal/ingest/service.go:59
+  [zb] newFixture  srcgo/internal/ingest/service_test.go:22
+  (from `cairn graph q4 --aspect calls`)
+
+no deployed service is known to run this  (from `cairn runs q4`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand bj --repo <repo>
+exit 1
+[bj] Mutex.Unlock calls nothing across a service boundary  (from `cairn reaches bj --outgoing`)
+calls nothing this index can follow in its own language  (from `cairn graph bj --aspect calls`)
+runs in: telemetry-collector  (from `cairn runs bj`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand pu --repo <repo>
+exit 1
+[pu] ToLower calls nothing across a service boundary  (from `cairn reaches pu --outgoing`)
+calls nothing this index can follow in its own language  (from `cairn graph pu --aspect calls`)
+no deployed service is known to run this  (from `cairn runs pu`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand d7 --repo <repo>
+exit 1
+[d7] store calls nothing across a service boundary  (from `cairn reaches d7 --outgoing`)
+calls nothing this index can follow in its own language  (from `cairn graph d7 --aspect calls`)
+runs in: alert-worker (cron 30 3 * * *: python3 -m alerting.dispatch)  (from `cairn runs d7`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand yha --repo <repo>
+exit 0
+[yha] Alert calls nothing across a service boundary  (from `cairn reaches yha --outgoing`)
+calls, in its own language:
+  [6w] Field  srcpy/alerting/models.py:15
+  [rj] Record  srcpy/alerting/models.py:34
+  (from `cairn graph yha --aspect calls`)
+
+runs in: alert-worker, alert-worker (cron 30 3 * * *: python3 -m alerting.dispatch)  (from `cairn runs yha`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand 7y --repo <repo>
+exit 1
+[7y] Field.name calls nothing across a service boundary  (from `cairn reaches 7y --outgoing`)
+calls nothing this index can follow in its own language  (from `cairn graph 7y --aspect calls`)
+runs in: alert-worker, alert-worker (cron 30 3 * * *: python3 -m alerting.dispatch)  (from `cairn runs 7y`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand sp --repo <repo>
+exit 1
+[sp] self calls nothing across a service boundary  (from `cairn reaches sp --outgoing`)
+calls nothing this index can follow in its own language  (from `cairn graph sp --aspect calls`)
+runs in: alert-worker, alert-worker (cron 30 3 * * *: python3 -m alerting.dispatch)  (from `cairn runs sp`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand zu --repo <repo>
+exit 0
+[zu] AlertStore.__init__ calls nothing across a service boundary  (from `cairn reaches zu --outgoing`)
+calls, in its own language:
+  [yha] Alert  srcpy/alerting/models.py:50
+  [pd] StationState  srcpy/alerting/models.py:75
+  (from `cairn graph zu --aspect calls`)
+
+runs in: alert-worker, alert-worker (cron 30 3 * * *: python3 -m alerting.dispatch)  (from `cairn runs zu`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand z7 --repo <repo>
+exit 1
+[z7] dict.items calls nothing across a service boundary  (from `cairn reaches z7 --outgoing`)
+calls nothing this index can follow in its own language  (from `cairn graph z7 --aspect calls`)
+runs in: alert-worker, alert-worker (cron 30 3 * * *: python3 -m alerting.dispatch)  (from `cairn runs z7`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand 4mg --repo <repo>
+exit 1
+[4mg] celsius calls nothing across a service boundary  (from `cairn reaches 4mg --outgoing`)
+calls nothing this index can follow in its own language  (from `cairn graph 4mg --aspect calls`)
+runs in: alert-worker  (from `cairn runs 4mg`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand c4 --repo <repo>
+exit 1
+[c4] key calls nothing across a service boundary  (from `cairn reaches c4 --outgoing`)
+calls nothing this index can follow in its own language  (from `cairn graph c4 --aspect calls`)
+no deployed service is known to run this  (from `cairn runs c4`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand t4 --repo <repo>
+exit 1
+[t4] __init__ calls nothing across a service boundary  (from `cairn reaches t4 --outgoing`)
+calls nothing this index can follow in its own language  (from `cairn graph t4 --aspect calls`)
+runs in: alert-worker  (from `cairn runs t4`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand fm --repo <repo>
+exit 1
+[fm] station_id calls nothing across a service boundary  (from `cairn reaches fm --outgoing`)
+calls nothing this index can follow in its own language  (from `cairn graph fm --aspect calls`)
+runs in: alert-worker  (from `cairn runs fm`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand jz --repo <repo>
+exit 1
+[jz] SystemExit calls nothing across a service boundary  (from `cairn reaches jz --outgoing`)
+calls nothing this index can follow in its own language  (from `cairn graph jz --aspect calls`)
+runs in: alert-worker  (from `cairn runs jz`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand 3jq --repo <repo>
+exit 1
+[3jq] TelemetryServiceStub.__init__ calls nothing across a service boundary  (from `cairn reaches 3jq --outgoing`)
+calls nothing this index can follow in its own language  (from `cairn graph 3jq --aspect calls`)
+runs in: alert-worker  (from `cairn runs 3jq`)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn for understand 2p9 --repo <repo>
+exit 0
+[2p9] test_dispatch_reaches_a_registered_handler calls nothing across a service boundary  (from `cairn reaches 2p9 --outgoing`)
+calls, in its own language:
+  [pf] dispatch  srcpy/alerting/dispatch.py:30
+  [3j] AlertStore  srcpy/alerting/models.py:93
+  [xs] AlertStore.open_alert  srcpy/alerting/models.py:100
+  (from `cairn graph 2p9 --aspect calls`)
+
+no deployed service is known to run this  (from `cairn runs 2p9`)
+suppressed: none
+unknown: none
+stale: none
+

@@ -21,7 +21,7 @@
 use crate::{Store, SymbolRow};
 use anyhow::Result;
 use rusqlite::params;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// Where a seed came from. Ordered by how much it should be trusted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -95,7 +95,12 @@ const CONFIDENCE_FLOOR: f64 = 3.0;
 
 impl Store {
     pub fn context(&self, query: &str, limit: usize) -> Result<ContextResult> {
-        let mut scores: HashMap<i64, (f64, Vec<SeedSource>)> = HashMap::new();
+        // Keyed in symbol order rather than hash order. Two runs against the same index
+        // returned different seeds: the scores were identical and the tie was broken by
+        // whatever order `HashMap` happened to iterate in, which is randomised per
+        // process. An agent asking the same question twice got two answers, and nothing
+        // in either looked wrong. Found by the golden recordings on their first run.
+        let mut scores: BTreeMap<i64, (f64, Vec<SeedSource>)> = BTreeMap::new();
         let mut result = ContextResult::default();
 
         let mut add = |id: i64, src: SeedSource, boost: f64| {
@@ -210,6 +215,8 @@ impl Store {
             .into_iter()
             .map(|(id, (score, srcs))| (id, score, srcs))
             .collect();
+        // A stable sort over a map iterated in id order, so the full order is score
+        // descending and then symbol id - total, and the same on every run.
         ranked.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         let best = ranked.first().map(|r| r.1).unwrap_or(0.0);

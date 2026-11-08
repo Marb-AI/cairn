@@ -1,0 +1,170 @@
+# Recorded output of one cairn command against the fixture corpus. Do not edit by hand:
+# CAIRN_BLESS=1 cargo test --test golden rewrites every file here.
+#
+# A diff in this file is a change in what the tool says. Read it before blessing it:
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine, and nothing
+# else in an answer is normalised.
+
+$ cairn outline srcgo/internal/station
+exit 0
+srcgo/internal/station   16 of 16 definitions
+  13 prod      [ms] Station                                  type   go  srcgo/internal/station/registry.go:15
+  1 prod       [9b] Station.Elevated                         fn     go  srcgo/internal/station/registry.go:24-26
+  unused       [ey] Station.HasTag                           fn     go  srcgo/internal/station/registry.go:29-36
+  10 prod      [vs] Registry                                 type   go  srcgo/internal/station/registry.go:39
+  1 prod       [9te] NewRegistry                              fn     go  srcgo/internal/station/registry.go:47-49
+  3 prod       [nph] Registry.Add                             fn     go  srcgo/internal/station/registry.go:52-66
+  2 prod       [2s] Registry.Lookup                          fn     go  srcgo/internal/station/registry.go:69-77
+  1 test-only  [gc] Registry.Active                          fn     go  srcgo/internal/station/registry.go:80-91
+  2 test-only  [76] Registry.Retire                          fn     go  srcgo/internal/station/registry.go:94-106
+  1 prod       [it] Registry.Counts                          fn     go  srcgo/internal/station/registry.go:109-113
+  1 test-only  [5x] normaliseID                              fn     go  srcgo/internal/station/registry.go:116-118
+  unused       [u8] TestAddAndLookup                         fn     go  srcgo/internal/station/registry_test.go:5-17
+  unused       [py] TestLookupUnknownIsAnError               fn     go  srcgo/internal/station/registry_test.go:19-24
+  unused       [ru] TestRetireIsCountedOnce                  fn     go  srcgo/internal/station/registry_test.go:26-35
+  unused       [5m] TestActiveSkipsRetiredAndSorts           fn     go  srcgo/internal/station/registry_test.go:37-46
+  unused       [bz] TestNormaliseID                          fn     go  srcgo/internal/station/registry_test.go:48-52
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn outline srcpy/alerting
+exit 0
+srcpy/alerting   54 of 54 definitions
+  unused       [p3] register                                 fn     py  srcpy/alerting/dispatch.py:20-27
+  1 prod       [v75] wrap                                     fn     py  srcpy/alerting/dispatch.py:23-25
+  1 prod       [pf] dispatch                                 fn     py  srcpy/alerting/dispatch.py:30-33
+  1 test-only  [3d] registered_reasons                       fn     py  srcpy/alerting/dispatch.py:36-37
+  unused       [p6] handle_severe_cold                       fn     py  srcpy/alerting/dispatch.py:41-45
+  unused       [5uq] handle_severe_heat                       fn     py  srcpy/alerting/dispatch.py:49-53
+  unused       [kp] handle_frost                             fn     py  srcpy/alerting/dispatch.py:57-58
+  unused       [6b] handle_freezing_fog                      fn     py  srcpy/alerting/dispatch.py:62-63
+  1 prod       [ch] handle_unknown                           fn     py  srcpy/alerting/dispatch.py:66-68
+  unused       [83] pages_a_human                            fn     py  srcpy/alerting/dispatch.py:86-88
+  10 prod      [6w] Field                                    type   py  srcpy/alerting/models.py:15-31
+  unused       [66r] Field.__init__                           fn     py  srcpy/alerting/models.py:18-20
+  unused       [3w] Field.__set_name__                       fn     py  srcpy/alerting/models.py:22-23
+  unused       [t3] Field.__get__                            fn     py  srcpy/alerting/models.py:25-28
+  unused       [2mp] Field.__set__                            fn     py  srcpy/alerting/models.py:30-31
+  2 prod       [rj] Record                                   type   py  srcpy/alerting/models.py:34-47
+  unused       [kf] Record.__init__                          fn     py  srcpy/alerting/models.py:39-41
+  1 prod       [gjx] Record.as_row                            fn     py  srcpy/alerting/models.py:43-44
+  unused       [fj] Record.__repr__                          fn     py  srcpy/alerting/models.py:46-47
+  12 prod      [yha] Alert                                    type   py  srcpy/alerting/models.py:50-72
+  1 prod       [hv] Alert.is_open                            fn     py  srcpy/alerting/models.py:62-63
+  1 prod       [sg] Alert.clear                              fn     py  srcpy/alerting/models.py:65-66
+  1 prod       [m3] Alert.duration_seconds                   fn     py  srcpy/alerting/models.py:68-72
+  3 prod       [pd] StationState                             type   py  srcpy/alerting/models.py:75-90
+  1 prod       [7e] StationState.note_reading                fn     py  srcpy/alerting/models.py:85-87
+  2 prod       [2b] StationState.should_escalate             fn     py  srcpy/alerting/models.py:89-90
+  12 prod      [3j] AlertStore                               type   py  srcpy/alerting/models.py:93-125
+  unused       [zu] AlertStore.__init__                      fn     py  srcpy/alerting/models.py:96-98
+  1 prod       [xs] AlertStore.open_alert                    fn     py  srcpy/alerting/models.py:100-108
+  1 prod       [x9] AlertStore.close_alert                   fn     py  srcpy/alerting/models.py:110-115
+  3 prod       [tr] AlertStore.state_for                     fn     py  srcpy/alerting/models.py:117-122
+  2 prod       [c7jm] AlertStore.open_alerts                   fn     py  srcpy/alerting/models.py:124-125
+  9 prod       [5w] Judgement                                type   py  srcpy/alerting/rules.py:18-27
+  1 test-only  [x5i] Judgement.escalates                      fn     py  srcpy/alerting/rules.py:26-27
+  1 prod       [cf] classify                                 fn     py  srcpy/alerting/rules.py:30-42
+  1 prod       [ezj] plausible                                fn     py  srcpy/alerting/rules.py:45-47
+  unused       [ng] dew_point                                fn     py  srcpy/alerting/rules.py:50-57
+  1 prod       [s6] _log                                     fn     py  srcpy/alerting/rules.py:60-70
+  1 prod       [4y] severity_rank                            fn     py  srcpy/alerting/rules.py:73-75
+  2 test-only  [gh] worst                                    fn     py  srcpy/alerting/rules.py:78-82
+  unused       [3z3] summarise_open                           fn     py  srcpy/alerting/rules.py:85-94
+  3 prod       [gt] AlertService                             type   py  srcpy/alerting/service.py:16-45
+  dispatched   [hv2] AlertService.__init__                    fn     py  srcpy/alerting/service.py:19-22
+  1 prod       [up] AlertService.raise_alert                 fn     py  srcpy/alerting/service.py:24-35
+  dispatched   [xr] AlertService.clear_alert                 fn     py  srcpy/alerting/service.py:37-42
+  1 prod       [qu] AlertService.summary                     fn     py  srcpy/alerting/service.py:44-45
+  1 prod       [7u] build_service                            fn     py  srcpy/alerting/service.py:48-50
+  2 prod       [qun] Worker                                   type   py  srcpy/alerting/worker.py:19-42
+  unused       [ej] Worker.__init__                          fn     py  srcpy/alerting/worker.py:22-25
+  2 prod       [aqq] Worker.poll_once                         fn     py  srcpy/alerting/worker.py:27-31
+  unused       [gr3] Worker.feed                              fn     py  srcpy/alerting/worker.py:33-37
+  1 prod       [ip] Worker.run_forever                       fn     py  srcpy/alerting/worker.py:39-42
+  1 prod       [yq] build_worker                             fn     py  srcpy/alerting/worker.py:45-46
+  unused       [ad9] main                                     fn     py  srcpy/alerting/worker.py:49-57
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn outline srcgo
+exit 0
+srcgo   50 of 50 definitions
+  2 prod       [d2] loopbackConn                             type   go  srcgo/cmd/collector/main.go:19
+  unused       [xj] loopbackConn.Invoke                      fn     go  srcgo/cmd/collector/main.go:21-23
+  2 prod       [ad] server                                   type   go  srcgo/cmd/collector/main.go:26
+  unused       [e6] server.RegisterHandler                   fn     go  srcgo/cmd/collector/main.go:30-35
+  1 prod       [3s] seedRegistry                             fn     go  srcgo/cmd/collector/main.go:37-43
+  1 prod       [9t] run                                      fn     go  srcgo/cmd/collector/main.go:45-56
+  unused       [nn] main                                     fn     go  srcgo/cmd/collector/main.go:58-63
+  7 prod       [un] Verdict                                  type   go  srcgo/internal/ingest/screen.go:11
+  5 prod       [b6] Screen                                   type   go  srcgo/internal/ingest/screen.go:18
+  1 prod       [av] NewScreen                                fn     go  srcgo/internal/ingest/screen.go:25-27
+  1 prod       [yz] Screen.Judge                             fn     go  srcgo/internal/ingest/screen.go:30-48
+  1 prod       [2w] Screen.correct                           fn     go  srcgo/internal/ingest/screen.go:51-56
+  6 prod       [cj] Service                                  type   go  srcgo/internal/ingest/service.go:19
+  1 prod       [ssr] NewService                               fn     go  srcgo/internal/ingest/service.go:33-35
+  dispatched   [ez5] Service.UploadReadings                   fn     go  srcgo/internal/ingest/service.go:38-56
+  dispatched   [i8] Service.DescribeStation                  fn     go  srcgo/internal/ingest/service.go:59-70
+  1 prod       [85] Service.accept                           fn     go  srcgo/internal/ingest/service.go:73-94
+  dispatched   [v7] Service.Totals                           fn     go  srcgo/internal/ingest/service.go:97-99
+  3 test-only  [iq] stubConn                                 type   go  srcgo/internal/ingest/service_test.go:13
+  unused       [uq] stubConn.Invoke                          fn     go  srcgo/internal/ingest/service_test.go:17-20
+  6 test-only  [zb] newFixture                               fn     go  srcgo/internal/ingest/service_test.go:22-30
+  unused       [kd] TestUploadAcceptsAPlainReading           fn     go  srcgo/internal/ingest/service_test.go:32-43
+  unused       [r3] TestUploadRejectsAFaultySensor           fn     go  srcgo/internal/ingest/service_test.go:45-53
+  unused       [v8] TestUploadRejectsAnUnknownStation        fn     go  srcgo/internal/ingest/service_test.go:55-63
+  unused       [33] TestSevereColdCrossesTheBoundary         fn     go  srcgo/internal/ingest/service_test.go:65-73
+  unused       [v9] TestOversizedBatchIsRefused              fn     go  srcgo/internal/ingest/service_test.go:75-81
+  unused       [q4] TestDescribeStationReportsTheRegistry    fn     go  srcgo/internal/ingest/service_test.go:83-92
+  8 prod       [fy] Alerter                                  type   go  srcgo/internal/notify/alerter.go:15
+  1 prod       [uj] NewAlerter                               fn     go  srcgo/internal/notify/alerter.go:23-28
+  1 prod       [q8] Alerter.Raise                            fn     go  srcgo/internal/notify/alerter.go:31-51
+  unused       [r6] Alerter.Clear                            fn     go  srcgo/internal/notify/alerter.go:54-63
+  1 prod       [zf] Alerter.forget                           fn     go  srcgo/internal/notify/alerter.go:66-70
+  unused       [he] Alerter.Stats                            fn     go  srcgo/internal/notify/alerter.go:73-77
+  1 prod       [zq] SendAlert                                fn     go  srcgo/internal/notify/alerter.go:90-96
+  13 prod      [ms] Station                                  type   go  srcgo/internal/station/registry.go:15
+  1 prod       [9b] Station.Elevated                         fn     go  srcgo/internal/station/registry.go:24-26
+  unused       [ey] Station.HasTag                           fn     go  srcgo/internal/station/registry.go:29-36
+  10 prod      [vs] Registry                                 type   go  srcgo/internal/station/registry.go:39
+  1 prod       [9te] NewRegistry                              fn     go  srcgo/internal/station/registry.go:47-49
+  3 prod       [nph] Registry.Add                             fn     go  srcgo/internal/station/registry.go:52-66
+  2 prod       [2s] Registry.Lookup                          fn     go  srcgo/internal/station/registry.go:69-77
+  1 test-only  [gc] Registry.Active                          fn     go  srcgo/internal/station/registry.go:80-91
+  2 test-only  [76] Registry.Retire                          fn     go  srcgo/internal/station/registry.go:94-106
+  1 prod       [it] Registry.Counts                          fn     go  srcgo/internal/station/registry.go:109-113
+  1 test-only  [5x] normaliseID                              fn     go  srcgo/internal/station/registry.go:116-118
+  unused       [u8] TestAddAndLookup                         fn     go  srcgo/internal/station/registry_test.go:5-17
+  unused       [py] TestLookupUnknownIsAnError               fn     go  srcgo/internal/station/registry_test.go:19-24
+  unused       [ru] TestRetireIsCountedOnce                  fn     go  srcgo/internal/station/registry_test.go:26-35
+  unused       [5m] TestActiveSkipsRetiredAndSorts           fn     go  srcgo/internal/station/registry_test.go:37-46
+  unused       [bz] TestNormaliseID                          fn     go  srcgo/internal/station/registry_test.go:48-52
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn outline srcgo/cmd/collector
+exit 0
+srcgo/cmd/collector   7 of 7 definitions
+  2 prod       [d2] loopbackConn                             type   go  srcgo/cmd/collector/main.go:19
+  unused       [xj] loopbackConn.Invoke                      fn     go  srcgo/cmd/collector/main.go:21-23
+  2 prod       [ad] server                                   type   go  srcgo/cmd/collector/main.go:26
+  unused       [e6] server.RegisterHandler                   fn     go  srcgo/cmd/collector/main.go:30-35
+  1 prod       [3s] seedRegistry                             fn     go  srcgo/cmd/collector/main.go:37-43
+  1 prod       [9t] run                                      fn     go  srcgo/cmd/collector/main.go:45-56
+  unused       [nn] main                                     fn     go  srcgo/cmd/collector/main.go:58-63
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn outline srcgo/gen/telemetry
+exit 1
+srcgo/gen/telemetry   0 of 0 definitions
+  (nothing here, or everything here is generated code, which this view excludes - `cairn symbol <name>` still finds generated definitions)
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+

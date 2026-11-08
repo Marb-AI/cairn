@@ -1,0 +1,318 @@
+# Recorded output of one cairn command against the fixture corpus. Do not edit by hand:
+# CAIRN_BLESS=1 cargo test --test golden rewrites every file here.
+#
+# A diff in this file is a change in what the tool says. Read it before blessing it:
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine, and nothing
+# else in an answer is normalised.
+
+$ cairn for find severe --repo <repo>
+exit 0
+24 line(s) containing "severe" in 5 file(s), from 26 searched   [L0, the tree as it is now]
+of these: 19 in hand-written code or prose (below), 5 in tests, 0 in generated code
+srcgo/internal/ingest/screen.go
+     40 | 	corrected := s.correct(r.Celsius, site)
+     41 | 	if corrected <= -25 {
+     42 > return Verdict{Alarming: true, Reason: "severe cold"}  <- in Judge [yz]
+     43 | 	}
+     44 | 	if corrected >= 40 {
+     45 > return Verdict{Alarming: true, Reason: "severe heat"}  <- in Judge [yz]
+     46 | 	}
+     47 | 	return Verdict{}
+srcpy/alerting/dispatch.py
+      1 | """Handlers reached through a registry rather than by name.
+      2 | 
+      3 > This is here to be hard on purpose. Nothing calls ``handle_severe_cold`` directly — it is
+      4 | registered under a string and looked up at run time — so a call graph sees it as dead
+      5 | code. It is not, and a tool that reports it as unreached is wrong in the way that costs a
+     38 | 
+     39 | 
+     40 > @register("severe cold")
+     41 > def handle_severe_cold(alert: Alert, store: AlertStore) -> str:  <- in handle_severe_cold [p6]
+     42 |     state = store.state_for(alert.station_id)
+     43 |     if state.should_escalate():
+     46 | 
+     47 | 
+     48 > @register("severe heat")
+     49 > def handle_severe_heat(alert: Alert, store: AlertStore) -> str:  <- in handle_severe_heat [5uq]
+     50 |     state = store.state_for(alert.station_id)
+     51 |     if state.should_escalate(threshold=2):
+     71 | # Handlers that page a human, named as strings rather than referenced.
+     72 | #
+     73 > # The registry above binds a handler to its *reason* ("severe cold"), so a literal search
+     74 | # for a handler's own name finds nothing. This list names the functions themselves, which
+     75 | # is the shape that actually defeats a call graph: the only mention of
+     76 > # ``handle_severe_heat`` outside its own definition is inside this string, and a rename
+     77 | # leaves it dangling with nothing to catch it.
+     78 | #
+     81 | # reported it as clean, and CI could not have noticed because the fixture gave it nothing
+     82 | # to find.
+     83 > PAGING_HANDLERS = ["handle_severe_cold", "handle_severe_heat"]
+     84 | 
+     85 | 
+srcpy/alerting/rules.py
+      9 | from dataclasses import dataclass
+     10 | 
+     11 > SEVERE_COLD_C = -25.0
+     12 > SEVERE_HEAT_C = 40.0
+     13 | FROST_C = 0.0
+     14 | HUMIDITY_CEILING = 100.0
+     25 |     @property
+     26 |     def escalates(self) -> bool:
+     27 > return self.severity in ("critical", "severe")  <- in escalates [x5i]
+     28 | 
+     29 | 
+     32 |     if not plausible(celsius, humidity):
+     33 |         return Judgement(False, "info", "implausible reading, ignored")
+     34 > if celsius <= SEVERE_COLD_C:  <- in classify [cf]
+     35 > return Judgement(True, "critical", "severe cold")  <- in classify [cf]
+     36 > if celsius >= SEVERE_HEAT_C:  <- in classify [cf]
+     37 > return Judgement(True, "critical", "severe heat")  <- in classify [cf]
+     38 |     if celsius <= FROST_C and humidity >= 90:
+     39 > return Judgement(True, "severe", "freezing fog likely")  <- in classify [cf]
+     40 |     if celsius <= FROST_C:
+     41 |         return Judgement(True, "warning", "frost")
+     73 | def severity_rank(severity: str) -> int:
+     74 |     """Order severities so two judgements can be compared."""
+     75 > return {"info": 0, "warning": 1, "severe": 2, "critical": 3}.get(severity, 0)  <- in severity_rank [4y]
+     76 | 
+     77 | 
+suppressed: 5 line(s) in test or generated files, counted in the header but not listed - `cairn for find "severe" --all` lists every hit
+unknown: substring, case-insensitive, over the working tree - so it is never stale, and it is not a regex. Symbol context is attached only where the file is indexed (Python and Go); section context only for markdown
+stale: none
+
+$ cairn for find severe --all --repo <repo>
+exit 0
+24 line(s) containing "severe" in 5 file(s), from 26 searched   [L0, the tree as it is now]
+srcgo/internal/ingest/screen.go
+     40 | 	corrected := s.correct(r.Celsius, site)
+     41 | 	if corrected <= -25 {
+     42 > return Verdict{Alarming: true, Reason: "severe cold"}  <- in Judge [yz]
+     43 | 	}
+     44 | 	if corrected >= 40 {
+     45 > return Verdict{Alarming: true, Reason: "severe heat"}  <- in Judge [yz]
+     46 | 	}
+     47 | 	return Verdict{}
+srcgo/internal/ingest/service_test.go   [test]
+     63 | }
+     64 | 
+     65 > func TestSevereColdCrossesTheBoundary(t *testing.T) {  <- in TestSevereColdCrossesTheBoundary [33]
+     66 | 	svc, conn := newFixture(t)
+     67 | 	_, _ = svc.UploadReadings(context.Background(), &telemetry.ReadingBatch{
+srcpy/alerting/dispatch.py
+      1 | """Handlers reached through a registry rather than by name.
+      2 | 
+      3 > This is here to be hard on purpose. Nothing calls ``handle_severe_cold`` directly — it is
+      4 | registered under a string and looked up at run time — so a call graph sees it as dead
+      5 | code. It is not, and a tool that reports it as unreached is wrong in the way that costs a
+     38 | 
+     39 | 
+     40 > @register("severe cold")
+     41 > def handle_severe_cold(alert: Alert, store: AlertStore) -> str:  <- in handle_severe_cold [p6]
+     42 |     state = store.state_for(alert.station_id)
+     43 |     if state.should_escalate():
+     46 | 
+     47 | 
+     48 > @register("severe heat")
+     49 > def handle_severe_heat(alert: Alert, store: AlertStore) -> str:  <- in handle_severe_heat [5uq]
+     50 |     state = store.state_for(alert.station_id)
+     51 |     if state.should_escalate(threshold=2):
+     71 | # Handlers that page a human, named as strings rather than referenced.
+     72 | #
+     73 > # The registry above binds a handler to its *reason* ("severe cold"), so a literal search
+     74 | # for a handler's own name finds nothing. This list names the functions themselves, which
+     75 | # is the shape that actually defeats a call graph: the only mention of
+     76 > # ``handle_severe_heat`` outside its own definition is inside this string, and a rename
+     77 | # leaves it dangling with nothing to catch it.
+     78 | #
+     81 | # reported it as clean, and CI could not have noticed because the fixture gave it nothing
+     82 | # to find.
+     83 > PAGING_HANDLERS = ["handle_severe_cold", "handle_severe_heat"]
+     84 | 
+     85 | 
+srcpy/alerting/rules.py
+      9 | from dataclasses import dataclass
+     10 | 
+     11 > SEVERE_COLD_C = -25.0
+     12 > SEVERE_HEAT_C = 40.0
+     13 | FROST_C = 0.0
+     14 | HUMIDITY_CEILING = 100.0
+     25 |     @property
+     26 |     def escalates(self) -> bool:
+     27 > return self.severity in ("critical", "severe")  <- in escalates [x5i]
+     28 | 
+     29 | 
+     32 |     if not plausible(celsius, humidity):
+     33 |         return Judgement(False, "info", "implausible reading, ignored")
+     34 > if celsius <= SEVERE_COLD_C:  <- in classify [cf]
+     35 > return Judgement(True, "critical", "severe cold")  <- in classify [cf]
+     36 > if celsius >= SEVERE_HEAT_C:  <- in classify [cf]
+     37 > return Judgement(True, "critical", "severe heat")  <- in classify [cf]
+     38 |     if celsius <= FROST_C and humidity >= 90:
+     39 > return Judgement(True, "severe", "freezing fog likely")  <- in classify [cf]
+     40 |     if celsius <= FROST_C:
+     41 |         return Judgement(True, "warning", "frost")
+     73 | def severity_rank(severity: str) -> int:
+     74 |     """Order severities so two judgements can be compared."""
+     75 > return {"info": 0, "warning": 1, "severe": 2, "critical": 3}.get(severity, 0)  <- in severity_rank [4y]
+     76 | 
+     77 | 
+srcpy/tests/test_rules.py   [test]
+     12 | 
+     13 | 
+     14 > def test_severe_cold_is_critical() -> None:  <- in test_severe_cold_is_critical [tnn]
+     15 |     j = classify(-30.0, 50.0)
+     16 |     assert j.alarming
+     50 | 
+     51 | def test_severity_rank_is_total() -> None:
+     52 > ranks = [severity_rank(s) for s in ("info", "warning", "severe", "critical")]  <- in test_severity_rank_is_total [ju]
+     53 |     assert ranks == sorted(ranks)
+     54 | 
+     56 | def test_dispatch_reaches_a_registered_handler() -> None:
+     57 |     store = AlertStore()
+     58 > alert = store.open_alert("alp-01", "severe cold", -30.0)  <- in test_dispatch_reaches_a_registered_handler [2p9]
+     59 |     assert "alp-01" in dispatch(alert, store)
+     60 | 
+     69 |     reasons = registered_reasons()
+     70 |     assert len(reasons) == len(set(reasons))
+     71 > assert "severe cold" in reasons  <- in test_every_reason_is_registered_once [g5t]
+     72 | 
+     73 | 
+suppressed: none
+unknown: substring, case-insensitive, over the working tree - so it is never stale, and it is not a regex. Symbol context is attached only where the file is indexed (Python and Go); section context only for markdown
+stale: none
+
+$ cairn for find server --repo <repo>
+exit 0
+21 line(s) containing "server" in 4 file(s), from 26 searched   [L0, the tree as it is now]
+of these: 7 in hand-written code or prose (below), 0 in tests, 14 in generated code
+srcgo/cmd/collector/main.go
+     23 | }
+     24 | 
+     25 > // server is the minimal registrar the generated code asks for.
+     26 > type server struct {
+     27 | 	handlers map[string]any
+     28 | }
+     29 | 
+     30 > func (s *server) RegisterHandler(name string, handler any) {  <- in RegisterHandler [e6]
+     31 | 	if s.handlers == nil {
+     32 | 		s.handlers = make(map[string]any)
+     48 | 	svc := ingest.NewService(reg, alerter, telemetry.NewAlertServiceClient(conn))
+     49 | 
+     50 > srv := &server{}  <- in run [9t]
+     51 > telemetry.RegisterTelemetryServiceServer(srv, svc)  <- in run [9t]
+     52 | 
+     53 | 	total, retired := reg.Counts()
+srcgo/internal/ingest/service.go
+     18 | // Service is the TelemetryService implementation.
+     19 | type Service struct {
+     20 > telemetry.UnimplementedTelemetryServiceServer
+     21 | 
+     22 | 	stations *station.Registry
+     30 | }
+     31 | 
+     32 > // NewService builds the server side.
+     33 | func NewService(reg *station.Registry, alerts *notify.Alerter, alertClient telemetry.AlertServiceClient) *Service {
+     34 | 	return &Service{stations: reg, alerts: alerts, alertClient: alertClient, screen: NewScreen()}
+suppressed: 14 line(s) in test or generated files, counted in the header but not listed - `cairn for find "server" --all` lists every hit
+unknown: substring, case-insensitive, over the working tree - so it is never stale, and it is not a regex. Symbol context is attached only where the file is indexed (Python and Go); section context only for markdown
+stale: none
+
+$ cairn for find '' --repo <repo>
+exit 2
+
+
+$ cairn for find Altitude --repo <repo>
+exit 0
+16 line(s) containing "Altitude" in 9 file(s), from 26 searched   [L0, the tree as it is now]
+proto/telemetry.proto
+     41 |   string station_id = 1;
+     42 |   string label = 2;
+     43 > int64 altitude = 3;
+     44 |   bool retired = 4;
+     45 | }
+srcgo/cmd/collector/main.go
+     37 | func seedRegistry() *station.Registry {
+     38 | 	reg := station.NewRegistry(1024)
+     39 > _ = reg.Add(&station.Station{ID: "alp-01", Label: "Alp Ridge", Altitude: 1200, Tags: []string{"mountain"}})  <- in seedRegistry [3s]
+     40 > _ = reg.Add(&station.Station{ID: "dune-02", Label: "Dune Flat", Altitude: 12})  <- in seedRegistry [3s]
+     41 > _ = reg.Add(&station.Station{ID: "fjord-03", Label: "Fjord Head", Altitude: 340, Retired: true})  <- in seedRegistry [3s]
+     42 | 	return reg
+     43 | }
+srcgo/gen/telemetry/telemetry.pb.go   [generated]
+     54 | 	StationId string
+     55 | 	Label     string
+     56 > Altitude  int64
+     57 | 	Retired   bool
+     58 | }
+    158 | }
+    159 | 
+    160 > func (x *StationInfo) GetAltitude() int64 {  <- in GetAltitude [8x]
+    161 | 	if x == nil {
+    162 | 		return 0
+    163 | 	}
+    164 > return x.Altitude  <- in GetAltitude [8x]
+    165 | }
+    166 | 
+srcgo/internal/ingest/screen.go
+     53 | 		return celsius
+     54 | 	}
+     55 > return celsius + (float64(site.Altitude)/1000.0)*s.LapseRateDC  <- in correct [2w]
+     56 | }
+srcgo/internal/ingest/service.go
+     65 | 		StationId: found.ID,
+     66 | 		Label:     found.Label,
+     67 > Altitude:  found.Altitude,  <- in DescribeStation [i8]
+     68 | 		Retired:   found.Retired,
+     69 | 	}, nil
+srcgo/internal/ingest/service_test.go   [test]
+     23 | 	t.Helper()
+     24 | 	reg := station.NewRegistry(0)
+     25 > if err := reg.Add(&station.Station{ID: "alp-01", Label: "Alp Ridge", Altitude: 1200}); err != nil {  <- in newFixture [zb]
+     26 | 		t.Fatalf("seeding the registry: %v", err)
+     27 | 	}
+     87 | 		t.Fatalf("describe: %v", err)
+     88 | 	}
+     89 > if info.Altitude != 1200 {  <- in TestDescribeStationReportsTheRegistry [q4]
+     90 > t.Errorf("got altitude %d", info.Altitude)  <- in TestDescribeStationReportsTheRegistry [q4]
+     91 | 	}
+     92 | }
+srcgo/internal/station/registry.go
+     16 | 	ID       string
+     17 | 	Label    string
+     18 > Altitude int64
+     19 | 	Retired  bool
+     20 | 	Tags     []string
+     23 | // Elevated says whether the site sits high enough for the lapse-rate correction.
+     24 | func (s *Station) Elevated() bool {
+     25 > return s.Altitude >= 800  <- in Elevated [9b]
+     26 | }
+     27 | 
+srcgo/internal/station/registry_test.go   [test]
+      5 | func TestAddAndLookup(t *testing.T) {
+      6 | 	r := NewRegistry(0)
+      7 > if err := r.Add(&Station{ID: "alp-01", Label: "Alp Ridge", Altitude: 1200}); err != nil {  <- in TestAddAndLookup [u8]
+      8 | 		t.Fatalf("add: %v", err)
+      9 | 	}
+srcpy/schema/telemetry/__init__.py   [generated]
+     54 |     station_id: str = ""
+     55 |     label: str = ""
+     56 > altitude: int = 0  <- in StationInfo [kdm]
+     57 |     retired: bool = False
+     58 | 
+suppressed: none
+unknown: substring, case-insensitive, over the working tree - so it is never stale, and it is not a regex. Symbol context is attached only where the file is indexed (Python and Go); section context only for markdown
+stale: none
+
+$ cairn for find GetRaised --repo <repo>
+exit 0
+1 line(s) containing "GetRaised" in 1 file(s), from 26 searched   [L0, the tree as it is now]
+srcgo/gen/telemetry/telemetry.pb.go   [generated]
+    130 | }
+    131 | 
+    132 > func (x *AlertAck) GetRaised() bool {  <- in GetRaised [8d]
+    133 | 	if x == nil {
+    134 | 		return false
+suppressed: none
+unknown: substring, case-insensitive, over the working tree - so it is never stale, and it is not a regex. Symbol context is attached only where the file is indexed (Python and Go); section context only for markdown
+stale: none
+

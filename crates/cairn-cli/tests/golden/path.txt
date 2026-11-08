@@ -1,0 +1,63 @@
+# Recorded output of one cairn command against the fixture corpus. Do not edit by hand:
+# CAIRN_BLESS=1 cargo test --test golden rewrites every file here.
+#
+# A diff in this file is a change in what the tool says. Read it before blessing it:
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine, and nothing
+# else in an answer is normalised.
+
+$ cairn path ad ne
+exit 1
+no call path from [ad] to [ne] within 8 hops
+suppressed: none
+unknown: only static calls were followed; a dynamic dispatch on the way would not appear here
+stale: none
+
+$ cairn path ne wh
+exit 1
+no call path from [ne] to [wh] within 8 hops
+suppressed: none
+unknown: only static calls were followed; a dynamic dispatch on the way would not appear here
+stale: none
+
+$ cairn path wh 8d
+exit 1
+no call path from [wh] to [8d] within 8 hops
+suppressed: none
+unknown: only static calls were followed; a dynamic dispatch on the way would not appear here
+stale: none
+
+$ cairn path 8d dk
+exit 1
+no call path from [8d] to [dk] within 8 hops
+suppressed: none
+unknown: only static calls were followed; a dynamic dispatch on the way would not appear here
+stale: none
+
+$ cairn path dk ph
+exit 1
+no call path from [dk] to [ph] within 8 hops
+suppressed: none
+unknown: only static calls were followed; a dynamic dispatch on the way would not appear here
+stale: none
+
+$ cairn path ph 2ig
+exit 1
+no call path from [ph] to [2ig] within 8 hops
+suppressed: none
+unknown: only static calls were followed; a dynamic dispatch on the way would not appear here
+stale: none
+
+$ cairn path 2ig 7r
+exit 1
+no call path from [2ig] to [7r] within 8 hops
+suppressed: none
+unknown: only static calls were followed; a dynamic dispatch on the way would not appear here
+stale: none
+
+$ cairn path 7r q4
+exit 1
+no call path from [7r] to [q4] within 8 hops
+suppressed: none
+unknown: only static calls were followed; a dynamic dispatch on the way would not appear here
+stale: none
+

@@ -1,0 +1,356 @@
+# Recorded output of one cairn command against the fixture corpus. Do not edit by hand:
+# CAIRN_BLESS=1 cargo test --test golden rewrites every file here.
+#
+# A diff in this file is a change in what the tool says. Read it before blessing it:
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine, and nothing
+# else in an answer is normalised.
+
+$ cairn affects ad
+exit 0
+[ad] server — affects 1 deployed service(s)        [L1 + L0-D]
+
+in-process
+  telemetry-collector  /bin/collector
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects ne
+exit 1
+[ne]  — affects 0 deployed service(s)        [L1 + L0-D]
+
+in-process
+  (no service entrypoint reaches it)
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects wh
+exit 0
+[wh] Station.Altitude — affects 2 deployed service(s)        [L1 + L0-D]
+
+in-process
+  telemetry-collector  /bin/collector
+
+over the network, by hop - every route below reaches this symbol
+  alert-worker       -> telemetry-collector telemetry.TelemetryService  (1)
+    upload_readings in srcpy/alerting/worker.py
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects 8d
+exit 0
+[8d] AlertAck.GetRaised — affects 1 deployed service(s)        [L1 + L0-D]
+
+in-process
+  telemetry-collector  /bin/collector
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects dk
+exit 0
+[dk] AlertRequest.Celsius — affects 2 deployed service(s)        [L1 + L0-D]
+
+in-process
+  telemetry-collector  /bin/collector
+
+over the network, by hop - every route below reaches this symbol
+  alert-worker       -> telemetry-collector telemetry.TelemetryService  (1)
+    upload_readings in srcpy/alerting/worker.py
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects ph
+exit 0
+[ph] unimplementedError — affects 2 deployed service(s)        [L1 + L0-D]
+
+in-process
+  telemetry-collector  /bin/collector
+
+over the network, by hop - every route below reaches this symbol
+  alert-worker       -> telemetry-collector telemetry.TelemetryService  (1)
+    upload_readings in srcpy/alerting/worker.py
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects 2ig
+exit 1
+[2ig] 2 — affects 0 deployed service(s)        [L1 + L0-D]
+
+in-process
+  (no service entrypoint reaches it)
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects 7r
+exit 0
+[7r] Service.rejected — affects 2 deployed service(s)        [L1 + L0-D]
+
+in-process
+  telemetry-collector  /bin/collector
+
+over the network, by hop - every route below reaches this symbol
+  alert-worker       -> telemetry-collector telemetry.TelemetryService  (1)
+    upload_readings in srcpy/alerting/worker.py
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects q4
+exit 1
+[q4] TestDescribeStationReportsTheRegistry — affects 0 deployed service(s)        [L1 + L0-D]
+
+in-process
+  (no service entrypoint reaches it)
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects bj
+exit 0
+[bj] Mutex.Unlock — affects 2 deployed service(s)        [L1 + L0-D]
+
+in-process
+  telemetry-collector  /bin/collector
+
+over the network, by hop - every route below reaches this symbol
+  alert-worker       -> telemetry-collector telemetry.TelemetryService  (1)
+    upload_readings in srcpy/alerting/worker.py
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects pu
+exit 1
+[pu] ToLower — affects 0 deployed service(s)        [L1 + L0-D]
+
+in-process
+  (no service entrypoint reaches it)
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects d7
+exit 0
+[d7] store — affects 1 deployed service(s)        [L1 + L0-D]
+
+in-process
+  alert-worker (cron 30 3 * * *: python3 -m alerting.dispatch)
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects yha
+exit 0
+[yha] Alert — affects 4 deployed service(s)        [L1 + L0-D]
+
+in-process
+  alert-worker         python3 -m alerting.worker
+  alert-worker (cron 30 3 * * *: python3 -m alerting.dispatch)
+
+over the network, by hop - every route below reaches this symbol
+  alert-worker       -> telemetry-collector telemetry.TelemetryService  (1)
+    upload_readings in srcpy/alerting/worker.py
+  telemetry-collector -> alert-worker     telemetry.AlertService  (3)
+    ClearAlert, RaiseAlert in srcgo/internal/notify/alerter.go
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects 7y
+exit 0
+[7y] Field.name — affects 2 deployed service(s)        [L1 + L0-D]
+
+in-process
+  alert-worker         python3 -m alerting.worker
+  alert-worker (cron 30 3 * * *: python3 -m alerting.dispatch)
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects sp
+exit 0
+[sp] self — affects 2 deployed service(s)        [L1 + L0-D]
+
+in-process
+  alert-worker         python3 -m alerting.worker
+  alert-worker (cron 30 3 * * *: python3 -m alerting.dispatch)
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects zu
+exit 0
+[zu] AlertStore.__init__ — affects 2 deployed service(s)        [L1 + L0-D]
+
+in-process
+  alert-worker         python3 -m alerting.worker
+  alert-worker (cron 30 3 * * *: python3 -m alerting.dispatch)
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects z7
+exit 0
+[z7] dict.items — affects 2 deployed service(s)        [L1 + L0-D]
+
+in-process
+  alert-worker         python3 -m alerting.worker
+  alert-worker (cron 30 3 * * *: python3 -m alerting.dispatch)
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects 4mg
+exit 0
+[4mg] celsius — affects 3 deployed service(s)        [L1 + L0-D]
+
+in-process
+  alert-worker         python3 -m alerting.worker
+
+over the network, by hop - every route below reaches this symbol
+  alert-worker       -> telemetry-collector telemetry.TelemetryService  (1)
+    upload_readings in srcpy/alerting/worker.py
+  telemetry-collector -> alert-worker     telemetry.AlertService  (2)
+    RaiseAlert in srcgo/internal/notify/alerter.go
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects c4
+exit 1
+[c4] key — affects 0 deployed service(s)        [L1 + L0-D]
+
+in-process
+  (no service entrypoint reaches it)
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects t4
+exit 0
+[t4] __init__ — affects 1 deployed service(s)        [L1 + L0-D]
+
+in-process
+  alert-worker         python3 -m alerting.worker
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects fm
+exit 0
+[fm] station_id — affects 1 deployed service(s)        [L1 + L0-D]
+
+in-process
+  alert-worker         python3 -m alerting.worker
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects jz
+exit 0
+[jz] SystemExit — affects 1 deployed service(s)        [L1 + L0-D]
+
+in-process
+  alert-worker         python3 -m alerting.worker
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects 3jq
+exit 0
+[3jq] TelemetryServiceStub.__init__ — affects 1 deployed service(s)        [L1 + L0-D]
+
+in-process
+  alert-worker         python3 -m alerting.worker
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
+$ cairn affects 2p9
+exit 1
+[2p9] test_dispatch_reaches_a_registered_handler — affects 0 deployed service(s)        [L1 + L0-D]
+
+in-process
+  (no service entrypoint reaches it)
+suppressed: none
+unknown (3):
+  1 service(s) start nothing and run code on demand instead - cron, a management command, `docker exec` (metrics-sidecar). Where one appears above it is on a path; how it is triggered is not something reachability can see
+  hops are calls through a generated gRPC client, and are exact. A service that reaches this some other way - a hand-written transport, a queue, an HTTP call - is not here
+  the in-process side follows static calls only. A module-level binding is followed, so `af = wrap(f)` does not break the chain, but a task queue, a registry of callables or a name resolved at run time does - `cairn weaklinks` is where those candidates live
+stale: none
+
