@@ -1,7 +1,10 @@
 # Development and build image. Nothing is installed on the host (D13).
 # gopls needs a newer Go toolchain than anything else here, so it gets its own stage.
-FROM golang:1.26-bookworm AS goplsbuild
-RUN go install golang.org/x/tools/gopls@latest
+# Pinned, and bumping it is a commit. This was `@latest` on `golang:1.26` until gopls
+# v0.24.0 started requiring Go 1.27 and the stage stopped building - see the same note in
+# crates/cairn-cli/assets/indexers.Dockerfile, which broke the same way on the same day.
+FROM golang:1.27-bookworm AS goplsbuild
+RUN go install golang.org/x/tools/gopls@v0.24.0
 
 # Everything needed to compile and test cairn, and nothing else.
 #

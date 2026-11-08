@@ -9,11 +9,24 @@
 # never quietly produce indexes a newer cairn does not expect. One image serves every
 # repository on the machine.
 
-# scip-go needs a recent Go toolchain to build itself.
+# Both tools are PINNED, and that is the whole lesson of this stage.
+#
+# They were `@latest`, and on 2026-11-08 that stopped building: gopls v0.24.0 began
+# requiring Go 1.27 while this stage pins 1.26 with GOTOOLCHAIN=local, so `cairn index`
+# died at image build on every machine that had not built the image before. `@latest`
+# makes the image a function of the day it was built, which is the opposite of what the
+# version tag on it promises. Bumping these is a commit, as it should be.
+#
+# gopls gets its own stage because it is the one thing here that wants a newer toolchain
+# than the indexers do: scip-go has to type-check the repository with the toolchain the
+# repository expects, and that is the 1.26 below.
+FROM golang:1.27-bookworm AS goplsbuild
+ENV CGO_ENABLED=0
+RUN go install golang.org/x/tools/gopls@v0.24.0
+
 FROM golang:1.26-bookworm AS gobuild
 ENV CGO_ENABLED=0
-RUN go install github.com/scip-code/scip-go/cmd/scip-go@latest \
- && go install golang.org/x/tools/gopls@latest
+RUN go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.9
 
 # The flow provider: `cairn flow` asks it for the control flow inside one Go function.
 #
@@ -62,14 +75,25 @@ RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
 # indexing, so the compiler has to be here too. gopls is the Go half of the live overlay.
 COPY --from=gobuild /go/bin/cairnflow /usr/local/bin/cairnflow
 COPY --from=gobuild /go/bin/scip-go /usr/local/bin/scip-go
-COPY --from=gobuild /go/bin/gopls /usr/local/bin/gopls
+COPY --from=goplsbuild /go/bin/gopls /usr/local/bin/gopls
 COPY --from=golang:1.26-bookworm /usr/local/go /usr/local/go
 
 # Caches under /tmp because the container runs as the calling user, who owns nothing else
 # in here. Without this both toolchains fail trying to write to a home directory that is
 # not theirs.
+# No `GOFLAGS=-mod=mod`, and that is deliberate twice over.
+#
+# Go refuses it outright in workspace mode - "-mod may only be set to readonly or vendor
+# when in workspace mode" - so on any repository with a `go.work` the Go indexer died
+# before it read a line. Measured on a 23-module workspace: scip-go exited on the first
+# package load.
+#
+# And it should not be set anyway: `-mod=mod` lets the toolchain rewrite the `go.mod` and
+# `go.sum` of the repository being indexed. An indexer that edits the tree it is reading
+# is a tool nobody can point at a checkout they care about. The default, `readonly`, is
+# the right posture: a repository whose module graph does not resolve fails to index and
+# says so, which is the same thing it would do to a build.
 ENV PATH="/usr/local/go/bin:${PATH}" \
-    GOFLAGS=-mod=mod \
     GOTOOLCHAIN=local \
     GOCACHE=/tmp/go-build \
     GOMODCACHE=/tmp/go-mod \
