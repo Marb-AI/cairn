@@ -1438,9 +1438,12 @@ fn run() -> Result<u8> {
                     eprintln!(
                         "cairn: {} describes no documents at all. That is an empty index \
                          rather than a partial one - the indexer that produced it found \
-                         nothing to read, which for a Go workspace usually means it ran \
-                         somewhere there is no go.mod",
-                        path.display()
+                         nothing to read. For a Go workspace that usually means it ran \
+                         somewhere there is no go.mod, or that Go could not write \
+                         `go.work.sum` and gave up quietly. What the indexer printed is in \
+                         {}",
+                        path.display(),
+                        path.with_extension("log").display()
                     );
                     failed_projects.push((
                         "scip".to_string(),
