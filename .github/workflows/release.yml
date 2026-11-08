@@ -121,7 +121,13 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # A tag with a `-` after the version (v0.2.0-rc.1) is a pre-release by semver's
+          # own convention, and GitHub's "Latest" badge is exactly the claim an rc must
+          # not make - someone installing "latest" should not land on a release candidate.
+          prerelease=()
+          [[ "$GITHUB_REF_NAME" == *-* ]] && prerelease=(--prerelease)
           gh release create "$GITHUB_REF_NAME" dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --title "cairn $GITHUB_REF_NAME" \
-            --generate-notes
+            --generate-notes \
+            "${prerelease[@]}"
