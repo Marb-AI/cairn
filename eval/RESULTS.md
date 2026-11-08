@@ -3176,3 +3176,67 @@ dearer than grep as often as it is cheaper.
 The conclusion is the standing one, now predicted rather than discovered: this tool's value is
 concentrated in codebases with a service boundary, and on a frontend the thing to reach for is
 `for find`. Nothing here supports a claim beyond that.
+
+---
+
+## Backend round 7 — pre-registered 2026-11-08, before any run
+
+The frontend was re-measured this morning; **0.50 is now the stale number.** It comes from a
+binary that no longer exists, and the commits since went into exactly the paths it measures —
+connectors, `edges.origin`, declared edges, the deploy rule pack, entrypoints, cross-api. The
+rule that retired 0.84 retires it too.
+
+### What is frozen
+
+| | |
+|---|---|
+| commit | `f949b0a` |
+| binary | `cairn 0.1.2`, sha256 `840b1024479e135b…`, one build for every run |
+| corpus | `repos/backend`, rebuilt immediately before the runs |
+| index | 1,685 files, 71,140 symbols, 365,605 occurrences |
+
+### Two things that make this not a clean comparison with 0.50, both stated now
+
+- **The arm has changed.** `arms/cairn_full.md` was handing out a guide 1,379 characters
+  behind `skill/SKILL.md`, missing the paragraphs on a *searched* miss and on `UNCHECKED` /
+  exit 3 meaning "I did not look". Every earlier backend round was measured on advice the
+  tool had stopped giving, and two of the ten scenarios turn on exactly that advice. Fixed
+  and now guarded by a test; the instruction overhead is re-measured at 15,450 against the
+  baseline's 10,002, so the cairn arm gets 54% more instruction, not the 40% on record.
+- **The tool has changed in twelve commits**, four of them from this morning's round: the
+  three-state index tag, per-root staleness, the memory cap, and two settings that did
+  nothing until today.
+
+So this is a fresh measurement of a changed tool against unchanged scenarios and unchanged
+keys, which is the most that can be claimed. The per-scenario predictions in `SCENARIOS.md`
+stand as written and are not reopened.
+
+### Design
+
+Ten scenarios × two arms × **three runs** = 60 runs, batched six at a time — one run of three
+scenarios in each arm per batch — so parallelism is constant and identical across the arms
+being compared. Scenario 9 runs last and separately, because its setup edits the tree after
+the index was built, and the whole thing it grades is whether the arm notices.
+
+Round trips from `cluster.py`; the rig now also records how much of a file each `Read`
+opened, which is the one thing the frontend round could not check. Arm compliance audited
+from the logs. Acceptance rule unchanged: same answer → at most half the round trips or half
+the wall clock; better answer → no more than the baseline; **a worse answer fails at any
+price.**
+
+### Prediction, recorded now
+
+- **Median of the thirty ratios: 0.35–0.55** — at or below the recorded 0.50. The backend is
+  where this tool's structure matches the questions, and nothing in the last twelve commits
+  touches that structure adversely.
+- **Scenarios 3, 5 and 6 well under 0.50** (a cross-language boundary, a question over a set,
+  a blast radius across services) and **7, 8 and 10 at or above 1.00** — the three where the
+  guide's own advice is to use grep.
+- **At least one scenario where the grep arm's answer is graded *worse***, as
+  `SCENARIOS.md` predicts for 3, 5 and 6. If every grep answer comes back complete, the case
+  for the tool is weaker than the round-trip numbers will make it look, and that is the
+  result to report.
+- **Scenario 9 is the one to watch**, and the prediction is unchanged: cairn's case rests
+  entirely on the envelope saying `stale:` unprompted. If it answers "no callers" without
+  flagging that the index may not have seen the file, that is graded **worse** — accidentally
+  right and unusable.
