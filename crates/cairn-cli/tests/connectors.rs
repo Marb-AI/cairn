@@ -200,6 +200,55 @@ fn within_scopes_an_answer_to_a_declared_container() {
 }
 
 #[test]
+fn an_answer_is_grouped_by_the_container_its_rows_are_in() {
+    // The other half of containment, and the one that is useful without a filter: a flat
+    // answer says which declared container each row belongs to, so "which domain uses
+    // this" is readable at a glance rather than one query per domain.
+    let Some((db, _)) = index_with_connector("grouped", "ok", 30) else {
+        return;
+    };
+    let handle = handle_of(&db, "Registry.Add");
+    let (out, _) = run(
+        &db,
+        &["graph", &handle, "--aspect", "callers", "--view", "list"],
+    );
+    assert!(
+        out.contains("within w17:domain/telemetry"),
+        "the rows are not grouped under the container they are in:\n{out}"
+    );
+    // The heading sits above the row it describes, not after it.
+    let heading = out
+        .lines()
+        .position(|l| l.contains("within w17:domain/telemetry"));
+    let row = out.lines().position(|l| l.contains("rpc/Station.Register"));
+    assert!(
+        heading < row,
+        "the heading has to come before its rows:\n{out}"
+    );
+    // And a row in no container is not filed under the previous heading.
+    assert!(
+        out.contains("(no declared container)"),
+        "rows outside every container need a heading of their own:\n{out}"
+    );
+
+    // In JSON the container is on the row itself, so a consumer can group it any way it
+    // likes rather than parsing a layout.
+    let (json, _) = run(
+        &db,
+        &["--format", "json", "graph", &handle, "--aspect", "callers"],
+    );
+    let doc: serde_json::Value = serde_json::from_str(&json).expect("the answer is JSON");
+    let nodes = doc["data"]["nodes"].as_array().expect("nodes");
+    assert!(
+        nodes.iter().any(|n| n["symbol"]["containers"]
+            .as_array()
+            .map(|c| c.iter().any(|x| x == "w17:domain/telemetry"))
+            .unwrap_or(false)),
+        "no row carries its container in the data:\n{json}"
+    );
+}
+
+#[test]
 fn an_unresolved_code_reference_is_expected_rather_than_dropped() {
     let Some((db, _)) = index_with_connector("expected", "expected", 30) else {
         return;

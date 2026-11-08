@@ -56,7 +56,7 @@ stderr during an index nobody was watching.
 | value | what the core does with it |
 |---|---|
 | `dependency` | A change to the target affects the source. Blast radius, `affects`, `reaches` and `path` traverse it exactly as they traverse a call. |
-| `containment` | Grouping. `--within <node>` scopes an answer to what a container holds; a change to one member never reaches its siblings through it. |
+| `containment` | Grouping, both ways: `--within <node>` scopes an answer to what a container holds, and an unscoped answer is *grouped* under the containers its rows are in. A change to one member never reaches its siblings through it. |
 | `none` | Display only. |
 
 `emits` means nothing here. That a change to the event reaches the emitter is the whole of
@@ -145,6 +145,26 @@ stale: connector w17 has inputs that changed since its facts were built, so anyt
 
 A refresh that fails leaves the connector marked stale, because the facts in the index
 are still the previous run's and nothing has replaced them.
+
+## Grouping, without a filter
+
+An answer whose rows sit in declared containers says so, which makes "which domain uses
+this" readable at a glance instead of one query per domain:
+
+```
+$ cairn graph nph --aspect callers --view list
+callers of [nph] Registry.Add   depth=2 fanout=8   [L1, exact]
+  within w17:domain/telemetry
+[ay9] rpc/Station.Register                ??     ??  proto/telemetry.proto:7
+  within (no declared container)
+[7f2] seedRegistry                        fn     go  srcgo/cmd/collector/main.go:31-44
+```
+
+A row in no container gets its own heading rather than being filed under the previous
+one. In the tree view the container rides on the node instead — a tree already carries
+structure in its indentation, and a second structure fighting it makes both unreadable.
+In JSON every row carries `containers`, so a consumer groups it however it likes rather
+than parsing a layout.
 
 ## What it looks like once it works
 

@@ -67,6 +67,28 @@ connector contributing its own kinds of node and edge needs no change to the cor
 is what makes the remaining ecosystem knowledge *optional* rather than merely
 configurable.
 
+**Two things the move left behind, found by running cairn against a repository it had
+never seen.** Both are the Tier 2 shape exactly — a convention compiled in, with no way
+for a repository to say otherwise:
+
+| was | now |
+|---|---|
+| the compose file names, a constant inside the connector | `deploy.compose_files` in the pack; a repository whose stack is in `compose.w17.yaml` says so and the whole deployment layer comes alive |
+| compose `include:` ignored | followed, with each included file's own relative paths resolved from where it sits — a repository of bundles describes itself that way and cairn read half of it |
+| a service with no `command:` was unresolvable | its image's `ENTRYPOINT` is its start command, which is how most containers actually start |
+| the test suffix list, duplicated in `conventions.rs` | read from the pack, which is where the directory list already came from |
+
+And one that was not Tier 2 at all but Tier 3 — a layout assumption that failed silently,
+which is the class this document was opened for:
+
+> For Go, the indexer ran at **the shallowest `go.mod` only**, on the stated grounds that
+> "the outermost project sees every package inside it". That is true of a single-module
+> repository and false of every workspace: Go *excludes* a nested module from its parent.
+> Measured on a real monorepo — 23 modules named by `go.work`, of which one was indexed,
+> and the other 22 were absent from every answer with nothing saying so. `go.work` is now
+> authoritative where it exists, every `go.mod` is its own root otherwise, and
+> `cairn index` prints how many projects it is about to index before it starts.
+
 The in-process connector keeps privileged store access, and that is the one asymmetry
 left: external connectors emit facts and are validated, while this one writes tables. It
 is the honest position for a move rather than a rewrite, and it is written down here so

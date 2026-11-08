@@ -38,6 +38,13 @@
     "SymbolJson": {
       "description": "A symbol as data: what every JSON answer says about one.\n\nOne shape for every command, so a consumer learns it once. The fields the plan\nrequires of it — handle, the SCIP symbol string, file, line, the generated flag, the\nedge source label — plus what the text line already shows, which is free here and\nwould otherwise have to be parsed back out of `body`.\n\nLines are 1-based, as the text line prints them and as every editor counts them. The\nstore keeps them 0-based; a JSON answer that quietly used the storage convention\nwould put every consumer one line out.",
       "properties": {
+        "containers": {
+          "description": "Declared containers this symbol is part of, e.g. `w17:domain/orders`. Empty\nunless a connector declared containment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "end_line": {
           "description": "Last line of the definition's body, when the indexer emitted one.",
           "format": "int64",
@@ -105,7 +112,8 @@
         "kind",
         "lang",
         "generated",
-        "refs"
+        "refs",
+        "containers"
       ],
       "type": "object"
     },

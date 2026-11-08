@@ -11,34 +11,53 @@
 //! `test_*.py`, `go test` compiles `*_test.go`. The convention is the contract.
 
 /// Is this file a test, by the convention its own test runner uses?
+///
+/// Every list here is the rule pack's. It used to be two: the pack had one set of
+/// suffixes and this function had another, and they drifted exactly as the directory
+/// list below them had drifted before - the pack learned `.spec.tsx` and this did not,
+/// so a React component whose only caller was `Thing.spec.tsx` counted as production
+/// code and looked alive. One definition, in `rules/default.yaml`, where a repository
+/// can also override it.
 pub fn is_test_path(path: &str) -> bool {
+    let rules = crate::rules::Rules::default();
+    is_test_path_with(path, &rules.tests)
+}
+
+/// The same question against a specific pack, which is what a store with its own
+/// `rules.yaml` holds.
+pub fn is_test_path_with(path: &str, tests: &crate::rules::TestRules) -> bool {
     let file = path.rsplit('/').next().unwrap_or(path);
-    // Go: the toolchain only compiles `*_test.go` into the test binary.
-    if file.ends_with("_test.go") {
+    // `go test` compiles `*_test.go`; pytest collects `test_*.py`; jest and vitest take
+    // `*.test.*` and `*.spec.*`. The convention is the contract, which is why patterns
+    // are the right signal here and the wrong one for generated code (7.3).
+    if tests
+        .file_suffixes
+        .iter()
+        .any(|s| file.ends_with(s.as_str()))
+    {
         return true;
     }
-    // Python: pytest's default collection patterns.
-    if file.starts_with("test_") && file.ends_with(".py") {
-        return true;
-    }
-    if file.ends_with("_test.py") {
-        return true;
-    }
-    // JS/TS: jest and vitest defaults.
-    for suffix in [".test.ts", ".test.tsx", ".test.js", ".spec.ts", ".spec.js"] {
-        if file.ends_with(suffix) {
+    if tests
+        .file_prefixes
+        .iter()
+        .any(|p| file.starts_with(p.as_str()))
+    {
+        // A prefix alone is not enough: `test_helper.go` is Go source, and only pytest
+        // collects by prefix. Kept to the languages whose runners do.
+        if file.ends_with(".py") || file.ends_with(".ts") || file.ends_with(".tsx") {
             return true;
         }
     }
     // Directory conventions, checked last: a helper inside a tests/ tree is still
     // test-only code even when its own name says nothing.
-    //
-    // The list is the rule pack's, not a second copy of it. It was a second copy, and the
-    // two drifted the moment a JavaScript repository arrived: the pack could be taught
-    // `/__tests__/` and this could not, so stubs and fixtures under it stayed production
-    // code and kept 55 symbols looking alive whose only caller was a test.
-    let dirs = &crate::rules::Rules::default().tests.path_contains;
-    dirs.iter().any(|d| path.contains(d.as_str())) || path.starts_with("tests/")
+    tests
+        .path_contains
+        .iter()
+        .any(|d| path.contains(d.as_str()))
+        || tests
+            .path_prefixes
+            .iter()
+            .any(|p| path.starts_with(p.as_str()))
 }
 
 #[cfg(test)]
@@ -56,6 +75,20 @@ mod tests {
         ));
     }
 
+    /// The suffixes that were in the pack and not in this file. A React component's
+    /// tests are `Thing.spec.tsx`, and every one of them counted as production code.
+    #[test]
+    fn recognises_the_suffixes_the_second_copy_had_missed() {
+        for path in [
+            "frontend/apps/auth/src/Thing.spec.tsx",
+            "frontend/apps/auth/src/Thing.test.tsx",
+            "frontend/apps/auth/src/thing.spec.jsx",
+            "frontend/apps/auth/src/thing.test.jsx",
+        ] {
+            assert!(is_test_path(path), "{path} is a test by its runner's rule");
+        }
+    }
+
     #[test]
     fn leaves_ordinary_code_alone() {
         assert!(!is_test_path("srcgo/domains/x/handler.go"));
@@ -63,6 +96,9 @@ mod tests {
         // A word that merely contains "test" is not a convention.
         assert!(!is_test_path("srcpy/domains/x/latest.py"));
         assert!(!is_test_path("srcpy/domains/x/protest.py"));
+        // A prefix without its language: only pytest collects by prefix, and
+        // `test_helper.go` is ordinary Go source.
+        assert!(!is_test_path("srcgo/domains/x/test_helper.go"));
     }
 }
 

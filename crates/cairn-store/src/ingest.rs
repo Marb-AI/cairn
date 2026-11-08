@@ -107,6 +107,9 @@ pub fn ingest_scip(
 ) -> Result<IngestStats> {
     let index = cairn_scip::load(index_path)?;
     let mut stats = IngestStats::default();
+    // Cloned before the transaction borrows the store, so the test convention used here
+    // is the repository's own pack rather than the built-in default.
+    let store_tests = store.rules.tests.clone();
 
     // SCIP document paths are relative to the *indexer's* project root, which for a
     // multi-language repo is a subdirectory (srcpy/, srcgo/). Everything downstream
@@ -161,6 +164,9 @@ pub fn ingest_scip(
             &["src_symbol", "dst_symbol", "kind", "source", "confidence"],
         );
 
+        // Taken once: the pack does not change while an ingest runs, and cloning it per
+        // document would be a clone per file.
+        let tests = store_tests.clone();
         for doc in &index.documents {
             let lang = detect_lang(doc);
             let (generated, via) =
@@ -178,7 +184,11 @@ pub fn ingest_scip(
                 continue;
             };
             let path_id = interner.intern(&rel_path)?;
-            let is_test = crate::conventions::is_test_path(&rel_path);
+            // The store's own pack, not the built-in one: a repository that dropped a
+            // `rules.yaml` naming its test convention was overridden everywhere except
+            // here, which is the one place the answer is written down - every later
+            // query reads `files.is_test` from this row.
+            let is_test = crate::conventions::is_test_path_with(&rel_path, &tests);
             if is_test {
                 stats.test_files += 1;
             }

@@ -32,7 +32,7 @@ use anyhow::{Context, Result};
 use rusqlite::params;
 use serde_yaml::Value;
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// One row of the stored deployment table: name, start command, entry file path, ports,
 /// and whether the entry file was resolved to a symbol at all.
@@ -124,6 +124,13 @@ pub struct Service {
     pub command: Option<String>,
     /// Build context directory, relative to the repo root.
     pub build_context: Option<String>,
+    /// The Dockerfile, relative to the build context, as compose spells it. `None` means
+    /// the compose default, `<context>/Dockerfile`.
+    ///
+    /// Not a detail: a bundle whose compose says `context: ../../..` and `dockerfile:
+    /// w17/services/x/Dockerfile` builds from the repository root with a Dockerfile three
+    /// levels down, and reading `<context>/Dockerfile` finds the wrong file or none.
+    pub dockerfile: Option<String>,
     /// Image, for services that are not built from source (postgres, redis).
     pub image: Option<String>,
     pub ports: Vec<String>,
@@ -154,11 +161,38 @@ pub fn parse_compose(repo: &Path, files: &[&str]) -> Result<Topology> {
     let mut topo = Topology::default();
     let mut merged: HashMap<String, Value> = HashMap::new();
 
-    for name in files {
-        let path = repo.join(name);
+    // A worklist rather than a loop over the list, because compose files bring in other
+    // compose files: `include:` is how a repository of bundles describes itself, and the
+    // services it names live in the included files rather than in the one that lists
+    // them. Measured on a real monorepo: cairn read 39 service *names* and not one
+    // command, because every command was one `include:` away.
+    //
+    // Paths inside an included file are relative to that file's directory, which is also
+    // true of its `build.context` - so the context is rewritten to be repo-relative as
+    // the services are read, or every Dockerfile lookup afterwards would be relative to
+    // the wrong place.
+    let mut queue: Vec<(PathBuf, String)> = files
+        .iter()
+        .map(|name| (repo.join(name), name.to_string()))
+        .collect();
+    let mut seen: Vec<PathBuf> = Vec::new();
+    // A bound rather than trust: `include:` can be cyclic, and a cycle here would be an
+    // index that never finishes rather than a bad answer.
+    const MAX_FILES: usize = 200;
+
+    while let Some((path, label)) = queue.first().cloned() {
+        queue.remove(0);
+        if seen.len() >= MAX_FILES {
+            break;
+        }
+        let canonical = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
+        if seen.contains(&canonical) {
+            continue;
+        }
         if !path.exists() {
             continue;
         }
+        seen.push(canonical);
         let text = std::fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
         let mut doc: Value =
@@ -166,21 +200,34 @@ pub fn parse_compose(repo: &Path, files: &[&str]) -> Result<Topology> {
         // Resolve `<<:` merge keys. Without this every service in this repo comes back
         // empty, because build context, env and init all arrive through a merge.
         doc.apply_merge().ok();
-        topo.sources.push(name.to_string());
+        topo.sources.push(label);
+
+        // Where this file's own relative paths start from.
+        let dir = path.parent().unwrap_or(repo).to_path_buf();
+        for included in includes(&doc) {
+            let target = dir.join(&included);
+            let label = target
+                .strip_prefix(repo)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| included.clone());
+            queue.push((target, label));
+        }
 
         let Some(services) = doc.get("services").and_then(|v| v.as_mapping()) else {
             continue;
         };
         for (k, v) in services {
             let Some(name) = k.as_str() else { continue };
+            let mut value = v.clone();
+            rebase_build_context(&mut value, repo, &dir);
             // Compose merges override files field by field; replacing the whole service
             // drops everything the base file defined. Measured: doing that left 16 of 17
             // services with no command at all, because compose.local.yaml redefines them
             // with only a volume or two.
             match merged.get_mut(name) {
-                Some(existing) => deep_merge(existing, v),
+                Some(existing) => deep_merge(existing, &value),
                 None => {
-                    merged.insert(name.to_string(), v.clone());
+                    merged.insert(name.to_string(), value);
                 }
             }
         }
@@ -224,6 +271,77 @@ fn as_string_list(v: Option<&Value>) -> Vec<String> {
     }
 }
 
+/// The compose files a file pulls in, as written.
+///
+/// Both shapes compose accepts: a list of paths, and a list of mappings with `path:`
+/// (whose value may itself be a list, for a bundle assembled from several files).
+fn includes(doc: &Value) -> Vec<String> {
+    let mut out = Vec::new();
+    let Some(list) = doc.get("include").and_then(|v| v.as_sequence()) else {
+        return out;
+    };
+    for entry in list {
+        match entry {
+            Value::String(s) => out.push(s.clone()),
+            Value::Mapping(m) => match m.get(Value::String("path".into())) {
+                Some(Value::String(s)) => out.push(s.clone()),
+                Some(Value::Sequence(paths)) => {
+                    out.extend(paths.iter().filter_map(|p| p.as_str()).map(String::from))
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Make a service's `build.context` repo-relative, whatever file it was declared in.
+///
+/// An included bundle says `context: ../../..` and means the repository root. Left as
+/// written, every later lookup - the Dockerfile that names the binary, and through it the
+/// package a start command lands in - would be resolved from the wrong directory and find
+/// nothing.
+fn rebase_build_context(value: &mut Value, repo: &Path, dir: &Path) {
+    if dir == repo {
+        return;
+    }
+    let Some(map) = value.as_mapping_mut() else {
+        return;
+    };
+    let key = Value::String("build".into());
+    let rebased = match map.get(&key) {
+        Some(Value::String(s)) => Some(Value::String(rebase_path(repo, dir, s))),
+        Some(Value::Mapping(m)) => {
+            let mut m = m.clone();
+            if let Some(Value::String(c)) = m.get(Value::String("context".into())) {
+                let fixed = rebase_path(repo, dir, c);
+                m.insert(Value::String("context".into()), Value::String(fixed));
+            }
+            Some(Value::Mapping(m))
+        }
+        _ => None,
+    };
+    if let Some(v) = rebased {
+        map.insert(key, v);
+    }
+}
+
+/// `dir` + `relative`, expressed from `repo`. Empty string for the repository root, which
+/// is how an unprefixed path is spelled everywhere else here.
+fn rebase_path(repo: &Path, dir: &Path, relative: &str) -> String {
+    let joined = dir.join(relative.trim_start_matches("./"));
+    let cleaned = match std::fs::canonicalize(&joined) {
+        Ok(c) => c,
+        Err(_) => joined,
+    };
+    let root = std::fs::canonicalize(repo).unwrap_or_else(|_| repo.to_path_buf());
+    cleaned
+        .strip_prefix(&root)
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|_| relative.to_string())
+}
+
 fn service_from_value(name: &str, v: &Value) -> Service {
     let mut svc = Service {
         name: name.to_string(),
@@ -247,6 +365,13 @@ fn service_from_value(name: &str, v: &Value) -> Service {
         Some(Value::Mapping(m)) => m
             .get(Value::String("context".into()))
             .and_then(|c| c.as_str())
+            .map(|s| s.trim_start_matches("./").to_string()),
+        _ => None,
+    };
+    svc.dockerfile = match v.get("build") {
+        Some(Value::Mapping(m)) => m
+            .get(Value::String("dockerfile".into()))
+            .and_then(|d| d.as_str())
             .map(|s| s.trim_start_matches("./").to_string()),
         _ => None,
     };
@@ -417,6 +542,84 @@ pub enum CommandTarget {
 /// `RUN xx-go build -o /out/grpcserver ./cmd/grpcserver/server.go`. The build wrapper is
 /// `xx-go` here rather than `go`, which is why this matches on `build -o` rather than on
 /// the command name.
+/// Where a service's Dockerfile is, given its build context and what compose said.
+///
+/// `dockerfile:` is relative to the context, which is compose's own rule. Without it the
+/// path was always `<context>/Dockerfile`, which finds the wrong file for any service
+/// that builds from a directory above the one it lives in.
+pub fn dockerfile_path(repo: &Path, context: Option<&str>, dockerfile: Option<&str>) -> PathBuf {
+    let base = repo.join(context.unwrap_or_default());
+    match dockerfile {
+        Some(d) => base.join(d),
+        None => base.join("Dockerfile"),
+    }
+}
+
+/// A service's Dockerfile, read, or empty when there is none to read.
+fn dockerfile_text(repo: &Path, svc: &Service) -> String {
+    let path = dockerfile_path(
+        repo,
+        svc.build_context.as_deref(),
+        svc.dockerfile.as_deref(),
+    );
+    std::fs::read_to_string(path).unwrap_or_default()
+}
+
+/// The command an image starts with, read from its Dockerfile.
+///
+/// `ENTRYPOINT` first, then `CMD`: that is docker's own precedence for what runs, and a
+/// compose `command:` overrides only the second of them. `CMD` inside a `HEALTHCHECK` is
+/// skipped - it is the probe, not the process, and reading it as the start command would
+/// point the whole chain at a health subcommand.
+pub fn image_start_command(dockerfile: &str) -> Option<String> {
+    let mut entrypoint = None;
+    let mut cmd = None;
+    let mut in_healthcheck = false;
+    for raw in dockerfile.lines() {
+        let line = raw.trim();
+        let continues = line.ends_with('\\');
+        if in_healthcheck {
+            in_healthcheck = continues;
+            continue;
+        }
+        let upper = line.to_uppercase();
+        if upper.starts_with("HEALTHCHECK") {
+            // Its own CMD is on this line or a continuation of it.
+            in_healthcheck = continues;
+            continue;
+        }
+        if upper.starts_with("ENTRYPOINT") && entrypoint.is_none() {
+            entrypoint = instruction_words(line);
+        } else if upper.starts_with("CMD") && cmd.is_none() {
+            cmd = instruction_words(line);
+        }
+    }
+    entrypoint.or(cmd)
+}
+
+/// The words of an `ENTRYPOINT`/`CMD`, in either form: `["/server", "x"]` or `/server x`.
+fn instruction_words(line: &str) -> Option<String> {
+    let rest = line
+        .split_once(char::is_whitespace)
+        .map(|(_, r)| r.trim())
+        .unwrap_or("");
+    if rest.is_empty() {
+        return None;
+    }
+    if let Some(inner) = rest.strip_prefix('[').and_then(|r| r.strip_suffix(']')) {
+        let words: Vec<String> = inner
+            .split(',')
+            .map(|w| w.trim().trim_matches('"').trim_matches('\'').to_string())
+            .filter(|w| !w.is_empty())
+            .collect();
+        if words.is_empty() {
+            return None;
+        }
+        return Some(words.join(" "));
+    }
+    Some(rest.to_string())
+}
+
 pub fn binary_to_package(dockerfile: &str, binary: &str) -> Option<String> {
     let mut out_path: Option<String> = None;
     for line in dockerfile.lines() {
@@ -531,15 +734,30 @@ impl Store {
 
     /// File the service's start command lands in, or None when it could not be resolved.
     fn resolve_entry_file(&self, repo: &Path, svc: &Service) -> Result<Option<i64>> {
-        let Some(command) = &svc.command else {
+        // A compose `command:` overrides the image's own start, and when there is none
+        // the image's `ENTRYPOINT` *is* the start command - which is the ordinary
+        // production shape, not an edge case. Measured on a real monorepo: 8 of its
+        // services declare no command at all, start through `ENTRYPOINT ["/server"]`,
+        // and every one of them was reported as an entrypoint that did not resolve. The
+        // deployment layer was blind to the commonest way a container starts.
+        let own = svc
+            .command
+            .clone()
+            .or_else(|| image_start_command(&dockerfile_text(repo, svc)));
+        let Some(command) = own else {
             return Ok(None);
         };
-        let Some(target) = resolve_command_with(command, &self.rules) else {
+        let Some(target) = resolve_command_with(&command, &self.rules) else {
             return Ok(None);
         };
         // Paths in the index are repo-relative and prefixed by the source root, which is
         // the build context for a built service.
-        self.entry_file_for_target(repo, &target, svc.build_context.as_deref())
+        self.entry_file_for_target_in(
+            repo,
+            &target,
+            svc.build_context.as_deref(),
+            svc.dockerfile.as_deref(),
+        )
     }
 
     /// The file a resolved command lands in. Split out from `resolve_entry_file` so a
@@ -551,6 +769,16 @@ impl Store {
         target: &CommandTarget,
         build_context: Option<&str>,
     ) -> Result<Option<i64>> {
+        self.entry_file_for_target_in(repo, target, build_context, None)
+    }
+
+    fn entry_file_for_target_in(
+        &self,
+        repo: &Path,
+        target: &CommandTarget,
+        build_context: Option<&str>,
+        dockerfile: Option<&str>,
+    ) -> Result<Option<i64>> {
         let prefix = build_context.unwrap_or_default().to_string();
 
         let path_hint = match target {
@@ -560,9 +788,26 @@ impl Store {
             }
             CommandTarget::Idle => return Ok(None),
             CommandTarget::Binary(bin) => {
-                let dockerfile = repo.join(&prefix).join("Dockerfile");
-                let text = std::fs::read_to_string(dockerfile).unwrap_or_default();
-                binary_to_package(&text, bin).map(|pkg| format!("{prefix}/{pkg}"))
+                // The package in `go build -o /server ./src` is relative to the tree the
+                // Dockerfile was written beside, not to the build context: a bundle
+                // builds from the repository root with its Dockerfile three levels down,
+                // and `./src` means the bundle's own `src`. Where the two are the same
+                // directory - the ordinary single-tree case - this is what it always was.
+                let file = dockerfile_path(repo, Some(&prefix), dockerfile);
+                let text = std::fs::read_to_string(&file).unwrap_or_default();
+                let base = file
+                    .parent()
+                    .and_then(|d| d.strip_prefix(repo).ok())
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|| prefix.clone());
+                binary_to_package(&text, bin).map(|pkg| {
+                    let pkg = pkg.trim_start_matches("./");
+                    if base.is_empty() {
+                        pkg.to_string()
+                    } else {
+                        format!("{base}/{pkg}")
+                    }
+                })
             }
             // A management command is found by the convention that names the file after
             // the command. Same class of thing as the protobuf naming convention, and

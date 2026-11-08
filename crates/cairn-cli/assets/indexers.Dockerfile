@@ -61,15 +61,22 @@ COPY --from=node:22-bookworm-slim /usr/local/lib/node_modules /usr/local/lib/nod
 # that says `extends: "expo/tsconfig.base"` cannot even be read without them — but that is
 # the repository's business, not the image's; what belongs here is the indexer itself.
 #
+# Pinned, like the Go tools above and for the reason they had to be: `@latest` makes the
+# image a function of the day it was built, and the version tag on it then promises
+# something it cannot keep. These are the versions the image was last verified with -
+# against a real monorepo - so bumping any of them is a commit someone can point at when
+# an indexer starts behaving differently.
+#
 # The package managers too. cairn installs a project's declared dependencies itself, from
 # its own lockfile into a volume cairn owns - reading the user's `node_modules` is not an
 # option, because a team that builds in Docker has none and a team that has them today can
 # stop tomorrow. Which manager runs is decided by the lockfile in the repository, so all of
 # them have to be here.
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
- && npm install -g @sourcegraph/scip-python@latest pyright@latest \
-      @sourcegraph/scip-typescript@latest typescript typescript-language-server@latest \
-      pnpm@latest yarn@latest bun@latest
+ && npm install -g @sourcegraph/scip-python@0.6.8 pyright@1.1.414 \
+      @sourcegraph/scip-typescript@0.6.1 typescript@7.0.2 \
+      typescript-language-server@6.0.3 \
+      pnpm@12.18.0 yarn@1.22.22 bun@1.4.4
 
 # The Go toolchain as well as the indexer: scip-go runs `go list` against the module it is
 # indexing, so the compiler has to be here too. gopls is the Go half of the live overlay.

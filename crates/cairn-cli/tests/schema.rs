@@ -467,7 +467,8 @@ fn a_broken_document_is_rejected() {
             "symbol": {
                 "handle": "abc", "symbol": null, "name": "f", "qualified": "f",
                 "kind": "fn", "lang": "go", "file": null, "line": null,
-                "end_line": null, "generated": false, "refs": 0, "source": null
+                "end_line": null, "generated": false, "refs": 0, "source": null,
+                "containers": []
             }
         }
     });

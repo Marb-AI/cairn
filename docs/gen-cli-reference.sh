@@ -106,7 +106,8 @@ A connector contributes what cairn cannot derive: a service contract, a domain, 
 entity. Its nodes are addressable by the id it gave them — `cairn affects
 w17:domain/orders` — and its dependency edges travel exactly as calls do, labelled
 `L1, declared by <connector>`. `--within <node>` scopes an answer to one declared
-container, and says in `suppressed:` what the scope cut.
+container and says in `suppressed:` what the scope cut; an unscoped answer is grouped
+under the containers its rows are in, and in JSON every row carries `containers`.
 
 Nothing under `.cairn/connectors/` means nothing changes. Writing one:
 [`docs/connectors.md`](connectors.md).

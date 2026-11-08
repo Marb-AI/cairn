@@ -144,13 +144,30 @@ pub fn change(
     let (refs, suppressed_generated, total) = store.references(symbol_id, false, 40)?;
     let ctx = cairn_fmt::SiteContext::auto(None, refs.len());
     let mut source = repo.map(|r| cairn_fmt::Source::new(r.to_path_buf()));
+    // The assembled answer groups its sites the same way `refs` does: the declared
+    // container of the function each one sits in, where a connector declared any.
+    let mut containers = std::collections::BTreeMap::new();
+    for id in refs.iter().filter_map(|r| r.enclosing_id) {
+        let names: Vec<String> = store
+            .containers_of(id)?
+            .into_iter()
+            .map(|c| c.node_id)
+            .collect();
+        if !names.is_empty() {
+            containers.insert(id, names);
+        }
+    }
+    let containers = cairn_fmt::Containers(containers);
     let sites = cairn_fmt::references_with_context(
         &sym,
         &refs,
         suppressed_generated,
         total,
-        source.as_mut(),
-        ctx,
+        cairn_fmt::SiteView {
+            source: source.as_mut(),
+            context: ctx,
+            containers: &containers,
+        },
         budget,
     );
     let _ = writeln!(body, "{}", sites.body.trim_end());
