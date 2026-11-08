@@ -3,8 +3,13 @@ Start every shell command by changing into that directory, or use absolute paths
 
 ## The tools you have
 
-`cairn` is on your PATH at `/home/workspaces/cairn/cairn/eval/armbin/cairn`. Run it from
-inside the repository. Its guide follows below — read it before you start.
+`cairn` is at `/home/workspaces/cairn/cairn/eval/armbin/cairn`. **Run it by that path.** Its
+guide follows below — read it before you start.
+
+The bare name `cairn` resolves to an old install on this machine which cannot read this
+index and exits 3. That is the measuring rig's fault, not the tool's, and it is said here
+so no run spends itself rediscovering it: one earlier round lost three round trips to it
+and was discarded for that reason.
 
 You may also read files (the Read tool) and list directories.
 

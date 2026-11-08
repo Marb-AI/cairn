@@ -35,13 +35,21 @@ pub fn find(
     budget: &mut Budget,
 ) -> Result<(Envelope, bool)> {
     let found = treefind::search(repo, needle, limit);
+    // Once, not per hit: the roots are what separate a file the index missed from a file
+    // the repository excluded, and both arrive here as simply absent.
+    let roots = store.indexed_project_roots()?;
     let mut lines = Vec::with_capacity(found.hits.len());
     for h in &found.hits {
+        let mut context = store.line_context(&h.path, h.line as i64)?;
+        if !context.indexed {
+            context.inside_indexed_project =
+                cairn_store::attribute::inside_any_root(&roots, &h.path);
+        }
         lines.push(cairn_fmt::FoundLine {
             path: h.path.clone(),
             line: h.line,
             text: h.text.clone(),
-            context: store.line_context(&h.path, h.line as i64)?,
+            context,
             around: h.context.clone(),
         });
     }

@@ -7,6 +7,7 @@
 
 use anyhow::Result;
 use rusqlite::Connection;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 pub mod affects;
@@ -452,23 +453,83 @@ impl Store {
     }
 
     /// Per-language source roots recorded at index time, as `(lang tag, relative dir)`.
+    ///
+    /// `roots.<lang>` holds every project of that language, newline-separated, and is what
+    /// this reads. `root.<lang>` — one value, overwritten by each project in turn — is
+    /// still written for the language servers, which want a single directory to start in,
+    /// and is the fallback for an index built before the set was recorded.
     pub fn language_roots(&self) -> Result<Vec<(String, String)>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT key, value FROM meta WHERE key LIKE 'root.%'")?;
-        let rows = stmt.query_map([], |r| {
-            Ok((
-                r.get::<_, String>(0)?
-                    .trim_start_matches("root.")
-                    .to_string(),
-                r.get::<_, String>(1)?,
-            ))
-        })?;
-        let mut out = Vec::new();
+            .prepare("SELECT key, value FROM meta WHERE key LIKE 'roots.%' OR key LIKE 'root.%'")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        let mut sets: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        let mut singles: BTreeMap<String, String> = BTreeMap::new();
         for r in rows {
-            out.push(r?);
+            let (key, value) = r?;
+            if let Some(lang) = key.strip_prefix("roots.") {
+                sets.insert(
+                    lang.to_string(),
+                    value
+                        .lines()
+                        .filter(|l| !l.is_empty())
+                        .map(String::from)
+                        .collect(),
+                );
+            } else if let Some(lang) = key.strip_prefix("root.") {
+                singles.insert(lang.to_string(), value);
+            }
+        }
+        let mut out = Vec::new();
+        for (lang, roots) in &sets {
+            for root in roots {
+                out.push((lang.clone(), root.clone()));
+            }
+        }
+        for (lang, root) in singles {
+            if !sets.contains_key(&lang) {
+                out.push((lang, root));
+            }
         }
         Ok(out)
+    }
+
+    /// Record one project of one language, keeping any already recorded.
+    ///
+    /// Read-modify-write rather than a table: a project set is a handful of short strings
+    /// and `meta` already survives every reindex path, so this needs no migration and an
+    /// index built before it simply has no `roots.*` key.
+    pub fn add_project_root(&self, lang: &str, root: &str) -> Result<()> {
+        let key = format!("roots.{lang}");
+        let mut roots: Vec<String> = self
+            .get_meta(&key)?
+            .unwrap_or_default()
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(String::from)
+            .collect();
+        if !roots.iter().any(|r| r == root) {
+            roots.push(root.to_string());
+        }
+        roots.sort();
+        self.set_meta(&key, &roots.join("\n"))
+    }
+
+    /// Every directory the index was built from, any language, shortest path first.
+    ///
+    /// Empty means the index does not know — an older index, or one built from nothing —
+    /// and the difference between "does not know" and "knows it is none" matters: the
+    /// first cannot support a claim about what a missing file means.
+    pub fn indexed_project_roots(&self) -> Result<Vec<String>> {
+        let mut roots: Vec<String> = self
+            .language_roots()?
+            .into_iter()
+            .map(|(_, r)| r)
+            .filter(|r| !r.is_empty() && r != ".")
+            .collect();
+        roots.sort();
+        roots.dedup();
+        Ok(roots)
     }
 
     pub fn counts(&self) -> Result<Counts> {

@@ -223,3 +223,43 @@ mod tests {
         assert!(!pid_alive(0));
     }
 }
+
+#[cfg(test)]
+mod root_set_tests {
+    use crate::Store;
+
+    fn store() -> Store {
+        Store::open_in_memory().expect("in-memory store")
+    }
+
+    #[test]
+    fn a_language_with_two_projects_keeps_both() {
+        // `root.<lang>` is one key with one value, so the second project of a language
+        // overwrote the first and the index then claimed to cover half of what it covered.
+        // Measured on a two-app pnpm workspace: `coverage_summary` named one app.
+        let s = store();
+        s.add_project_root("ts", "apps/marb").unwrap();
+        s.add_project_root("ts", "apps/rixby").unwrap();
+        let roots = s.indexed_project_roots().unwrap();
+        assert_eq!(roots, vec!["apps/marb", "apps/rixby"]);
+        let summary = s.coverage_summary().unwrap();
+        assert!(summary.contains("apps/marb"), "{summary}");
+        assert!(summary.contains("apps/rixby"), "{summary}");
+    }
+
+    #[test]
+    fn recording_the_same_project_twice_records_it_once() {
+        let s = store();
+        s.add_project_root("go", "srcgo").unwrap();
+        s.add_project_root("go", "srcgo").unwrap();
+        assert_eq!(s.indexed_project_roots().unwrap(), vec!["srcgo"]);
+    }
+
+    #[test]
+    fn an_index_without_the_set_falls_back_to_the_single_root() {
+        // What an index built before this change looks like: `root.ts` and no `roots.ts`.
+        let s = store();
+        s.set_meta("root.ts", "apps/rixby").unwrap();
+        assert_eq!(s.indexed_project_roots().unwrap(), vec!["apps/rixby"]);
+    }
+}

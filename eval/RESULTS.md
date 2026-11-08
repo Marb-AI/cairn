@@ -2989,3 +2989,190 @@ vznikly z **otázky položené celému stromu**, ne ze sítí — *„pravidlo p
 jazyky"* (sedm defektů, čtyři z nich mlčení) a *„zapisuje index vůbec, že je neúplný?"*
 (tři). Sítě svítily zeleně po celou dobu. Potvrzují, co byly postavené potvrdit; novou
 třídu najde otázka.
+
+---
+
+## Round 3, frontend — pre-registered 2026-11-08, before any arm was run
+
+Written and committed **before any number exists**, on the protocol's own terms: the design
+cannot be tuned once the result is visible. The scenarios and answer keys are unchanged from
+`SCENARIOS-FRONTEND.md`; what follows is what differs about this round and what it is
+predicted to show.
+
+### What is frozen
+
+| | |
+|---|---|
+| commit | `41faa63` |
+| binary | `cairn 0.1.2`, sha256 `7679062ee42bb287…`, one build for every run |
+| index | 841 files, 23,117 symbols, 122,572 occurrences, **two** projects |
+| index health | `stale: none`, `suppressed: none`, **`unknown: none`** |
+
+`entrypoints` and `cross-api` report `n/a` — no compose file and no `.proto` in this tree —
+and `n/a` is now reported as *not applicable* rather than as a failure. Until this week every
+frontend answer carried "2 mechanism(s) did not complete". That was the tool lying about
+itself on this corpus, in the one line the whole design puts the honesty in.
+
+### r1 and r2 are not pooled into this, and that is the main thing to know
+
+Three of the inputs changed, so the six recorded ratios and whatever this round produces are
+measurements of different things:
+
+- **The corpus as indexed is smaller: 1,059 files → 841.** The workspace excludes a retired
+  app; cairn used to index it anyway. In r1 that app's 218 files were *in* the index.
+- **The binary is nine commits newer**, including the merged-context change that cut one F2
+  answer from 604 words to 344 — already recorded above as a token change, not a round-trip
+  one.
+- **Both of those were found while setting this round up.** This is not a clean re-measure of
+  an old binary; it is a first measure of a corrected one.
+
+### One asymmetry, stated before the runs rather than explained after them
+
+F1 rests on a name defined twice in the workspace. That namesake exists **only in the retired
+app**, so as of this commit it is presented to the grep arm — which reads the tree — and not
+to the cairn arm, whose index honours the workspace's own exclusion. Cairn is therefore
+spared, by its own fix, part of the ambiguity F1 was built to make it resolve.
+
+That is the tool's real behaviour and the point of having it, so it is not corrected for. What
+it does mean is that an F1 win this round is a *weaker* result than an F1 win in r1 would have
+been, and it will be read that way. The grading is unchanged except for one clause fixed now,
+in advance: naming the retired app **as part of this app's flow** is worse, as the key says;
+naming it and saying correctly that it is excluded is *same*.
+
+### Design
+
+Three scenarios × two arms × **three runs** per arm = 18 runs, the full protocol rather than
+r1 and r2's single run per arm. Run in three batches of six — one run of each scenario in each
+arm per batch — so parallelism is constant and identical across the arms being compared, which
+it was not when a batch held one arm only. Round trips come from `cluster.py`, whose threshold
+is computed from each run's own gaps; the largest within-turn gap is reported per run, so a run
+where six-way parallelism stretched a batched dispatch far enough to matter is visible rather
+than assumed. Arm compliance is audited from the hook logs, not from what the answer says it did.
+
+Acceptance rule unchanged: same answer → at most half the round trips or half the wall clock;
+better answer → no more than the baseline; **a worse answer fails at any price.**
+
+### Prediction, recorded now
+
+| scenario | prediction |
+|---|---|
+| F1 generated-code trace | cairn below r2's 1.33, in the 0.6–1.0 band. **Not** predicted to meet ≤0.50 |
+| F2 translation key | cairn wins and is the one scenario meeting acceptance: ≤0.50 |
+| F3 ordinary reference | a tie, ≈1.0, as s01 is on the backend |
+
+**Overall: a median of the nine ratios in the 0.7–0.9 band — no better than the recorded
+0.84, and still short of acceptance in two of three scenarios.** The conclusion that would
+follow is the one already on record: cairn's measured value is concentrated in codebases with
+a service boundary, and a frontend is not where to reach for it. A round predicted to confirm
+that is still worth running, because the alternative is quoting a number from a binary that no
+longer exists.
+
+### Addendum to the pre-registration, written after six runs and before any counted one
+
+The first batch of six was **discarded and re-run**, and the reason is recorded here rather
+than in a footnote because it changed the arm.
+
+`/usr/local/bin/cairn` on the measuring machine is an 0.1.1 install that reads schema v16 and
+exits 3 on any current index. The arm preamble names the binary under test by full path and
+`armbin/cairn` refuses to run anything else — so the *arm* could not be fooled, but a run that
+typed the bare name could, and two of three cairn runs did: 3 of 22 round trips in F1, 4 of 14
+in F3, 0 in F2. The grep arm cannot suffer the equivalent. A rig defect that taxes one arm
+unevenly, in the metric being reported, is not a result.
+
+The cairn preamble now says the bare name is a stale install and to use the path. That is a
+change to the arm, so it is stated before the numbers exist and not after. The machine itself
+was left alone: replacing a root-owned system binary is the owner's decision, not something a
+measurement does on the way past.
+
+Both discarded batches' logs are kept as `DISCARDED-batch1-stale-path-*`. Their answers are
+still evidence — both arms answered all three scenarios completely — and only the round-trip
+counts are thrown away. The prediction above is unchanged; it was written before any of this.
+
+### Round 3 result, frontend — `41faa63`, 18 runs
+
+Nine ratios, three per scenario, cairn over grep. Round trips from `cluster.py`; wall clock
+beside them because the acceptance rule accepts either.
+
+| scenario | run | cairn rt | grep rt | ratio | cairn s | grep s | wall ratio |
+|---|---|---|---|---|---|---|---|
+| F1 generated-code trace | 1 | 16 | 22 | 0.73 | 71.7 | 66.3 | 1.08 |
+| | 2 | 17 | 23 | 0.74 | 67.3 | 68.9 | 0.98 |
+| | 3 | 25 | 16 | **1.56** | 101.3 | 49.7 | 2.04 |
+| | **median** | | | **0.74** | | | 1.08 |
+| F2 translation key | 1 | 3 | 7 | 0.43 | 10.9 | 27.0 | 0.40 |
+| | 2 | 4 | 9 | 0.44 | 15.8 | 50.2 | 0.31 |
+| | 3 | 5 | 6 | 0.83 | 24.5 | 24.6 | 1.00 |
+| | **median** | | | **0.44** | | | **0.40** |
+| F3 ordinary reference | 1 | 8 | 6 | **1.33** | 36.2 | 37.6 | 0.96 |
+| | 2 | 5 | 9 | 0.56 | 20.7 | 51.7 | 0.40 |
+| | 3 | 7 | 8 | 0.88 | 19.7 | 38.4 | 0.51 |
+| | **median** | | | **0.88** | | | 0.51 |
+
+**Median of the nine: 0.74.** Sorted: 0.43, 0.44, 0.56, 0.73, 0.74, 0.83, 0.88, 1.33, 1.56.
+
+**Answers: all eighteen complete, in both arms, in all three scenarios.** Every F1 run named
+the generated call, the generated wrapper and the use in the chat component, and every one of
+them went a hop further than the key asks — to the confirm modal and the button that opens it —
+so the acceptance rule is applied at *same answer*, where it is strictest. No run named the
+retired app as part of the flow; the runs that mentioned it said correctly that it is retired
+or outside the index. Every F2 run gave the key, both translations and the component. Every F3
+run gave all four components.
+
+**So one scenario of three meets acceptance.** F2: 0.44 round trips and 0.40 wall clock, both
+inside the half. F1 fails at 0.74, F3 fails at 0.88 — and F3's wall-clock median, 0.51, misses
+by a hundredth, which is the least interesting way to fail a threshold and still a fail.
+
+### The pre-registered prediction was right, which is the part worth keeping
+
+| predicted | measured |
+|---|---|
+| F1 in the 0.6–1.0 band, not meeting ≤0.50 | 0.74, does not meet |
+| F2 wins and is the one scenario meeting acceptance | 0.44 / 0.40, meets |
+| F3 a tie, ≈1.0 | 0.88 |
+| overall median 0.7–0.9, no better than the recorded 0.84 | **0.74** |
+
+Four for four, written before any run. That matters more than the number: the account of *where*
+this tool pays — a service boundary, a deployment topology, a question whose subject is not a
+symbol — predicted a frontend's result in advance, including which single scenario would win.
+0.74 against the old 0.84 is not an improvement to claim; the corpus, the binary and the arm all
+changed, and the two numbers are not comparable. What is claimable is that the model of the tool
+survived a test it could have failed.
+
+### Variance is larger than the effect, and the honest reading needs both
+
+F1's three runs are 0.73, 0.74 and **1.56**: the third spent 25 round trips where the other two
+spent 16 and 17, against a grep run that happened to be the fastest of its three (16). Same
+question, same binary, same index — a 2.1× spread within one arm. F3 swings the other way,
+1.33 then 0.56. A single run of either scenario would have supported any conclusion one liked,
+which is why the protocol says three and reports the spread rather than the best.
+
+### Two things the logs say that the ratios do not
+
+**Neither arm batches.** In sixteen of the eighteen runs the widest within-turn gap is 0.00 s —
+every turn held exactly one call. `cluster.py`'s computed threshold had nothing to do in those
+runs, which is worth knowing both as a check on the metric and as a fact about the agents: the
+round-trip count is simply the call count, and both preambles' advice to put several searches in
+one command went unused.
+
+**The cairn arm's work moves from Bash into Read, and its tokens go up with it.** Tool mix per
+run, F1: 7–12 Bash with 9–14 Read on the cairn side, against 16–24 Bash and a single Read on the
+grep side. By the harness's own accounting the cairn arm's median spend was higher on two of the
+three scenarios — F1 60k against 43k, F2 48k against 38k — and lower on F3, 44k against 47k.
+Two caveats, both real: the cairn preamble is 2,447 words against the grep preamble's 1,631, so
+part of that gap is instruction text rather than work; and **the rig cannot tell a whole-file
+Read from a ranged one**, because `hook_log.py` records a Read's path and not its offset. That
+is the obvious explanation — cairn hands back a file and a line, and the agent opens the file —
+and it is exactly the explanation this measurement is unable to confirm. Recording Read extents
+is the next change to the rig, and until it lands the token column is a flag, not a finding.
+
+### Verdict for `41faa63` on the frontend
+
+Value, measured: **one scenario of three, the one with no symbol in it.** `for find` on a
+translation key answers in three to five calls what grep answers in six to nine, and it carries
+the enclosing component for free. The two scenarios built on the call graph — a trace through
+generated code and an ordinary reference question — do not clear the bar, and one of them is
+dearer than grep as often as it is cheaper.
+
+The conclusion is the standing one, now predicted rather than discovered: this tool's value is
+concentrated in codebases with a service boundary, and on a frontend the thing to reach for is
+`for find`. Nothing here supports a claim beyond that.

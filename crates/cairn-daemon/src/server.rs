@@ -135,8 +135,28 @@ impl Daemon {
                 self.repo.display()
             );
         }
-        // A socket left by a crashed daemon would make bind fail; taking it over is
-        // safe here because the caller has already failed to connect to it.
+        // A socket left by a crashed daemon would make bind fail, so a stale one has to be
+        // removed — but only once it is known to be stale. "The caller already failed to
+        // connect" was the justification, and it is not enough: the caller's check and this
+        // line are minutes apart on a large repository (one hash per indexed file sits
+        // between them), and anything that starts a daemon in that window gets its socket
+        // taken away here.
+        //
+        // What that costs was measured, not imagined. Eighteen agents queried one repository
+        // at once, several raced to start the watcher, and the loser kept running without a
+        // socket: alive, watching the tree, answering nobody, holding the binary open so a
+        // rebuild failed with "Text file busy" — and `cairn daemon --stop` reported "no
+        // daemon running" about it, because stop also looks only at the socket. An orphan
+        // that the tool denies exists.
+        //
+        // So: ask again, here, and refuse rather than steal. The remaining window is between
+        // this connect and the bind below, which is microseconds instead of minutes.
+        if crate::Client::connect(&self.socket).is_some() {
+            anyhow::bail!(
+                "another daemon is already listening on {} - not taking its socket",
+                self.socket.display()
+            );
+        }
         let _ = std::fs::remove_file(&self.socket);
         let listener = UnixListener::bind(&self.socket)
             .with_context(|| format!("binding {}", self.socket.display()))?;
@@ -193,20 +213,39 @@ impl Daemon {
         let idle_repo = self.repo.clone();
         let (idle_timeout, idle_poll) = idle_window();
         let seen = Arc::clone(&self.last_request);
+        let idle_pool = Arc::clone(&self.pool);
         std::thread::spawn(move || loop {
             std::thread::sleep(idle_poll);
             let quiet = seen.lock().unwrap().elapsed();
-            if quiet < idle_timeout && idle_repo.exists() {
+            // A third reason to stop, beside idleness and a vanished repository: this
+            // daemon's own socket is gone. `cairn index` rebuilds `.cairn/` and takes it
+            // with it, and a watcher with no socket is unreachable by every path - queries,
+            // `--stop`, and the shutdown request this very thread sends.
+            let orphaned = !idle_socket.exists();
+            if quiet < idle_timeout && idle_repo.exists() && !orphaned {
                 continue;
             }
-            let why = if idle_repo.exists() {
+            let why = if orphaned {
+                format!("its socket {} is gone", idle_socket.display())
+            } else if idle_repo.exists() {
                 format!("idle for {}s", quiet.as_secs())
             } else {
                 "the repository is gone".to_string()
             };
             eprintln!("cairn daemon: stopping - {why}");
-            let _ = crate::Client::connect(&idle_socket).map(|mut c| c.shutdown());
-            return;
+            // The ordinary path, because it is the one that stops the language servers.
+            if crate::Client::connect(&idle_socket)
+                .map(|mut c| c.shutdown())
+                .is_some()
+            {
+                return;
+            }
+            // And when it cannot be delivered, stop them here and go. This is the line
+            // whose absence left an 18.8 GB-class process running with nothing able to
+            // reach it: the watchdog decided to stop, could not tell itself so, and
+            // returned.
+            idle_pool.lock().unwrap().shutdown();
+            std::process::exit(0);
         });
 
         for stream in listener.incoming() {
@@ -290,5 +329,33 @@ impl Daemon {
         writeln!(writer, "{}", serde_json::to_string(&response)?)?;
         writer.flush()?;
         Ok(shutdown)
+    }
+}
+
+#[cfg(test)]
+mod socket_tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    /// The orphan this prevents was measured, not imagined: eighteen agents queried one
+    /// repository at once, two daemons started, the second removed the first's socket, and
+    /// the first stayed alive watching the tree with nothing able to reach it — including
+    /// `--stop`, which reported "no daemon running" about a live process holding the
+    /// binary open.
+    #[test]
+    fn a_daemon_refuses_a_socket_that_something_is_still_answering() {
+        let dir = std::env::temp_dir().join(format!("cairn-sock-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let sock = dir.join("index.sock");
+        let _held = UnixListener::bind(&sock).expect("bind the socket under test");
+
+        let err = Daemon::new(&dir, &sock, HashMap::new(), &[], None)
+            .run()
+            .expect_err("must refuse rather than take the socket over");
+        assert!(
+            err.to_string().contains("not taking its socket"),
+            "unexpected error: {err}"
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 }
