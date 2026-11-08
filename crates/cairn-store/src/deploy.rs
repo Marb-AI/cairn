@@ -115,6 +115,16 @@ pub struct Entrypoint {
     /// idle sidecar as an entrypoint that "did not resolve" trains a reader to skim the
     /// `unknown:` line, and then the real ones go past unread.
     pub idle: bool,
+    /// Runs an image this repository does not build: `image: postgres:16` with no `build:`
+    /// of its own.
+    ///
+    /// The same argument as `idle`, one case further. Such a service cannot resolve to code
+    /// here *by construction* — there is none to resolve to — so counting it as unresolved
+    /// says "everything only this runs is dead code" about a database. Measured on a real
+    /// monorepo: 46 entrypoints, 15 resolving, and 25 of the 31 "unresolved" were postgres,
+    /// nats and other registry images. That reads as a broken mechanism and is a complete
+    /// answer.
+    pub external: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1263,13 +1273,15 @@ impl Store {
         let sql = format!(
             "SELECT * FROM (
                  SELECT d.name AS label, d.name AS service, NULL AS schedule, d.command,
-                        p.s AS entry_path, NULL AS script, 0 AS on_demand
+                        p.s AS entry_path, NULL AS script, 0 AS on_demand,
+                        d.build_context, d.image
                    FROM deploy_services d
                    LEFT JOIN files   f ON f.id = d.entry_file
                    LEFT JOIN strings p ON p.id = f.path_id
                  UNION ALL
                  SELECT {ENTRY_LABEL_SQL} AS label, o.service, o.schedule, o.command,
-                        p.s AS entry_path, o.script, 1 AS on_demand
+                        p.s AS entry_path, o.script, 1 AS on_demand,
+                        NULL AS build_context, NULL AS image
                    FROM deploy_on_demand o
                    LEFT JOIN files   f ON f.id = o.entry_file
                    LEFT JOIN strings p ON p.id = f.path_id
@@ -1286,6 +1298,11 @@ impl Store {
                 .and_then(|c| resolve_command_with(c, &self.rules))
                 .map(|t| t == CommandTarget::Idle)
                 .unwrap_or(false);
+            // An on-demand entry always comes from a script in this repository, so it is
+            // never external; only a compose service can be one.
+            let build_context: Option<String> = r.get("build_context")?;
+            let image: Option<String> = r.get("image")?;
+            let external = on_demand == 0 && build_context.is_none() && image.is_some();
             Ok(Entrypoint {
                 service: r.get("service")?,
                 trigger: match (on_demand, schedule) {
@@ -1297,6 +1314,7 @@ impl Store {
                 entry_path: r.get("entry_path")?,
                 script: r.get("script")?,
                 idle,
+                external,
             })
         };
         let rows = match reaches {

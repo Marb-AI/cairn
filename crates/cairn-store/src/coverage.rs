@@ -385,16 +385,34 @@ impl Store {
         }
         let resolved = rows.iter().filter(|e| e.entry_path.is_some()).count();
         let idle = rows.iter().filter(|e| e.idle).count();
+        // An image this repository does not build has no code here to resolve to, so it is
+        // an answer rather than a gap - the same distinction `Entrypoint::idle` already
+        // makes, one case further. Counted and named, not folded into `unresolved`:
+        // measured on a real monorepo, 25 of 31 "unresolved" services were postgres, nats
+        // and other registry images, which made a working mechanism read as a broken one.
+        // Not `idle && external` twice: the four groups must partition the rows, or the
+        // detail line sums to more entrypoints than there are - the fixture's one idle
+        // sidecar is also an unbuilt image, and the first version of this counted it in
+        // both, printing "4 entrypoints, 3 resolve to code, 1 idle, 1 from images..."
+        let external = rows
+            .iter()
+            .filter(|e| e.external && e.entry_path.is_none() && !e.idle)
+            .count();
         let unresolved: Vec<&str> = rows
             .iter()
-            .filter(|e| e.entry_path.is_none() && !e.idle)
+            .filter(|e| e.entry_path.is_none() && !e.idle && !e.external)
             .map(|e| e.service.as_str())
             .collect();
         let base = format!(
-            "{} entrypoints, {resolved} resolve to code{}",
+            "{} entrypoints, {resolved} resolve to code{}{}",
             rows.len(),
             if idle > 0 {
                 format!(", {idle} idle")
+            } else {
+                String::new()
+            },
+            if external > 0 {
+                format!(", {external} from images this repository does not build")
             } else {
                 String::new()
             }
@@ -819,5 +837,91 @@ mod partial_index {
             rusqlite::params![vec![7u8; 16]],
         )
         .unwrap();
+    }
+}
+
+#[cfg(test)]
+mod entrypoint_classification_tests {
+    use crate::{State, Store};
+
+    /// Four groups that must partition the entrypoints, and the one that was missing.
+    ///
+    /// Before this, any service without a resolved entry path counted as unresolved, which
+    /// put the mechanism in `Partial` and told every answer that rested on it to doubt
+    /// itself. On a real monorepo that meant 46 entrypoints, 15 resolving, and 25 of the 31
+    /// "unresolved" being postgres, nats and other registry images — services with no code
+    /// in this repository to resolve to, so the mechanism had answered them completely. A
+    /// working layer read as a broken one, which is the same defect as reporting `n/a` as a
+    /// failure: a gap note that fires where there is no gap teaches a reader to skim the
+    /// one line the whole design puts the honesty in.
+    fn store_with(services: &[(&str, Option<&str>, Option<&str>, &str)]) -> Store {
+        let s = Store::open_in_memory().expect("in-memory store");
+        for (name, build_context, image, command) in services {
+            s.conn
+                .execute(
+                    "INSERT INTO deploy_services(name, build_context, image, command, ports)
+                     VALUES (?1, ?2, ?3, ?4, '')",
+                    rusqlite::params![name, build_context, image, command],
+                )
+                .expect("insert service");
+        }
+        s
+    }
+
+    #[test]
+    fn an_image_this_repo_does_not_build_is_an_answer_not_a_gap() {
+        let s = store_with(&[(
+            "postgres",
+            None,
+            Some("postgres:16"),
+            "postgres -c max_connections=200",
+        )]);
+        let area = s.entrypoint_coverage().expect("coverage");
+        assert_eq!(area.state, State::Indexed, "detail was: {}", area.detail);
+        assert!(
+            area.detail
+                .contains("1 from images this repository does not build"),
+            "{}",
+            area.detail
+        );
+        assert!(!area.state.is_trouble());
+    }
+
+    #[test]
+    fn a_service_this_repo_does_build_and_cannot_resolve_is_still_a_gap() {
+        // The case the change must not swallow: cairn builds this one, so an unresolved
+        // command means everything only it runs looks like dead code.
+        let s = store_with(&[("api", Some("."), None, "./some-binary serve")]);
+        let area = s.entrypoint_coverage().expect("coverage");
+        assert_eq!(area.state, State::Partial, "detail was: {}", area.detail);
+        assert!(area.detail.contains("api"), "{}", area.detail);
+        assert!(area.state.is_trouble());
+    }
+
+    #[test]
+    fn the_groups_partition_so_the_counts_never_exceed_the_total() {
+        // The first version counted the fixture's idle sidecar as both idle and external,
+        // printing "4 entrypoints, 3 resolve to code, 1 idle, 1 from images..." - five
+        // things out of four. The golden gate caught it.
+        let s = store_with(&[
+            ("db", None, Some("postgres:16"), "postgres"),
+            ("sidecar", None, Some("busybox"), "sleep infinity"),
+            ("api", Some("."), None, "./bin/api"),
+        ]);
+        let area = s.entrypoint_coverage().expect("coverage");
+        let n = |word: &str| -> usize {
+            area.detail
+                .split(", ")
+                .find(|p| p.contains(word))
+                .and_then(|p| p.split_whitespace().next())
+                .and_then(|d| d.parse().ok())
+                .unwrap_or(0)
+        };
+        assert_eq!(n("entrypoints"), 3, "{}", area.detail);
+        assert!(
+            n("resolve to code") + n("idle") + n("images this repository") <= 3,
+            "groups overlap: {}",
+            area.detail
+        );
     }
 }
