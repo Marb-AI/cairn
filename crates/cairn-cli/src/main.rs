@@ -2110,11 +2110,19 @@ fn run() -> Result<u8> {
                         .unwrap_or(0);
                     for (key, description) in cairn_store::config::SETTINGS {
                         use std::fmt::Write as _;
-                        let _ = writeln!(
-                            out,
-                            "{key:<width$}  {:<8}  {description}",
-                            cfg.get(key).unwrap_or_default()
-                        );
+                        let mut value = cfg.get(key).unwrap_or_default();
+                        // `get` has to return the bare "(unset)" `save` round-trips
+                        // through unchanged - freezing today's computed default into the
+                        // file would defeat the point of a default that tracks *this*
+                        // machine's RAM. The effective number belongs only here, where a
+                        // person is reading it rather than a file being written.
+                        if *key == "indexer_memory_mb" && value == "(unset)" {
+                            if let Some(mb) = cfg.indexer_memory_cap_mb() {
+                                value =
+                                    format!("(unset, {mb} by default - half this machine's RAM)");
+                            }
+                        }
+                        let _ = writeln!(out, "{key:<width$}  {value:<8}  {description}");
                     }
                     emit_plain(out);
                     Ok(exit::FOUND)
