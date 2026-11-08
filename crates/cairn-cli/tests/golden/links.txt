@@ -13,9 +13,9 @@ suppressed: none
 unknown: none
 stale: none
 
-$ cairn links ne
+$ cairn links cd
 exit 1
-asserted links for [ne] 
+asserted links for [cd] 
   (none)
 suppressed: none
 unknown: none
@@ -29,49 +29,49 @@ suppressed: none
 unknown: none
 stale: none
 
-$ cairn links 8d
+$ cairn links a7
 exit 1
-asserted links for [8d] AlertAck.GetRaised
+asserted links for [a7] unimplementedError.Error
   (none)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn links dk
+$ cairn links pc
 exit 1
-asserted links for [dk] AlertRequest.Celsius
+asserted links for [pc] StationInfo.StationId
   (none)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn links ph
+$ cairn links mb5
 exit 1
-asserted links for [ph] unimplementedError
+asserted links for [mb5] StationInfo.Label
   (none)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn links 2ig
+$ cairn links zj
 exit 1
-asserted links for [2ig] 2
+asserted links for [zj] 1
   (none)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn links 7r
+$ cairn links ez5
 exit 1
-asserted links for [7r] Service.rejected
+asserted links for [ez5] Service.UploadReadings
   (none)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn links q4
+$ cairn links qs
 exit 1
-asserted links for [q4] TestDescribeStationReportsTheRegistry
+asserted links for [qs] stubConn.calls
   (none)
 suppressed: none
 unknown: none
@@ -85,113 +85,113 @@ suppressed: none
 unknown: none
 stale: none
 
-$ cairn links pu
+$ cairn links 3zh
 exit 1
-asserted links for [pu] ToLower
+asserted links for [3zh] sort
   (none)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn links d7
+$ cairn links p3
 exit 1
-asserted links for [d7] store
+asserted links for [p3] register
   (none)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn links yha
+$ cairn links 87
 exit 1
-asserted links for [yha] Alert
+asserted links for [87] alert
   (none)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn links 7y
+$ cairn links 2b
 exit 1
-asserted links for [7y] Field.name
+asserted links for [2b] StationState.should_escalate
   (none)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn links sp
+$ cairn links hx
 exit 1
-asserted links for [sp] self
+asserted links for [hx] obj
   (none)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn links zu
+$ cairn links pd
 exit 1
-asserted links for [zu] AlertStore.__init__
+asserted links for [pd] StationState
   (none)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn links z7
+$ cairn links 4m
 exit 1
-asserted links for [z7] dict.items
+asserted links for [4m] station_id
   (none)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn links 4mg
+$ cairn links pz2
 exit 1
-asserted links for [4mg] celsius
+asserted links for [pz2] SEVERE_HEAT_C
   (none)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn links c4
+$ cairn links j7
 exit 1
-asserted links for [c4] key
+asserted links for [j7] severity
   (none)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn links t4
+$ cairn links 3b
 exit 1
-asserted links for [t4] __init__
+asserted links for [3b] AlertServiceBase.raise_alert
   (none)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn links fm
+$ cairn links ah
 exit 1
-asserted links for [fm] station_id
+asserted links for [ah] self
   (none)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn links jz
+$ cairn links hm
 exit 1
-asserted links for [jz] SystemExit
+asserted links for [hm] TelemetryServiceStub.upload_readings
   (none)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn links 3jq
+$ cairn links zjq
 exit 1
-asserted links for [3jq] TelemetryServiceStub.__init__
+asserted links for [zjq] StationQuery.station_id
   (none)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn links 2p9
+$ cairn links xz
 exit 1
-asserted links for [2p9] test_dispatch_reaches_a_registered_handler
+asserted links for [xz] object
   (none)
 suppressed: none
 unknown: none

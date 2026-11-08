@@ -22,11 +22,11 @@ exit 0
       "NOT TRACKED - the file watcher is still starting, so edits made since the index was built are not visible yet. `cairn verify --repo <dir>` is the one-off check"
     ]
   },
-  "body": "index      <db>\nfiles      16\nsymbols    490\noccurrence 1580\ngenerated  2 files\n\ncoverage   what each mechanism produced, against the tree it was built from\n           indexed -> verified -> verify stale -> verified. `indexed` is the pass\n           having run and matched the tree, which is counting; the rungs above\n           are judgements recorded by `cairn llm verify` and expire with the tree\n  entrypoints    indexed       4 entrypoints, 3 resolve to code, 1 idle\n  cross-api      indexed       2 gRPC services, 5 serve, 8 call links\n  go             indexed       217 symbols, ingested from SCIP with no tree walk to compare\n  python         indexed       273 symbols, ingested from SCIP with no tree walk to compare\ndaemon     not running\n",
+  "body": "index      <db>\nfiles      17\nsymbols    500\noccurrence 1599\ngenerated  2 files\n\ncoverage   what each mechanism produced, against the tree it was built from\n           indexed -> verified -> verify stale -> verified. `indexed` is the pass\n           having run and matched the tree, which is counting; the rungs above\n           are judgements recorded by `cairn llm verify` and expire with the tree\n  entrypoints    indexed       4 entrypoints, 3 resolve to code, 1 idle\n  cross-api      indexed       2 gRPC services, 6 serve, 12 call links\n  go             indexed       227 symbols, ingested from SCIP with no tree walk to compare\n  python         indexed       273 symbols, ingested from SCIP with no tree walk to compare\ndaemon     not running\n",
   "data": {
     "connectors": [
       {
-        "facts": 16,
+        "facts": 21,
         "failed": false,
         "name": "default",
         "ran_at": <epoch>,
@@ -41,12 +41,12 @@ exit 0
         "state": "indexed"
       },
       {
-        "detail": "2 gRPC services, 5 serve, 8 call links",
+        "detail": "2 gRPC services, 6 serve, 12 call links",
         "name": "cross-api",
         "state": "indexed"
       },
       {
-        "detail": "217 symbols, ingested from SCIP with no tree walk to compare",
+        "detail": "227 symbols, ingested from SCIP with no tree walk to compare",
         "name": "go",
         "state": "indexed"
       },
@@ -57,11 +57,11 @@ exit 0
       }
     ],
     "daemon": null,
-    "files": 16,
+    "files": 17,
     "generated_files": 2,
     "index": "<db>",
-    "occurrences": 1580,
-    "symbols": 490
+    "occurrences": 1599,
+    "symbols": 500
   },
   "within": null
 }
@@ -75,7 +75,7 @@ exit 0
   "truncated": false,
   "unknown": [
     "110 symbols are referenced but defined nowhere in the index (third-party or unresolved); `expand` cannot show their source",
-    "234 definitions have no body extent from the indexer; `--detail body` shows only their definition line",
+    "153 definitions have no body extent from the indexer; `--detail body` shows only their definition line",
     "104 references sit outside any function body (imports, module-level use) and therefore have no caller in the call graph",
     "2 symbols are defined in more than one file; ranking shows one",
     "2 weak links are candidates, not facts; confirm before relying on one",
@@ -88,7 +88,7 @@ exit 0
     "mentioned": [],
     "notes": []
   },
-  "body": "index coverage\n  files                          16\n  symbols                       490\n  references                   1197   1093 with a caller\n",
+  "body": "index coverage\n  files                          17\n  symbols                       500\n  references                   1205   1101 with a caller\n",
   "data": {
     "ambiguous_definitions": 2,
     "concept_links": 0,
@@ -96,20 +96,20 @@ exit 0
     "concept_links_stale": 0,
     "concept_links_unanchored": 0,
     "concepts": 0,
-    "definitions_with_body_span": 146,
-    "definitions_without_body_span": 234,
-    "files": 16,
+    "definitions_with_body_span": 237,
+    "definitions_without_body_span": 153,
+    "files": 17,
     "files_without_content_hash": 0,
     "generated_by_path_only": 0,
     "generated_files": 2,
     "manual_edges": 0,
     "manual_edges_stale": 0,
     "missing_files": [],
-    "references": 1197,
+    "references": 1205,
     "references_without_caller": 104,
     "stale_files": [],
     "staleness_checked": false,
-    "symbols": 490,
+    "symbols": 500,
     "symbols_without_definition": 110,
     "weak_edges": 2
   },
@@ -288,7 +288,7 @@ exit 0
 {
   "schema": "cairn.answer/1",
   "command": "outline",
-  "rows": 16,
+  "rows": 22,
   "truncated": false,
   "unknown": [],
   "suppressed": [],
@@ -296,6 +296,7 @@ exit 0
     "tracked": false,
     "dirty": [],
     "mentioned": [
+      "srcgo/internal/station/format.go",
       "srcgo/internal/station/registry.go",
       "srcgo/internal/station/registry_test.go"
     ],
@@ -303,7 +304,7 @@ exit 0
       "not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer"
     ]
   },
-  "body": "srcgo/internal/station   16 of 16 definitions\n  13 prod      [ms] Station                                  type   go  srcgo/internal/station/registry.go:15\n  1 prod       [9b] Station.Elevated                         fn     go  srcgo/internal/station/registry.go:24-26\n  unused       [ey] Station.HasTag                           fn     go  srcgo/internal/station/registry.go:29-36\n  10 prod      [vs] Registry                                 type   go  srcgo/internal/station/registry.go:39\n  1 prod       [9te] NewRegistry                              fn     go  srcgo/internal/station/registry.go:47-49\n  3 prod       [nph] Registry.Add                             fn     go  srcgo/internal/station/registry.go:52-66\n  2 prod       [2s] Registry.Lookup                          fn     go  srcgo/internal/station/registry.go:69-77\n  1 test-only  [gc] Registry.Active                          fn     go  srcgo/internal/station/registry.go:80-91\n  2 test-only  [76] Registry.Retire                          fn     go  srcgo/internal/station/registry.go:94-106\n  1 prod       [it] Registry.Counts                          fn     go  srcgo/internal/station/registry.go:109-113\n  1 test-only  [5x] normaliseID                              fn     go  srcgo/internal/station/registry.go:116-118\n  unused       [u8] TestAddAndLookup                         fn     go  srcgo/internal/station/registry_test.go:5-17\n  unused       [py] TestLookupUnknownIsAnError               fn     go  srcgo/internal/station/registry_test.go:19-24\n  unused       [ru] TestRetireIsCountedOnce                  fn     go  srcgo/internal/station/registry_test.go:26-35\n  unused       [5m] TestActiveSkipsRetiredAndSorts           fn     go  srcgo/internal/station/registry_test.go:37-46\n  unused       [bz] TestNormaliseID                          fn     go  srcgo/internal/station/registry_test.go:48-52\n",
+  "body": "srcgo/internal/station   22 of 22 definitions\n  1 prod       [9c] Reporter                                 type   go  srcgo/internal/station/format.go:7-9\n  1 prod       [wh4] Terse                                    type   go  srcgo/internal/station/format.go:12\n  dispatched   [vd] Terse.Report                             fn     go  srcgo/internal/station/format.go:14\n  1 prod       [gq] Verbose                                  type   go  srcgo/internal/station/format.go:18-21\n  dispatched   [ty] Verbose.Report                           fn     go  srcgo/internal/station/format.go:23-28\n  unused       [qkn] ReportAll                                fn     go  srcgo/internal/station/format.go:32-38\n  13 prod      [ms] Station                                  type   go  srcgo/internal/station/registry.go:15-21\n  1 prod       [9b] Station.Elevated                         fn     go  srcgo/internal/station/registry.go:24-26\n  unused       [ey] Station.HasTag                           fn     go  srcgo/internal/station/registry.go:29-36\n  10 prod      [vs] Registry                                 type   go  srcgo/internal/station/registry.go:39-44\n  1 prod       [9te] NewRegistry                              fn     go  srcgo/internal/station/registry.go:47-49\n  3 prod       [nph] Registry.Add                             fn     go  srcgo/internal/station/registry.go:52-66\n  2 prod       [2s] Registry.Lookup                          fn     go  srcgo/internal/station/registry.go:69-77\n  1 test-only  [gc] Registry.Active                          fn     go  srcgo/internal/station/registry.go:80-91\n  2 test-only  [76] Registry.Retire                          fn     go  srcgo/internal/station/registry.go:94-106\n  1 prod       [it] Registry.Counts                          fn     go  srcgo/internal/station/registry.go:109-113\n  1 test-only  [5x] normaliseID                              fn     go  srcgo/internal/station/registry.go:116-118\n  unused       [u8] TestAddAndLookup                         fn     go  srcgo/internal/station/registry_test.go:5-17\n  unused       [py] TestLookupUnknownIsAnError               fn     go  srcgo/internal/station/registry_test.go:19-24\n  unused       [ru] TestRetireIsCountedOnce                  fn     go  srcgo/internal/station/registry_test.go:26-35\n  unused       [5m] TestActiveSkipsRetiredAndSorts           fn     go  srcgo/internal/station/registry_test.go:37-46\n  unused       [bz] TestNormaliseID                          fn     go  srcgo/internal/station/registry_test.go:48-52\n",
   "data": null,
   "within": null
 }
@@ -313,7 +314,7 @@ exit 0
 {
   "schema": "cairn.answer/1",
   "command": "unreached",
-  "rows": 4,
+  "rows": 5,
   "truncated": false,
   "unknown": [
     "reachability is static: a symbol invoked by name at runtime looks unreached. Check `cairn weaklinks <handle>` before deleting anything"
@@ -323,13 +324,14 @@ exit 0
     "tracked": false,
     "dirty": [],
     "mentioned": [
+      "srcgo/internal/station/format.go",
       "srcgo/internal/station/registry.go"
     ],
     "notes": [
       "not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer"
     ]
   },
-  "body": "4 symbols under srcgo/internal/station with no production caller       [L1, exact]\n  tests only (2)         [76] Registry.Retire                          fn     go  srcgo/internal/station/registry.go:94-106\n  tests only (1)         [5x] normaliseID                              fn     go  srcgo/internal/station/registry.go:116-118\n  tests only (1)         [gc] Registry.Active                          fn     go  srcgo/internal/station/registry.go:80-91\n  no callers             [ey] Station.HasTag                           fn     go  srcgo/internal/station/registry.go:29-36\n",
+  "body": "5 symbols under srcgo/internal/station with no production caller       [L1, exact]\n  tests only (2)         [76] Registry.Retire                          fn     go  srcgo/internal/station/registry.go:94-106\n  tests only (1)         [5x] normaliseID                              fn     go  srcgo/internal/station/registry.go:116-118\n  tests only (1)         [gc] Registry.Active                          fn     go  srcgo/internal/station/registry.go:80-91\n  no callers             [qkn] ReportAll                                fn     go  srcgo/internal/station/format.go:32-38\n  no callers             [ey] Station.HasTag                           fn     go  srcgo/internal/station/registry.go:29-36\n",
   "data": null,
   "within": null
 }
@@ -375,7 +377,7 @@ exit 0
     "mentioned": [],
     "notes": []
   },
-  "body": "24 line(s) containing \"severe\" in 5 file(s), from 26 searched   [L0, the tree as it is now]\nof these: 19 in hand-written code or prose (below), 5 in tests, 0 in generated code\nsrcgo/internal/ingest/screen.go\n     40 | \tcorrected := s.correct(r.Celsius, site)\n     41 | \tif corrected <= -25 {\n     42 > return Verdict{Alarming: true, Reason: \"severe cold\"}  <- in Judge [yz]\n     43 | \t}\n     44 | \tif corrected >= 40 {\n     45 > return Verdict{Alarming: true, Reason: \"severe heat\"}  <- in Judge [yz]\n     46 | \t}\n     47 | \treturn Verdict{}\nsrcpy/alerting/dispatch.py\n      1 | \"\"\"Handlers reached through a registry rather than by name.\n      2 | \n      3 > This is here to be hard on purpose. Nothing calls ``handle_severe_cold`` directly — it is\n      4 | registered under a string and looked up at run time — so a call graph sees it as dead\n      5 | code. It is not, and a tool that reports it as unreached is wrong in the way that costs a\n     38 | \n     39 | \n     40 > @register(\"severe cold\")\n     41 > def handle_severe_cold(alert: Alert, store: AlertStore) -> str:  <- in handle_severe_cold [p6]\n     42 |     state = store.state_for(alert.station_id)\n     43 |     if state.should_escalate():\n     46 | \n     47 | \n     48 > @register(\"severe heat\")\n     49 > def handle_severe_heat(alert: Alert, store: AlertStore) -> str:  <- in handle_severe_heat [5uq]\n     50 |     state = store.state_for(alert.station_id)\n     51 |     if state.should_escalate(threshold=2):\n     71 | # Handlers that page a human, named as strings rather than referenced.\n     72 | #\n     73 > # The registry above binds a handler to its *reason* (\"severe cold\"), so a literal search\n     74 | # for a handler's own name finds nothing. This list names the functions themselves, which\n     75 | # is the shape that actually defeats a call graph: the only mention of\n     76 > # ``handle_severe_heat`` outside its own definition is inside this string, and a rename\n     77 | # leaves it dangling with nothing to catch it.\n     78 | #\n     81 | # reported it as clean, and CI could not have noticed because the fixture gave it nothing\n     82 | # to find.\n     83 > PAGING_HANDLERS = [\"handle_severe_cold\", \"handle_severe_heat\"]\n     84 | \n     85 | \nsrcpy/alerting/rules.py\n      9 | from dataclasses import dataclass\n     10 | \n     11 > SEVERE_COLD_C = -25.0\n     12 > SEVERE_HEAT_C = 40.0\n     13 | FROST_C = 0.0\n     14 | HUMIDITY_CEILING = 100.0\n     25 |     @property\n     26 |     def escalates(self) -> bool:\n     27 > return self.severity in (\"critical\", \"severe\")  <- in escalates [x5i]\n     28 | \n     29 | \n     32 |     if not plausible(celsius, humidity):\n     33 |         return Judgement(False, \"info\", \"implausible reading, ignored\")\n     34 > if celsius <= SEVERE_COLD_C:  <- in classify [cf]\n     35 > return Judgement(True, \"critical\", \"severe cold\")  <- in classify [cf]\n     36 > if celsius >= SEVERE_HEAT_C:  <- in classify [cf]\n     37 > return Judgement(True, \"critical\", \"severe heat\")  <- in classify [cf]\n     38 |     if celsius <= FROST_C and humidity >= 90:\n     39 > return Judgement(True, \"severe\", \"freezing fog likely\")  <- in classify [cf]\n     40 |     if celsius <= FROST_C:\n     41 |         return Judgement(True, \"warning\", \"frost\")\n     73 | def severity_rank(severity: str) -> int:\n     74 |     \"\"\"Order severities so two judgements can be compared.\"\"\"\n     75 > return {\"info\": 0, \"warning\": 1, \"severe\": 2, \"critical\": 3}.get(severity, 0)  <- in severity_rank [4y]\n     76 | \n     77 | \n",
+  "body": "24 line(s) containing \"severe\" in 5 file(s), from 27 searched   [L0, the tree as it is now]\nof these: 19 in hand-written code or prose (below), 5 in tests, 0 in generated code\nsrcgo/internal/ingest/screen.go\n     40 | \tcorrected := s.correct(r.Celsius, site)\n     41 | \tif corrected <= -25 {\n     42 > return Verdict{Alarming: true, Reason: \"severe cold\"}  <- in Judge [yz]\n     43 | \t}\n     44 | \tif corrected >= 40 {\n     45 > return Verdict{Alarming: true, Reason: \"severe heat\"}  <- in Judge [yz]\n     46 | \t}\n     47 | \treturn Verdict{}\nsrcpy/alerting/dispatch.py\n      1 | \"\"\"Handlers reached through a registry rather than by name.\n      2 | \n      3 > This is here to be hard on purpose. Nothing calls ``handle_severe_cold`` directly — it is\n      4 | registered under a string and looked up at run time — so a call graph sees it as dead\n      5 | code. It is not, and a tool that reports it as unreached is wrong in the way that costs a\n     38 | \n     39 | \n     40 > @register(\"severe cold\")\n     41 > def handle_severe_cold(alert: Alert, store: AlertStore) -> str:  <- in handle_severe_cold [p6]\n     42 |     state = store.state_for(alert.station_id)\n     43 |     if state.should_escalate():\n     46 | \n     47 | \n     48 > @register(\"severe heat\")\n     49 > def handle_severe_heat(alert: Alert, store: AlertStore) -> str:  <- in handle_severe_heat [5uq]\n     50 |     state = store.state_for(alert.station_id)\n     51 |     if state.should_escalate(threshold=2):\n     71 | # Handlers that page a human, named as strings rather than referenced.\n     72 | #\n     73 > # The registry above binds a handler to its *reason* (\"severe cold\"), so a literal search\n     74 | # for a handler's own name finds nothing. This list names the functions themselves, which\n     75 | # is the shape that actually defeats a call graph: the only mention of\n     76 > # ``handle_severe_heat`` outside its own definition is inside this string, and a rename\n     77 | # leaves it dangling with nothing to catch it.\n     78 | #\n     81 | # reported it as clean, and CI could not have noticed because the fixture gave it nothing\n     82 | # to find.\n     83 > PAGING_HANDLERS = [\"handle_severe_cold\", \"handle_severe_heat\"]\n     84 | \n     85 | \nsrcpy/alerting/rules.py\n      9 | from dataclasses import dataclass\n     10 | \n     11 > SEVERE_COLD_C = -25.0\n     12 > SEVERE_HEAT_C = 40.0\n     13 | FROST_C = 0.0\n     14 | HUMIDITY_CEILING = 100.0\n     25 |     @property\n     26 |     def escalates(self) -> bool:\n     27 > return self.severity in (\"critical\", \"severe\")  <- in escalates [x5i]\n     28 | \n     29 | \n     32 |     if not plausible(celsius, humidity):\n     33 |         return Judgement(False, \"info\", \"implausible reading, ignored\")\n     34 > if celsius <= SEVERE_COLD_C:  <- in classify [cf]\n     35 > return Judgement(True, \"critical\", \"severe cold\")  <- in classify [cf]\n     36 > if celsius >= SEVERE_HEAT_C:  <- in classify [cf]\n     37 > return Judgement(True, \"critical\", \"severe heat\")  <- in classify [cf]\n     38 |     if celsius <= FROST_C and humidity >= 90:\n     39 > return Judgement(True, \"severe\", \"freezing fog likely\")  <- in classify [cf]\n     40 |     if celsius <= FROST_C:\n     41 |         return Judgement(True, \"warning\", \"frost\")\n     73 | def severity_rank(severity: str) -> int:\n     74 |     \"\"\"Order severities so two judgements can be compared.\"\"\"\n     75 > return {\"info\": 0, \"warning\": 1, \"severe\": 2, \"critical\": 3}.get(severity, 0)  <- in severity_rank [4y]\n     76 | \n     77 | \n",
   "data": null,
   "within": null
 }
@@ -428,7 +430,7 @@ exit 0
     ],
     "symbol": {
       "containers": [],
-      "end_line": null,
+      "end_line": 28,
       "file": "srcgo/cmd/collector/main.go",
       "generated": false,
       "handle": "ad",
@@ -481,13 +483,13 @@ exit 0
     "mentioned": [],
     "notes": []
   },
-  "body": "[ad] server                                   type   go  srcgo/cmd/collector/main.go:26\n",
+  "body": "[ad] server                                   type   go  srcgo/cmd/collector/main.go:26-28\n",
   "data": {
     "detail": "skeleton",
     "source": [],
     "symbol": {
       "containers": [],
-      "end_line": null,
+      "end_line": 28,
       "file": "srcgo/cmd/collector/main.go",
       "generated": false,
       "handle": "ad",
@@ -523,7 +525,7 @@ exit 0
       "not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer"
     ]
   },
-  "body": "callers of [ad] server   depth=2 fanout=8   [L1, exact]\n[ad] server                                   type   go  srcgo/cmd/collector/main.go:26\n  [e6] server.RegisterHandler                   fn     go  srcgo/cmd/collector/main.go:30-35  @ srcgo/cmd/collector/main.go:30\n  [9t] run                                      fn     go  srcgo/cmd/collector/main.go:45-56  @ srcgo/cmd/collector/main.go:50\n    [nn] main                                     fn     go  srcgo/cmd/collector/main.go:58-63  @ srcgo/cmd/collector/main.go:59\n",
+  "body": "callers of [ad] server   depth=2 fanout=8   [L1, exact]\n[ad] server                                   type   go  srcgo/cmd/collector/main.go:26-28\n  [e64] server.RegisterHandler                   fn     go  srcgo/cmd/collector/main.go:30-35  @ srcgo/cmd/collector/main.go:30\n  [9t] run                                      fn     go  srcgo/cmd/collector/main.go:45-56  @ srcgo/cmd/collector/main.go:50\n    [nn] main                                     fn     go  srcgo/cmd/collector/main.go:58-63  @ srcgo/cmd/collector/main.go:59\n",
   "data": {
     "nodes": [
       {
@@ -533,7 +535,7 @@ exit 0
         "site": null,
         "symbol": {
           "containers": [],
-          "end_line": null,
+          "end_line": 28,
           "file": "srcgo/cmd/collector/main.go",
           "generated": false,
           "handle": "ad",
@@ -558,7 +560,7 @@ exit 0
           "end_line": 35,
           "file": "srcgo/cmd/collector/main.go",
           "generated": false,
-          "handle": "e6",
+          "handle": "e64",
           "kind": "fn",
           "lang": "go",
           "line": 30,
@@ -648,7 +650,7 @@ exit 1
     "services": [],
     "symbol": {
       "containers": [],
-      "end_line": null,
+      "end_line": 28,
       "file": "srcgo/cmd/collector/main.go",
       "generated": false,
       "handle": "ad",
@@ -694,7 +696,7 @@ exit 0
     ],
     "symbol": {
       "containers": [],
-      "end_line": null,
+      "end_line": 28,
       "file": "srcgo/cmd/collector/main.go",
       "generated": false,
       "handle": "ad",
@@ -749,7 +751,7 @@ exit 0
     "services": 1,
     "symbol": {
       "containers": [],
-      "end_line": null,
+      "end_line": 28,
       "file": "srcgo/cmd/collector/main.go",
       "generated": false,
       "handle": "ad",
@@ -807,7 +809,7 @@ exit 1
     "links": [],
     "symbol": {
       "containers": [],
-      "end_line": null,
+      "end_line": 28,
       "file": "srcgo/cmd/collector/main.go",
       "generated": false,
       "handle": "ad",
@@ -868,7 +870,7 @@ exit 1
   "within": null
 }
 
-$ cairn --format json path ad ne
+$ cairn --format json path ad cd
 exit 1
 {
   "schema": "cairn.answer/1",
@@ -885,7 +887,7 @@ exit 1
     "mentioned": [],
     "notes": []
   },
-  "body": "no call path from [ad] to [ne] within 8 hops\n",
+  "body": "no call path from [ad] to [cd] within 8 hops\n",
   "data": {
     "chain": [],
     "hops": 0

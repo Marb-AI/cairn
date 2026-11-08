@@ -325,10 +325,17 @@ suppressed: none
 unknown: string literals only, from the languages that are indexed. A name built at run time - concatenated, formatted, or read from config - is not a literal and is not here
 stale: none
 
-$ cairn literal GetRaised --repo <repo>
-exit 1
-0 literals containing "GetRaised", 0 inside a function   [L0, exact]
-  (no literal contains that. Only Python and Go are scanned, comments are skipped, and nothing outside a string is here - for those, grep)
+$ cairn literal Error --repo <repo>
+exit 0
+1 literals containing "Error", 0 inside a function   [L0, exact]
+  srcgo/internal/station/registry.go:5  (module level)
+           2 | package station
+           3 | 
+           4 | import (
+      >    5 | 	"errors"
+           6 | 	"sort"
+           7 | 	"strings"
+           8 | 	"sync"
 suppressed: none
 unknown: string literals only, from the languages that are indexed. A name built at run time - concatenated, formatted, or read from config - is not a literal and is not here
 stale: none

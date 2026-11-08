@@ -37,17 +37,17 @@ stale: not tracked yet - the file watcher is still starting, so edits made since
 $ cairn context server
 exit 0
 context for "server"   12 seeds
-[ad] server                                   type   go  srcgo/cmd/collector/main.go:26  [name+doc]
+[ad] server                                   type   go  srcgo/cmd/collector/main.go:26-28  [name+doc]
 [ssr] NewService                               fn     go  srcgo/internal/ingest/service.go:33-35  [doc]
 [cx] Service.UnimplementedTelemetryServiceSe~ value  go  srcgo/internal/ingest/service.go:20  [name]
 [2i] UnimplementedTelemetryServiceServer      type   go  srcgo/gen/telemetry/telemetry.pb.go:175  [name+doc]
-[yh] TelemetryServiceServer                   type   go  srcgo/gen/telemetry/telemetry.pb.go:168  [name+doc]
+[yh] TelemetryServiceServer                   type   go  srcgo/gen/telemetry/telemetry.pb.go:168-172  [name+doc]
 [vu] RegisterTelemetryServiceServer           fn     go  srcgo/gen/telemetry/telemetry.pb.go:193-195  [name+doc]
 [xt] UnimplementedTelemetryServiceServer.mus~ fn     go  srcgo/gen/telemetry/telemetry.pb.go:185  [name]
-[3z] IngestAck                                type   go  srcgo/gen/telemetry/telemetry.pb.go:29  [doc]
+[3z] IngestAck                                type   go  srcgo/gen/telemetry/telemetry.pb.go:29-32  [doc]
 [dt] telemetry.example/srcgo/gen/telemetry    module go  srcgo/gen/telemetry/telemetry.pb.go:9  [doc]
 [tjj] AlertServiceBase                         type   py  srcpy/schema/telemetry/__init__.py:60-67  [doc]
-[wd] Registrar                                type   go  srcgo/gen/telemetry/telemetry.pb.go:188  [doc]
+[wd] Registrar                                type   go  srcgo/gen/telemetry/telemetry.pb.go:188-190  [doc]
 [5z] TelemetryServiceServer.mustEmbedUnimple~ value  go  srcgo/gen/telemetry/telemetry.pb.go:171  [name]
 suppressed: none
 unknown: seeds are a starting point, not an answer - expand with `cairn graph <handle>`
@@ -59,8 +59,10 @@ exit 2
 
 $ cairn context Altitude
 exit 0
-context for "Altitude"   4 seeds
+context for "Altitude"   6 seeds
+[gq] Verbose                                  type   go  srcgo/internal/station/format.go:18-21  [doc]
 [wh] Station.Altitude                         value  go  srcgo/internal/station/registry.go:18  [name]
+[qr] Verbose.Altitude                         value  go  srcgo/internal/station/format.go:20  [name]
 [8x] StationInfo.GetAltitude                  fn     go  srcgo/gen/telemetry/telemetry.pb.go:160-165  [name]
 [ri] StationInfo.Altitude                     value  go  srcgo/gen/telemetry/telemetry.pb.go:56  [name]
 [2g] StationInfo.altitude                     value  py  srcpy/schema/telemetry/__init__.py:56  [name]
@@ -68,13 +70,13 @@ suppressed: none
 unknown: seeds are a starting point, not an answer - expand with `cairn graph <handle>`
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn context GetRaised
+$ cairn context Error
 exit 0
-context for "GetRaised"   1 seeds
-[8d] AlertAck.GetRaised                       fn     go  srcgo/gen/telemetry/telemetry.pb.go:132-137  [name]
+context for "Error"   3 seeds
+[py] TestLookupUnknownIsAnError               fn     go  srcgo/internal/station/registry_test.go:19-24  [name+test]
+[a7] unimplementedError.Error                 fn     go  srcgo/gen/telemetry/telemetry.pb.go:235  [name]
+[ph] unimplementedError                       type   go  srcgo/gen/telemetry/telemetry.pb.go:233  [name]
 suppressed: none
-unknown (2):
-  low confidence: no concept, name or docstring matched strongly. indexed: srcgo/ (go), srcpy/ (py) - if what you want is outside that, it is not indexed and grep is the tool
-  seeds are a starting point, not an answer - expand with `cairn graph <handle>`
+unknown: seeds are a starting point, not an answer - expand with `cairn graph <handle>`
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 

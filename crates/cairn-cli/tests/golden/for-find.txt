@@ -7,7 +7,7 @@
 
 $ cairn for find severe --repo <repo>
 exit 0
-24 line(s) containing "severe" in 5 file(s), from 26 searched   [L0, the tree as it is now]
+24 line(s) containing "severe" in 5 file(s), from 27 searched   [L0, the tree as it is now]
 of these: 19 in hand-written code or prose (below), 5 in tests, 0 in generated code
 srcgo/internal/ingest/screen.go
      40 | 	corrected := s.correct(r.Celsius, site)
@@ -82,7 +82,7 @@ stale: none
 
 $ cairn for find severe --all --repo <repo>
 exit 0
-24 line(s) containing "severe" in 5 file(s), from 26 searched   [L0, the tree as it is now]
+24 line(s) containing "severe" in 5 file(s), from 27 searched   [L0, the tree as it is now]
 srcgo/internal/ingest/screen.go
      40 | 	corrected := s.correct(r.Celsius, site)
      41 | 	if corrected <= -25 {
@@ -183,17 +183,17 @@ stale: none
 
 $ cairn for find server --repo <repo>
 exit 0
-21 line(s) containing "server" in 4 file(s), from 26 searched   [L0, the tree as it is now]
+21 line(s) containing "server" in 4 file(s), from 27 searched   [L0, the tree as it is now]
 of these: 7 in hand-written code or prose (below), 0 in tests, 14 in generated code
 srcgo/cmd/collector/main.go
      23 | }
      24 | 
      25 > // server is the minimal registrar the generated code asks for.
-     26 > type server struct {
+     26 > type server struct {  <- in server [ad]
      27 | 	handlers map[string]any
      28 | }
      29 | 
-     30 > func (s *server) RegisterHandler(name string, handler any) {  <- in RegisterHandler [e6]
+     30 > func (s *server) RegisterHandler(name string, handler any) {  <- in RegisterHandler [e64]
      31 | 	if s.handlers == nil {
      32 | 		s.handlers = make(map[string]any)
      48 | 	svc := ingest.NewService(reg, alerter, telemetry.NewAlertServiceClient(conn))
@@ -205,7 +205,7 @@ srcgo/cmd/collector/main.go
 srcgo/internal/ingest/service.go
      18 | // Service is the TelemetryService implementation.
      19 | type Service struct {
-     20 > telemetry.UnimplementedTelemetryServiceServer
+     20 > telemetry.UnimplementedTelemetryServiceServer  <- in UnimplementedTelemetryServiceServer [cx]
      21 | 
      22 | 	stations *station.Registry
      30 | }
@@ -223,7 +223,7 @@ exit 2
 
 $ cairn for find Altitude --repo <repo>
 exit 0
-16 line(s) containing "Altitude" in 9 file(s), from 26 searched   [L0, the tree as it is now]
+19 line(s) containing "Altitude" in 10 file(s), from 27 searched   [L0, the tree as it is now]
 proto/telemetry.proto
      41 |   string station_id = 1;
      42 |   string label = 2;
@@ -241,7 +241,7 @@ srcgo/cmd/collector/main.go
 srcgo/gen/telemetry/telemetry.pb.go   [generated]
      54 | 	StationId string
      55 | 	Label     string
-     56 > Altitude  int64
+     56 > Altitude  int64  <- in Altitude [ri]
      57 | 	Retired   bool
      58 | }
     158 | }
@@ -276,10 +276,24 @@ srcgo/internal/ingest/service_test.go   [test]
      90 > t.Errorf("got altitude %d", info.Altitude)  <- in TestDescribeStationReportsTheRegistry [q4]
      91 | 	}
      92 | }
+srcgo/internal/station/format.go
+     14 | func (t Terse) Report() string { return t.ID }
+     15 | 
+     16 > // Verbose spells out the altitude. Never named directly anywhere in this package -
+     17 | // the whole point of the fixture.
+     18 | type Verbose struct {
+     19 | 	ID       string
+     20 > Altitude int64  <- in Altitude [qr]
+     21 | }
+     22 | 
+     23 | func (v Verbose) Report() string {
+     24 > if v.Altitude >= 800 {  <- in Report [ty]
+     25 | 		return v.ID + " (elevated)"
+     26 | 	}
 srcgo/internal/station/registry.go
      16 | 	ID       string
      17 | 	Label    string
-     18 > Altitude int64
+     18 > Altitude int64  <- in Altitude [wh]
      19 | 	Retired  bool
      20 | 	Tags     []string
      23 | // Elevated says whether the site sits high enough for the lapse-rate correction.
@@ -303,16 +317,29 @@ suppressed: none
 unknown: substring, case-insensitive, over the working tree - so it is never stale, and it is not a regex. Symbol context is attached only where the file is indexed (Python and Go); section context only for markdown
 stale: none
 
-$ cairn for find GetRaised --repo <repo>
+$ cairn for find Error --repo <repo>
 exit 0
-1 line(s) containing "GetRaised" in 1 file(s), from 26 searched   [L0, the tree as it is now]
-srcgo/gen/telemetry/telemetry.pb.go   [generated]
-    130 | }
-    131 | 
-    132 > func (x *AlertAck) GetRaised() bool {  <- in GetRaised [8d]
-    133 | 	if x == nil {
-    134 | 		return false
-suppressed: none
+40 line(s) containing "Error" in 8 file(s), from 27 searched   [L0, the tree as it is now]
+of these: 14 in hand-written code or prose (below), 12 in tests, 14 in generated code
+srcgo/cmd/collector/main.go
+     21 > func (loopbackConn) Invoke(ctx context.Context, method string, in any, out any) error {  <- in Invoke [xj]
+     45 > func run() error {  <- in run [9t]
+srcgo/internal/ingest/service.go
+     38 > func (s *Service) UploadReadings(ctx context.Context, batch *telemetry.ReadingBatch) (*telemetry.IngestAck, error) {  <- in UploadReadings [ez5]
+     40 > return nil, fmt.Errorf("empty batch")  <- in UploadReadings [ez5]
+     43 > return nil, fmt.Errorf("batch of %d exceeds the limit of %d", len(batch.Readings), maxBatch)  <- in UploadReadings [ez5]
+     59 > func (s *Service) DescribeStation(ctx context.Context, q *telemetry.StationQuery) (*telemetry.StationInfo, error) {  <- in DescribeStation [i8]
+srcgo/internal/notify/alerter.go
+     90 > func SendAlert(ctx context.Context, client telemetry.AlertServiceClient, stationID, reason string) error {  <- in SendAlert [zq]
+srcgo/internal/station/registry.go
+      5 > "errors"
+     12 > var ErrUnknownStation = errors.New("unknown station")  <- in ErrUnknownStation [w5]
+     52 > func (r *Registry) Add(s *Station) error {  <- in Add [nph]
+     54 > return errors.New("a station needs an id")  <- in Add [nph]
+     59 > return errors.New("registry is full")  <- in Add [nph]
+     69 > func (r *Registry) Lookup(id string) (*Station, error) {  <- in Lookup [2s]
+     94 > func (r *Registry) Retire(id string) error {  <- in Retire [76]
+suppressed: 26 line(s) in test or generated files, counted in the header but not listed - `cairn for find "Error" --all` lists every hit
 unknown: substring, case-insensitive, over the working tree - so it is never stale, and it is not a regex. Symbol context is attached only where the file is indexed (Python and Go); section context only for markdown
 stale: none
 

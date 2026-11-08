@@ -7,10 +7,11 @@
 
 $ cairn unreached srcgo/internal/station
 exit 0
-4 symbols under srcgo/internal/station with no production caller       [L1, exact]
+5 symbols under srcgo/internal/station with no production caller       [L1, exact]
   tests only (2)         [76] Registry.Retire                          fn     go  srcgo/internal/station/registry.go:94-106
   tests only (1)         [5x] normaliseID                              fn     go  srcgo/internal/station/registry.go:116-118
   tests only (1)         [gc] Registry.Active                          fn     go  srcgo/internal/station/registry.go:80-91
+  no callers             [qkn] ReportAll                                fn     go  srcgo/internal/station/format.go:32-38
   no callers             [ey] Station.HasTag                           fn     go  srcgo/internal/station/registry.go:29-36
 suppressed: none
 unknown: reachability is static: a symbol invoked by name at runtime looks unreached. Check `cairn weaklinks <handle>` before deleting anything
@@ -42,15 +43,14 @@ stale: not tracked yet - the file watcher is still starting, so edits made since
 
 $ cairn unreached srcgo
 exit 0
-9 symbols under srcgo with no production caller       [L1, exact]
+8 symbols under srcgo with no production caller       [L1, exact]
   tests only (2)         [76] Registry.Retire                          fn     go  srcgo/internal/station/registry.go:94-106
   tests only (1)         [5x] normaliseID                              fn     go  srcgo/internal/station/registry.go:116-118
   tests only (1)         [gc] Registry.Active                          fn     go  srcgo/internal/station/registry.go:80-91
-  no callers             [e6] server.RegisterHandler                   fn     go  srcgo/cmd/collector/main.go:30-35
   no callers             [nn] main                                     fn     go  srcgo/cmd/collector/main.go:58-63
-  no callers             [xj] loopbackConn.Invoke                      fn     go  srcgo/cmd/collector/main.go:21-23
   no callers             [r6] Alerter.Clear                            fn     go  srcgo/internal/notify/alerter.go:54-63
   no callers             [he] Alerter.Stats                            fn     go  srcgo/internal/notify/alerter.go:73-77
+  no callers             [qkn] ReportAll                                fn     go  srcgo/internal/station/format.go:32-38
   no callers             [ey] Station.HasTag                           fn     go  srcgo/internal/station/registry.go:29-36
 suppressed: none
 unknown: reachability is static: a symbol invoked by name at runtime looks unreached. Check `cairn weaklinks <handle>` before deleting anything
@@ -58,10 +58,8 @@ stale: not tracked yet - the file watcher is still starting, so edits made since
 
 $ cairn unreached srcgo/cmd/collector
 exit 0
-3 symbols under srcgo/cmd/collector with no production caller       [L1, exact]
-  no callers             [e6] server.RegisterHandler                   fn     go  srcgo/cmd/collector/main.go:30-35
+1 symbols under srcgo/cmd/collector with no production caller       [L1, exact]
   no callers             [nn] main                                     fn     go  srcgo/cmd/collector/main.go:58-63
-  no callers             [xj] loopbackConn.Invoke                      fn     go  srcgo/cmd/collector/main.go:21-23
 suppressed: none
 unknown: reachability is static: a symbol invoked by name at runtime looks unreached. Check `cairn weaklinks <handle>` before deleting anything
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer

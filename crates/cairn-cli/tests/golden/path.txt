@@ -5,58 +5,58 @@
 # `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine and `<epoch>`
 # for when a connector last ran; nothing else in an answer is normalised.
 
-$ cairn path ad ne
+$ cairn path ad cd
 exit 1
-no call path from [ad] to [ne] within 8 hops
+no call path from [ad] to [cd] within 8 hops
 suppressed: none
 unknown: only static calls were followed; a dynamic dispatch on the way would not appear here
 stale: none
 
-$ cairn path ne wh
+$ cairn path cd wh
 exit 1
-no call path from [ne] to [wh] within 8 hops
+no call path from [cd] to [wh] within 8 hops
 suppressed: none
 unknown: only static calls were followed; a dynamic dispatch on the way would not appear here
 stale: none
 
-$ cairn path wh 8d
+$ cairn path wh a7
 exit 1
-no call path from [wh] to [8d] within 8 hops
+no call path from [wh] to [a7] within 8 hops
 suppressed: none
 unknown: only static calls were followed; a dynamic dispatch on the way would not appear here
 stale: none
 
-$ cairn path 8d dk
+$ cairn path a7 pc
 exit 1
-no call path from [8d] to [dk] within 8 hops
+no call path from [a7] to [pc] within 8 hops
 suppressed: none
 unknown: only static calls were followed; a dynamic dispatch on the way would not appear here
 stale: none
 
-$ cairn path dk ph
+$ cairn path pc mb5
 exit 1
-no call path from [dk] to [ph] within 8 hops
+no call path from [pc] to [mb5] within 8 hops
 suppressed: none
 unknown: only static calls were followed; a dynamic dispatch on the way would not appear here
 stale: none
 
-$ cairn path ph 2ig
+$ cairn path mb5 zj
 exit 1
-no call path from [ph] to [2ig] within 8 hops
+no call path from [mb5] to [zj] within 8 hops
 suppressed: none
 unknown: only static calls were followed; a dynamic dispatch on the way would not appear here
 stale: none
 
-$ cairn path 2ig 7r
+$ cairn path zj ez5
 exit 1
-no call path from [2ig] to [7r] within 8 hops
+no call path from [zj] to [ez5] within 8 hops
 suppressed: none
 unknown: only static calls were followed; a dynamic dispatch on the way would not appear here
 stale: none
 
-$ cairn path 7r q4
+$ cairn path ez5 qs
 exit 1
-no call path from [7r] to [q4] within 8 hops
+no call path from [ez5] to [qs] within 8 hops
 suppressed: none
 unknown: only static calls were followed; a dynamic dispatch on the way would not appear here
 stale: none

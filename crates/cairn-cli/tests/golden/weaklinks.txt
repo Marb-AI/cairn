@@ -13,9 +13,9 @@ suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks ne
+$ cairn weaklinks cd
 exit 1
-string literals naming [ne]           [L1-W, unverified]
+string literals naming [cd]           [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none
@@ -29,49 +29,49 @@ suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks 8d
+$ cairn weaklinks a7
 exit 1
-string literals naming [8d] AlertAck.GetRaised          [L1-W, unverified]
+string literals naming [a7] unimplementedError.Error          [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks dk
+$ cairn weaklinks pc
 exit 1
-string literals naming [dk] AlertRequest.Celsius          [L1-W, unverified]
+string literals naming [pc] StationInfo.StationId          [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks ph
+$ cairn weaklinks mb5
 exit 1
-string literals naming [ph] unimplementedError          [L1-W, unverified]
+string literals naming [mb5] StationInfo.Label          [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks 2ig
+$ cairn weaklinks zj
 exit 1
-string literals naming [2ig] 2          [L1-W, unverified]
+string literals naming [zj] 1          [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks 7r
+$ cairn weaklinks ez5
 exit 1
-string literals naming [7r] Service.rejected          [L1-W, unverified]
+string literals naming [ez5] Service.UploadReadings          [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks q4
+$ cairn weaklinks qs
 exit 1
-string literals naming [q4] TestDescribeStationReportsTheRegistry          [L1-W, unverified]
+string literals naming [qs] stubConn.calls          [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none
@@ -85,113 +85,113 @@ suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks pu
+$ cairn weaklinks 3zh
 exit 1
-string literals naming [pu] ToLower          [L1-W, unverified]
+string literals naming [3zh] sort          [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks d7
+$ cairn weaklinks p3
 exit 1
-string literals naming [d7] store          [L1-W, unverified]
+string literals naming [p3] register          [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks yha
+$ cairn weaklinks 87
 exit 1
-string literals naming [yha] Alert          [L1-W, unverified]
+string literals naming [87] alert          [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks 7y
+$ cairn weaklinks 2b
 exit 1
-string literals naming [7y] Field.name          [L1-W, unverified]
+string literals naming [2b] StationState.should_escalate          [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks sp
+$ cairn weaklinks hx
 exit 1
-string literals naming [sp] self          [L1-W, unverified]
+string literals naming [hx] obj          [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks zu
+$ cairn weaklinks pd
 exit 1
-string literals naming [zu] AlertStore.__init__          [L1-W, unverified]
+string literals naming [pd] StationState          [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks z7
+$ cairn weaklinks 4m
 exit 1
-string literals naming [z7] dict.items          [L1-W, unverified]
+string literals naming [4m] station_id          [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks 4mg
+$ cairn weaklinks pz2
 exit 1
-string literals naming [4mg] celsius          [L1-W, unverified]
+string literals naming [pz2] SEVERE_HEAT_C          [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks c4
+$ cairn weaklinks j7
 exit 1
-string literals naming [c4] key          [L1-W, unverified]
+string literals naming [j7] severity          [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks t4
+$ cairn weaklinks 3b
 exit 1
-string literals naming [t4] __init__          [L1-W, unverified]
+string literals naming [3b] AlertServiceBase.raise_alert          [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks fm
+$ cairn weaklinks ah
 exit 1
-string literals naming [fm] station_id          [L1-W, unverified]
+string literals naming [ah] self          [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks jz
+$ cairn weaklinks hm
 exit 1
-string literals naming [jz] SystemExit          [L1-W, unverified]
+string literals naming [hm] TelemetryServiceStub.upload_readings          [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks 3jq
+$ cairn weaklinks zjq
 exit 1
-string literals naming [3jq] TelemetryServiceStub.__init__          [L1-W, unverified]
+string literals naming [zjq] StationQuery.station_id          [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none
 stale: none
 
-$ cairn weaklinks 2p9
+$ cairn weaklinks xz
 exit 1
-string literals naming [2p9] test_dispatch_reaches_a_registered_handler          [L1-W, unverified]
+string literals naming [xz] object          [L1-W, unverified]
   (no literal in the repo spells this name)
 suppressed: none
 unknown: none

@@ -53,36 +53,36 @@ suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs ne
+$ cairn refs cd
 exit 1
-references to [ne] 
+references to [cd] 
 0 references                    [L0, exact]
   (none outside generated code)
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs ne --include-generated
+$ cairn refs cd --include-generated
 exit 1
-references to [ne] 
+references to [cd] 
 0 references                    [L0, exact]
   (none outside generated code)
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs ne --context line --repo <repo>
+$ cairn refs cd --context line --repo <repo>
 exit 1
-references to [ne] 
+references to [cd] 
 0 references                    [L0, exact]
   (none outside generated code)
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs ne --budget 300
+$ cairn refs cd --budget 300
 exit 1
-references to [ne] 
+references to [cd] 
 0 references                    [L0, exact]
   (none outside generated code)
 suppressed: none
@@ -157,254 +157,278 @@ suppressed: none
 unknown: `Station.Altitude` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 8d
+$ cairn refs a7
 exit 1
-references to [8d] AlertAck.GetRaised
-  defined at srcgo/gen/telemetry/telemetry.pb.go:132
+references to [a7] unimplementedError.Error
+  defined at srcgo/gen/telemetry/telemetry.pb.go:235
 0 references                    [L0, exact]
   (none outside generated code)
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 8d --include-generated
+$ cairn refs a7 --include-generated
 exit 1
-references to [8d] AlertAck.GetRaised
-  defined at srcgo/gen/telemetry/telemetry.pb.go:132
+references to [a7] unimplementedError.Error
+  defined at srcgo/gen/telemetry/telemetry.pb.go:235
 0 references                    [L0, exact]
   (none outside generated code)
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 8d --context line --repo <repo>
+$ cairn refs a7 --context line --repo <repo>
 exit 1
-references to [8d] AlertAck.GetRaised
-  defined at srcgo/gen/telemetry/telemetry.pb.go:132
+references to [a7] unimplementedError.Error
+  defined at srcgo/gen/telemetry/telemetry.pb.go:235
 0 references                    [L0, exact]
   (none outside generated code)
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 8d --budget 300
+$ cairn refs a7 --budget 300
 exit 1
-references to [8d] AlertAck.GetRaised
-  defined at srcgo/gen/telemetry/telemetry.pb.go:132
+references to [a7] unimplementedError.Error
+  defined at srcgo/gen/telemetry/telemetry.pb.go:235
 0 references                    [L0, exact]
   (none outside generated code)
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs dk
+$ cairn refs pc
 exit 0
-references to [dk] AlertRequest.Celsius
-  defined at srcgo/gen/telemetry/telemetry.pb.go:38
-1 references                    [L0, exact]
-ALL 1 references ARE IN ONE FILE: srcgo/internal/notify/alerter.go. Reading it is probably cheaper than further queries.
-  srcgo/internal/notify/alerter.go:44             in Raise
-suppressed: none
-unknown: `AlertRequest.Celsius` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+references to [pc] StationInfo.StationId
+  defined at srcgo/gen/telemetry/telemetry.pb.go:54
+1 of 1 references              [L0, exact, partial]
+  srcgo/internal/ingest/service.go:65             in DescribeStation
+suppressed: 1 references in generated code (rerun with --include-generated)
+unknown: `StationInfo.StationId` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs dk --include-generated
+$ cairn refs pc --include-generated
 exit 0
-references to [dk] AlertRequest.Celsius
-  defined at srcgo/gen/telemetry/telemetry.pb.go:38
-1 references                    [L0, exact]
-ALL 1 references ARE IN ONE FILE: srcgo/internal/notify/alerter.go. Reading it is probably cheaper than further queries.
-  srcgo/internal/notify/alerter.go:44             in Raise
-suppressed: none
-unknown: `AlertRequest.Celsius` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs dk --context line --repo <repo>
-exit 0
-references to [dk] AlertRequest.Celsius
-  defined at srcgo/gen/telemetry/telemetry.pb.go:38
-1 references                    [L0, exact]
-ALL 1 references ARE IN ONE FILE: srcgo/internal/notify/alerter.go. Reading it is probably cheaper than further queries.
-  srcgo/internal/notify/alerter.go:44             in Raise   |  Celsius:   celsius,
-suppressed: none
-unknown: `AlertRequest.Celsius` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs dk --budget 300
-exit 0
-references to [dk] AlertRequest.Celsius
-  defined at srcgo/gen/telemetry/telemetry.pb.go:38
-1 references                    [L0, exact]
-ALL 1 references ARE IN ONE FILE: srcgo/internal/notify/alerter.go. Reading it is probably cheaper than further queries.
-  srcgo/internal/notify/alerter.go:44             in Raise
-suppressed: none
-unknown: `AlertRequest.Celsius` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs ph
-exit 1
-references to [ph] unimplementedError
-  defined at srcgo/gen/telemetry/telemetry.pb.go:233
-0 of 0 references              [L0, exact, partial]
-  (none outside generated code)
-suppressed: 2 references in generated code (rerun with --include-generated)
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs ph --include-generated
-exit 0
-references to [ph] unimplementedError
-  defined at srcgo/gen/telemetry/telemetry.pb.go:233
+references to [pc] StationInfo.StationId
+  defined at srcgo/gen/telemetry/telemetry.pb.go:54
 2 references                    [L0, exact]
-ALL 2 references ARE IN ONE FILE: srcgo/gen/telemetry/telemetry.pb.go. Reading it is probably cheaper than further queries.
-  srcgo/gen/telemetry/telemetry.pb.go:235         in Error
-  srcgo/gen/telemetry/telemetry.pb.go:237         (module level)
+  srcgo/internal/ingest/service.go:65             in DescribeStation
+  srcgo/gen/telemetry/telemetry.pb.go:150         in GetStationId
 suppressed: none
-unknown: none
+unknown: `StationInfo.StationId` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs ph --context line --repo <repo>
-exit 1
-references to [ph] unimplementedError
-  defined at srcgo/gen/telemetry/telemetry.pb.go:233
-0 of 0 references              [L0, exact, partial]
-  (none outside generated code)
-suppressed: 2 references in generated code (rerun with --include-generated)
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs ph --budget 300
-exit 1
-references to [ph] unimplementedError
-  defined at srcgo/gen/telemetry/telemetry.pb.go:233
-0 of 0 references              [L0, exact, partial]
-  (none outside generated code)
-suppressed: 2 references in generated code (rerun with --include-generated)
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs 2ig
-exit 1
-references to [2ig] 2
-0 references                    [L0, exact]
-  (none outside generated code)
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs 2ig --include-generated
-exit 1
-references to [2ig] 2
-0 references                    [L0, exact]
-  (none outside generated code)
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs 2ig --context line --repo <repo>
-exit 1
-references to [2ig] 2
-0 references                    [L0, exact]
-  (none outside generated code)
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs 2ig --budget 300
-exit 1
-references to [2ig] 2
-0 references                    [L0, exact]
-  (none outside generated code)
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs 7r
+$ cairn refs pc --context line --repo <repo>
 exit 0
-references to [7r] Service.rejected
-  defined at srcgo/internal/ingest/service.go:29
-2 references                    [L0, exact]
-ALL 2 references ARE IN ONE FILE: srcgo/internal/ingest/service.go. Reading it is probably cheaper than further queries.
-  srcgo/internal/ingest/service.go:54             in UploadReadings
-  srcgo/internal/ingest/service.go:98             in Totals
-suppressed: none
-unknown: `Service.rejected` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+references to [pc] StationInfo.StationId
+  defined at srcgo/gen/telemetry/telemetry.pb.go:54
+1 of 1 references              [L0, exact, partial]
+  srcgo/internal/ingest/service.go:65             in DescribeStation   |  StationId: found.ID,
+suppressed: 1 references in generated code (rerun with --include-generated)
+unknown: `StationInfo.StationId` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 7r --include-generated
+$ cairn refs pc --budget 300
 exit 0
-references to [7r] Service.rejected
-  defined at srcgo/internal/ingest/service.go:29
-2 references                    [L0, exact]
-ALL 2 references ARE IN ONE FILE: srcgo/internal/ingest/service.go. Reading it is probably cheaper than further queries.
-  srcgo/internal/ingest/service.go:54             in UploadReadings
-  srcgo/internal/ingest/service.go:98             in Totals
-suppressed: none
-unknown: `Service.rejected` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+references to [pc] StationInfo.StationId
+  defined at srcgo/gen/telemetry/telemetry.pb.go:54
+1 of 1 references              [L0, exact, partial]
+  srcgo/internal/ingest/service.go:65             in DescribeStation
+suppressed: 1 references in generated code (rerun with --include-generated)
+unknown: `StationInfo.StationId` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 7r --context line --repo <repo>
+$ cairn refs mb5
 exit 0
-references to [7r] Service.rejected
-  defined at srcgo/internal/ingest/service.go:29
-2 references                    [L0, exact]
-ALL 2 references ARE IN ONE FILE: srcgo/internal/ingest/service.go. Reading it is probably cheaper than further queries.
-  srcgo/internal/ingest/service.go:54             in UploadReadings   |  s.rejected += ack.Rejected
-  srcgo/internal/ingest/service.go:98             in Totals   |  return s.accepted, s.rejected
-suppressed: none
-unknown: `Service.rejected` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+references to [mb5] StationInfo.Label
+  defined at srcgo/gen/telemetry/telemetry.pb.go:55
+1 of 1 references              [L0, exact, partial]
+  srcgo/internal/ingest/service.go:66             in DescribeStation
+suppressed: 1 references in generated code (rerun with --include-generated)
+unknown: `StationInfo.Label` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 7r --budget 300
+$ cairn refs mb5 --include-generated
 exit 0
-references to [7r] Service.rejected
-  defined at srcgo/internal/ingest/service.go:29
+references to [mb5] StationInfo.Label
+  defined at srcgo/gen/telemetry/telemetry.pb.go:55
 2 references                    [L0, exact]
-ALL 2 references ARE IN ONE FILE: srcgo/internal/ingest/service.go. Reading it is probably cheaper than further queries.
-  srcgo/internal/ingest/service.go:54             in UploadReadings
-  srcgo/internal/ingest/service.go:98             in Totals
+  srcgo/internal/ingest/service.go:66             in DescribeStation
+  srcgo/gen/telemetry/telemetry.pb.go:157         in GetLabel
 suppressed: none
-unknown: `Service.rejected` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+unknown: `StationInfo.Label` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs q4
+$ cairn refs mb5 --context line --repo <repo>
+exit 0
+references to [mb5] StationInfo.Label
+  defined at srcgo/gen/telemetry/telemetry.pb.go:55
+1 of 1 references              [L0, exact, partial]
+  srcgo/internal/ingest/service.go:66             in DescribeStation   |  Label:     found.Label,
+suppressed: 1 references in generated code (rerun with --include-generated)
+unknown: `StationInfo.Label` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs mb5 --budget 300
+exit 0
+references to [mb5] StationInfo.Label
+  defined at srcgo/gen/telemetry/telemetry.pb.go:55
+1 of 1 references              [L0, exact, partial]
+  srcgo/internal/ingest/service.go:66             in DescribeStation
+suppressed: 1 references in generated code (rerun with --include-generated)
+unknown: `StationInfo.Label` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs zj
 exit 1
-references to [q4] TestDescribeStationReportsTheRegistry
-  defined at srcgo/internal/ingest/service_test.go:83
+references to [zj] 1
 0 references                    [L0, exact]
   (none outside generated code)
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs q4 --include-generated
+$ cairn refs zj --include-generated
 exit 1
-references to [q4] TestDescribeStationReportsTheRegistry
-  defined at srcgo/internal/ingest/service_test.go:83
+references to [zj] 1
 0 references                    [L0, exact]
   (none outside generated code)
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs q4 --context line --repo <repo>
+$ cairn refs zj --context line --repo <repo>
 exit 1
-references to [q4] TestDescribeStationReportsTheRegistry
-  defined at srcgo/internal/ingest/service_test.go:83
+references to [zj] 1
 0 references                    [L0, exact]
   (none outside generated code)
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs q4 --budget 300
+$ cairn refs zj --budget 300
 exit 1
-references to [q4] TestDescribeStationReportsTheRegistry
-  defined at srcgo/internal/ingest/service_test.go:83
+references to [zj] 1
 0 references                    [L0, exact]
   (none outside generated code)
 suppressed: none
 unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs ez5
+exit 0
+references to [ez5] Service.UploadReadings
+  defined at srcgo/internal/ingest/service.go:38
+5 references                    [L0, exact]
+ALL 5 references ARE IN ONE FILE: srcgo/internal/ingest/service_test.go. Reading it is probably cheaper than further queries.
+  srcgo/internal/ingest/service_test.go:34        in TestUploadAcceptsAPlainReading
+  srcgo/internal/ingest/service_test.go:47        in TestUploadRejectsAFaultySensor
+  srcgo/internal/ingest/service_test.go:57        in TestUploadRejectsAnUnknownStation
+  srcgo/internal/ingest/service_test.go:67        in TestSevereColdCrossesTheBoundary
+  srcgo/internal/ingest/service_test.go:78        in TestOversizedBatchIsRefused
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs ez5 --include-generated
+exit 0
+references to [ez5] Service.UploadReadings
+  defined at srcgo/internal/ingest/service.go:38
+5 references                    [L0, exact]
+ALL 5 references ARE IN ONE FILE: srcgo/internal/ingest/service_test.go. Reading it is probably cheaper than further queries.
+  srcgo/internal/ingest/service_test.go:34        in TestUploadAcceptsAPlainReading
+  srcgo/internal/ingest/service_test.go:47        in TestUploadRejectsAFaultySensor
+  srcgo/internal/ingest/service_test.go:57        in TestUploadRejectsAnUnknownStation
+  srcgo/internal/ingest/service_test.go:67        in TestSevereColdCrossesTheBoundary
+  srcgo/internal/ingest/service_test.go:78        in TestOversizedBatchIsRefused
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs ez5 --context line --repo <repo>
+exit 0
+references to [ez5] Service.UploadReadings
+  defined at srcgo/internal/ingest/service.go:38
+5 references                    [L0, exact]
+ALL 5 references ARE IN ONE FILE: srcgo/internal/ingest/service_test.go. Reading it is probably cheaper than further queries.
+  srcgo/internal/ingest/service_test.go:34        in TestUploadAcceptsAPlainReading   |  ack, err := svc.UploadReadings(context.Background(), &telemetry.ReadingBatch{
+  srcgo/internal/ingest/service_test.go:47        in TestUploadRejectsAFaultySensor   |  ack, _ := svc.UploadReadings(context.Background(), &telemetry.ReadingBatch{
+  srcgo/internal/ingest/service_test.go:57        in TestUploadRejectsAnUnknownStation   |  ack, _ := svc.UploadReadings(context.Background(), &telemetry.ReadingBatch{
+  srcgo/internal/ingest/service_test.go:67        in TestSevereColdCrossesTheBoundary   |  _, _ = svc.UploadReadings(context.Background(), &telemetry.ReadingBatch{
+  srcgo/internal/ingest/service_test.go:78        in TestOversizedBatchIsRefused   |  if _, err := svc.UploadReadings(context.Background(), batch); err == nil {
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs ez5 --budget 300
+exit 0
+references to [ez5] Service.UploadReadings
+  defined at srcgo/internal/ingest/service.go:38
+5 references                    [L0, exact]
+ALL 5 references ARE IN ONE FILE: srcgo/internal/ingest/service_test.go. Reading it is probably cheaper than further queries.
+  srcgo/internal/ingest/service_test.go:34        in TestUploadAcceptsAPlainReading
+  srcgo/internal/ingest/service_test.go:47        in TestUploadRejectsAFaultySensor
+  srcgo/internal/ingest/service_test.go:57        in TestUploadRejectsAnUnknownStation
+  srcgo/internal/ingest/service_test.go:67        in TestSevereColdCrossesTheBoundary
+  srcgo/internal/ingest/service_test.go:78        in TestOversizedBatchIsRefused
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs qs
+exit 0
+references to [qs] stubConn.calls
+  defined at srcgo/internal/ingest/service_test.go:14
+4 references                    [L0, exact]
+ALL 4 references ARE IN ONE FILE: srcgo/internal/ingest/service_test.go. Reading it is probably cheaper than further queries.
+  srcgo/internal/ingest/service_test.go:18        in Invoke
+  srcgo/internal/ingest/service_test.go:18        in Invoke
+  srcgo/internal/ingest/service_test.go:70        in TestSevereColdCrossesTheBoundary
+  srcgo/internal/ingest/service_test.go:71        in TestSevereColdCrossesTheBoundary
+suppressed: none
+unknown: `stubConn.calls` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs qs --include-generated
+exit 0
+references to [qs] stubConn.calls
+  defined at srcgo/internal/ingest/service_test.go:14
+4 references                    [L0, exact]
+ALL 4 references ARE IN ONE FILE: srcgo/internal/ingest/service_test.go. Reading it is probably cheaper than further queries.
+  srcgo/internal/ingest/service_test.go:18        in Invoke
+  srcgo/internal/ingest/service_test.go:18        in Invoke
+  srcgo/internal/ingest/service_test.go:70        in TestSevereColdCrossesTheBoundary
+  srcgo/internal/ingest/service_test.go:71        in TestSevereColdCrossesTheBoundary
+suppressed: none
+unknown: `stubConn.calls` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs qs --context line --repo <repo>
+exit 0
+references to [qs] stubConn.calls
+  defined at srcgo/internal/ingest/service_test.go:14
+4 references                    [L0, exact]
+ALL 4 references ARE IN ONE FILE: srcgo/internal/ingest/service_test.go. Reading it is probably cheaper than further queries.
+  srcgo/internal/ingest/service_test.go:18        in Invoke   |  c.calls = append(c.calls, method)
+  srcgo/internal/ingest/service_test.go:18        in Invoke   |  c.calls = append(c.calls, method)
+  srcgo/internal/ingest/service_test.go:70        in TestSevereColdCrossesTheBoundary   |  if len(conn.calls) != 1 {
+  srcgo/internal/ingest/service_test.go:71        in TestSevereColdCrossesTheBoundary   |  t.Fatalf("want one alert call, got %v", conn.calls)
+suppressed: none
+unknown: `stubConn.calls` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs qs --budget 300
+exit 0
+references to [qs] stubConn.calls
+  defined at srcgo/internal/ingest/service_test.go:14
+4 references                    [L0, exact]
+ALL 4 references ARE IN ONE FILE: srcgo/internal/ingest/service_test.go. Reading it is probably cheaper than further queries.
+  srcgo/internal/ingest/service_test.go:18        in Invoke
+  srcgo/internal/ingest/service_test.go:18        in Invoke
+  srcgo/internal/ingest/service_test.go:70        in TestSevereColdCrossesTheBoundary
+  srcgo/internal/ingest/service_test.go:71        in TestSevereColdCrossesTheBoundary
+suppressed: none
+unknown: `stubConn.calls` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
 $ cairn refs bj
@@ -463,687 +487,645 @@ suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs pu
+$ cairn refs 3zh
 exit 0
-references to [pu] ToLower
-1 references                    [L0, exact]
-ALL 1 references ARE IN ONE FILE: srcgo/internal/station/registry.go. Reading it is probably cheaper than further queries.
-  srcgo/internal/station/registry.go:117          in normaliseID
+references to [3zh] sort
+2 references                    [L0, exact]
+ALL 2 references ARE IN ONE FILE: srcgo/internal/station/registry.go. Reading it is probably cheaper than further queries.
+  srcgo/internal/station/registry.go:6            (module level)
+  srcgo/internal/station/registry.go:89           in Active
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs pu --include-generated
+$ cairn refs 3zh --include-generated
 exit 0
-references to [pu] ToLower
-1 references                    [L0, exact]
-ALL 1 references ARE IN ONE FILE: srcgo/internal/station/registry.go. Reading it is probably cheaper than further queries.
-  srcgo/internal/station/registry.go:117          in normaliseID
+references to [3zh] sort
+2 references                    [L0, exact]
+ALL 2 references ARE IN ONE FILE: srcgo/internal/station/registry.go. Reading it is probably cheaper than further queries.
+  srcgo/internal/station/registry.go:6            (module level)
+  srcgo/internal/station/registry.go:89           in Active
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs pu --context line --repo <repo>
+$ cairn refs 3zh --context line --repo <repo>
 exit 0
-references to [pu] ToLower
-1 references                    [L0, exact]
-ALL 1 references ARE IN ONE FILE: srcgo/internal/station/registry.go. Reading it is probably cheaper than further queries.
-  srcgo/internal/station/registry.go:117          in normaliseID   |  return strings.ToLower(strings.TrimSpace(raw))
+references to [3zh] sort
+2 references                    [L0, exact]
+ALL 2 references ARE IN ONE FILE: srcgo/internal/station/registry.go. Reading it is probably cheaper than further queries.
+  srcgo/internal/station/registry.go:6            (module level)   |  "sort"
+  srcgo/internal/station/registry.go:89           in Active   |  sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs pu --budget 300
+$ cairn refs 3zh --budget 300
 exit 0
-references to [pu] ToLower
-1 references                    [L0, exact]
-ALL 1 references ARE IN ONE FILE: srcgo/internal/station/registry.go. Reading it is probably cheaper than further queries.
-  srcgo/internal/station/registry.go:117          in normaliseID
+references to [3zh] sort
+2 references                    [L0, exact]
+ALL 2 references ARE IN ONE FILE: srcgo/internal/station/registry.go. Reading it is probably cheaper than further queries.
+  srcgo/internal/station/registry.go:6            (module level)
+  srcgo/internal/station/registry.go:89           in Active
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs d7
+$ cairn refs p3
 exit 0
-references to [d7] store
-  defined at srcpy/alerting/dispatch.py:41
+references to [p3] register
+  defined at srcpy/alerting/dispatch.py:20
+4 references                    [L0, exact]
+ALL 4 references ARE IN ONE FILE: srcpy/alerting/dispatch.py. Reading it is probably cheaper than further queries.
+  srcpy/alerting/dispatch.py:40                   (module level)
+  srcpy/alerting/dispatch.py:48                   (module level)
+  srcpy/alerting/dispatch.py:56                   (module level)
+  srcpy/alerting/dispatch.py:61                   (module level)
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs p3 --include-generated
+exit 0
+references to [p3] register
+  defined at srcpy/alerting/dispatch.py:20
+4 references                    [L0, exact]
+ALL 4 references ARE IN ONE FILE: srcpy/alerting/dispatch.py. Reading it is probably cheaper than further queries.
+  srcpy/alerting/dispatch.py:40                   (module level)
+  srcpy/alerting/dispatch.py:48                   (module level)
+  srcpy/alerting/dispatch.py:56                   (module level)
+  srcpy/alerting/dispatch.py:61                   (module level)
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs p3 --context line --repo <repo>
+exit 0
+references to [p3] register
+  defined at srcpy/alerting/dispatch.py:20
+4 references                    [L0, exact]
+ALL 4 references ARE IN ONE FILE: srcpy/alerting/dispatch.py. Reading it is probably cheaper than further queries.
+  srcpy/alerting/dispatch.py:40                   (module level)   |  @register("severe cold")
+  srcpy/alerting/dispatch.py:48                   (module level)   |  @register("severe heat")
+  srcpy/alerting/dispatch.py:56                   (module level)   |  @register("frost")
+  srcpy/alerting/dispatch.py:61                   (module level)   |  @register("freezing fog likely")
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs p3 --budget 300
+exit 0
+references to [p3] register
+  defined at srcpy/alerting/dispatch.py:20
+4 references                    [L0, exact]
+ALL 4 references ARE IN ONE FILE: srcpy/alerting/dispatch.py. Reading it is probably cheaper than further queries.
+  srcpy/alerting/dispatch.py:40                   (module level)
+  srcpy/alerting/dispatch.py:48                   (module level)
+  srcpy/alerting/dispatch.py:56                   (module level)
+  srcpy/alerting/dispatch.py:61                   (module level)
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs 87
+exit 0
+references to [87] alert
+  defined at srcpy/alerting/dispatch.py:66
 1 references                    [L0, exact]
 ALL 1 references ARE IN ONE FILE: srcpy/alerting/dispatch.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/dispatch.py:42                   in handle_severe_cold
+  srcpy/alerting/dispatch.py:68                   in handle_unknown
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs d7 --include-generated
+$ cairn refs 87 --include-generated
 exit 0
-references to [d7] store
-  defined at srcpy/alerting/dispatch.py:41
+references to [87] alert
+  defined at srcpy/alerting/dispatch.py:66
 1 references                    [L0, exact]
 ALL 1 references ARE IN ONE FILE: srcpy/alerting/dispatch.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/dispatch.py:42                   in handle_severe_cold
+  srcpy/alerting/dispatch.py:68                   in handle_unknown
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs d7 --context line --repo <repo>
+$ cairn refs 87 --context line --repo <repo>
 exit 0
-references to [d7] store
-  defined at srcpy/alerting/dispatch.py:41
+references to [87] alert
+  defined at srcpy/alerting/dispatch.py:66
 1 references                    [L0, exact]
 ALL 1 references ARE IN ONE FILE: srcpy/alerting/dispatch.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/dispatch.py:42                   in handle_severe_cold   |  state = store.state_for(alert.station_id)
+  srcpy/alerting/dispatch.py:68                   in handle_unknown   |  return f"ignored: no handler for {alert.reason!r}"
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs d7 --budget 300
+$ cairn refs 87 --budget 300
 exit 0
-references to [d7] store
-  defined at srcpy/alerting/dispatch.py:41
+references to [87] alert
+  defined at srcpy/alerting/dispatch.py:66
 1 references                    [L0, exact]
 ALL 1 references ARE IN ONE FILE: srcpy/alerting/dispatch.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/dispatch.py:42                   in handle_severe_cold
+  srcpy/alerting/dispatch.py:68                   in handle_unknown
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs yha
+$ cairn refs 2b
 exit 0
-references to [yha] Alert
-  defined at srcpy/alerting/models.py:50
-16 references                    [L0, exact]
-  srcpy/alerting/dispatch.py:13                   (module level)
-  srcpy/alerting/dispatch.py:15                   (module level)
-  srcpy/alerting/dispatch.py:30                   in dispatch
-  srcpy/alerting/dispatch.py:41                   in handle_severe_cold
-  srcpy/alerting/dispatch.py:49                   in handle_severe_heat
-  srcpy/alerting/dispatch.py:57                   in handle_frost
-  srcpy/alerting/dispatch.py:62                   in handle_freezing_fog
-  srcpy/alerting/dispatch.py:66                   in handle_unknown
-  srcpy/alerting/models.py:97                     in __init__
-  srcpy/alerting/models.py:100                    in open_alert
-  srcpy/alerting/models.py:101                    in open_alert
-  srcpy/alerting/models.py:110                    in close_alert
-  srcpy/alerting/models.py:124                    in open_alerts
-  srcpy/alerting/service.py:11                    (module level)
-  srcpy/tests/test_rules.py:10                    (module level)
-  srcpy/tests/test_rules.py:93                    in test_alert_row_round_trips
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs yha --include-generated
-exit 0
-references to [yha] Alert
-  defined at srcpy/alerting/models.py:50
-16 references                    [L0, exact]
-  srcpy/alerting/dispatch.py:13                   (module level)
-  srcpy/alerting/dispatch.py:15                   (module level)
-  srcpy/alerting/dispatch.py:30                   in dispatch
-  srcpy/alerting/dispatch.py:41                   in handle_severe_cold
-  srcpy/alerting/dispatch.py:49                   in handle_severe_heat
-  srcpy/alerting/dispatch.py:57                   in handle_frost
-  srcpy/alerting/dispatch.py:62                   in handle_freezing_fog
-  srcpy/alerting/dispatch.py:66                   in handle_unknown
-  srcpy/alerting/models.py:97                     in __init__
-  srcpy/alerting/models.py:100                    in open_alert
-  srcpy/alerting/models.py:101                    in open_alert
-  srcpy/alerting/models.py:110                    in close_alert
-  srcpy/alerting/models.py:124                    in open_alerts
-  srcpy/alerting/service.py:11                    (module level)
-  srcpy/tests/test_rules.py:10                    (module level)
-  srcpy/tests/test_rules.py:93                    in test_alert_row_round_trips
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs yha --context line --repo <repo>
-exit 0
-references to [yha] Alert
-  defined at srcpy/alerting/models.py:50
-16 references                    [L0, exact]
-  srcpy/alerting/dispatch.py:13                   (module level)   |  from alerting.models import Alert, AlertStore
-  srcpy/alerting/dispatch.py:15                   (module level)   |  Handler = Callable[[Alert, AlertStore], str]
-  srcpy/alerting/dispatch.py:30                   in dispatch   |  def dispatch(alert: Alert, store: AlertStore) -> str:
-  srcpy/alerting/dispatch.py:41                   in handle_severe_cold   |  def handle_severe_cold(alert: Alert, store: AlertStore) -> str:
-  srcpy/alerting/dispatch.py:49                   in handle_severe_heat   |  def handle_severe_heat(alert: Alert, store: AlertStore) -> str:
-  srcpy/alerting/dispatch.py:57                   in handle_frost   |  def handle_frost(alert: Alert, store: AlertStore) -> str:
-  srcpy/alerting/dispatch.py:62                   in handle_freezing_fog   |  def handle_freezing_fog(alert: Alert, store: AlertStore) -> str:
-  srcpy/alerting/dispatch.py:66                   in handle_unknown   |  def handle_unknown(alert: Alert, store: AlertStore) -> str:
-  srcpy/alerting/models.py:97                     in __init__   |  self._alerts: dict[str, Alert] = {}
-  srcpy/alerting/models.py:100                    in open_alert   |  def open_alert(self, station_id: str, reason: str, celsius: float) -> Alert:
-  srcpy/alerting/models.py:101                    in open_alert   |  alert = Alert(
-  srcpy/alerting/models.py:110                    in close_alert   |  def close_alert(self, station_id: str) -> Alert | None:
-  srcpy/alerting/models.py:124                    in open_alerts   |  def open_alerts(self) -> list[Alert]:
-  srcpy/alerting/service.py:11                    (module level)   |  from alerting.models import Alert, AlertStore
-  srcpy/tests/test_rules.py:10                    (module level)   |  from alerting.models import Alert, AlertStore
-  srcpy/tests/test_rules.py:93                    in test_alert_row_round_trips   |  alert = Alert(station_id="alp-01", reason="frost", celsius=-1.0)
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs yha --budget 300
-exit 0
-references to [yha] Alert
-  defined at srcpy/alerting/models.py:50
-16 references                    [L0, exact]
-  srcpy/alerting/dispatch.py:13                   (module level)
-  srcpy/alerting/dispatch.py:15                   (module level)
-  srcpy/alerting/dispatch.py:30                   in dispatch
-  srcpy/alerting/dispatch.py:41                   in handle_severe_cold
-  srcpy/alerting/dispatch.py:49                   in handle_severe_heat
-  srcpy/alerting/dispatch.py:57                   in handle_frost
-  srcpy/alerting/dispatch.py:62                   in handle_freezing_fog
-  srcpy/alerting/dispatch.py:66                   in handle_unknown
-  srcpy/alerting/models.py:97                     in __init__
-  srcpy/alerting/models.py:100                    in open_alert
-  srcpy/alerting/models.py:101                    in open_alert
-  srcpy/alerting/models.py:110                    in close_alert
-  srcpy/alerting/models.py:124                    in open_alerts
-  srcpy/alerting/service.py:11                    (module level)
-  srcpy/tests/test_rules.py:10                    (module level)
-  srcpy/tests/test_rules.py:93                    in test_alert_row_round_trips
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs 7y
-exit 0
-USE GREP FOR THIS ONE. `Field.name` is an attribute on a type, and attribute access resolves only where the holder's type is known - for ORM instances and dicts-as-records it usually is not, so the list below is a lower bound and not a blast radius. Run instead:  grep -rn 'name' <src> --include='*.py'
-
-references to [7y] Field.name
-  defined at srcpy/alerting/models.py:20
+references to [2b] StationState.should_escalate
+  defined at srcpy/alerting/models.py:89
 3 references                    [L0, exact]
-ALL 3 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/models.py:23                     in __set_name__
-  srcpy/alerting/models.py:28                     in __get__
+  srcpy/alerting/dispatch.py:43                   in handle_severe_cold
+  srcpy/alerting/dispatch.py:51                   in handle_severe_heat
+  srcpy/tests/test_rules.py:89                    in test_state_resets_after_a_calm_reading
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs 2b --include-generated
+exit 0
+references to [2b] StationState.should_escalate
+  defined at srcpy/alerting/models.py:89
+3 references                    [L0, exact]
+  srcpy/alerting/dispatch.py:43                   in handle_severe_cold
+  srcpy/alerting/dispatch.py:51                   in handle_severe_heat
+  srcpy/tests/test_rules.py:89                    in test_state_resets_after_a_calm_reading
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs 2b --context line --repo <repo>
+exit 0
+references to [2b] StationState.should_escalate
+  defined at srcpy/alerting/models.py:89
+3 references                    [L0, exact]
+  srcpy/alerting/dispatch.py:43                   in handle_severe_cold   |  if state.should_escalate():
+  srcpy/alerting/dispatch.py:51                   in handle_severe_heat   |  if state.should_escalate(threshold=2):
+  srcpy/tests/test_rules.py:89                    in test_state_resets_after_a_calm_reading   |  assert not state.should_escalate()
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs 2b --budget 300
+exit 0
+references to [2b] StationState.should_escalate
+  defined at srcpy/alerting/models.py:89
+3 references                    [L0, exact]
+  srcpy/alerting/dispatch.py:43                   in handle_severe_cold
+  srcpy/alerting/dispatch.py:51                   in handle_severe_heat
+  srcpy/tests/test_rules.py:89                    in test_state_resets_after_a_calm_reading
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs hx
+exit 0
+references to [hx] obj
+  defined at srcpy/alerting/models.py:30
+1 references                    [L0, exact]
+ALL 1 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
   srcpy/alerting/models.py:31                     in __set__
 suppressed: none
-unknown: `Field.name` is an attribute on a type. Uses are only resolved where the holder's type is known, which for ORM models, dicts-as-records and dynamically built objects it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 7y --include-generated
+$ cairn refs hx --include-generated
 exit 0
-USE GREP FOR THIS ONE. `Field.name` is an attribute on a type, and attribute access resolves only where the holder's type is known - for ORM instances and dicts-as-records it usually is not, so the list below is a lower bound and not a blast radius. Run instead:  grep -rn 'name' <src> --include='*.py'
-
-references to [7y] Field.name
-  defined at srcpy/alerting/models.py:20
-3 references                    [L0, exact]
-ALL 3 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/models.py:23                     in __set_name__
-  srcpy/alerting/models.py:28                     in __get__
+references to [hx] obj
+  defined at srcpy/alerting/models.py:30
+1 references                    [L0, exact]
+ALL 1 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
   srcpy/alerting/models.py:31                     in __set__
 suppressed: none
-unknown: `Field.name` is an attribute on a type. Uses are only resolved where the holder's type is known, which for ORM models, dicts-as-records and dynamically built objects it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 7y --context line --repo <repo>
+$ cairn refs hx --context line --repo <repo>
 exit 0
-USE GREP FOR THIS ONE. `Field.name` is an attribute on a type, and attribute access resolves only where the holder's type is known - for ORM instances and dicts-as-records it usually is not, so the list below is a lower bound and not a blast radius. Run instead:  grep -rn 'name' <src> --include='*.py'
-
-references to [7y] Field.name
-  defined at srcpy/alerting/models.py:20
-3 references                    [L0, exact]
-ALL 3 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/models.py:23                     in __set_name__   |  self.name = name
-  srcpy/alerting/models.py:28                     in __get__   |  return obj.__dict__.get(self.name, self.default)
+references to [hx] obj
+  defined at srcpy/alerting/models.py:30
+1 references                    [L0, exact]
+ALL 1 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
   srcpy/alerting/models.py:31                     in __set__   |  obj.__dict__[self.name] = value
 suppressed: none
-unknown: `Field.name` is an attribute on a type. Uses are only resolved where the holder's type is known, which for ORM models, dicts-as-records and dynamically built objects it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 7y --budget 300
+$ cairn refs hx --budget 300
 exit 0
-USE GREP FOR THIS ONE. `Field.name` is an attribute on a type, and attribute access resolves only where the holder's type is known - for ORM instances and dicts-as-records it usually is not, so the list below is a lower bound and not a blast radius. Run instead:  grep -rn 'name' <src> --include='*.py'
-
-references to [7y] Field.name
-  defined at srcpy/alerting/models.py:20
-3 references                    [L0, exact]
-ALL 3 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/models.py:23                     in __set_name__
-  srcpy/alerting/models.py:28                     in __get__
+references to [hx] obj
+  defined at srcpy/alerting/models.py:30
+1 references                    [L0, exact]
+ALL 1 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
   srcpy/alerting/models.py:31                     in __set__
 suppressed: none
-unknown: `Field.name` is an attribute on a type. Uses are only resolved where the holder's type is known, which for ORM models, dicts-as-records and dynamically built objects it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs sp
+$ cairn refs pd
 exit 0
-references to [sp] self
-  defined at srcpy/alerting/models.py:46
-2 references                    [L0, exact]
-ALL 2 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/models.py:47                     in __repr__
-  srcpy/alerting/models.py:47                     in __repr__
+references to [pd] StationState
+  defined at srcpy/alerting/models.py:75
+3 references                    [L0, exact]
+ALL 3 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
+  srcpy/alerting/models.py:98                     in __init__
+  srcpy/alerting/models.py:117                    in state_for
+  srcpy/alerting/models.py:120                    in state_for
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs sp --include-generated
+$ cairn refs pd --include-generated
 exit 0
-references to [sp] self
-  defined at srcpy/alerting/models.py:46
-2 references                    [L0, exact]
-ALL 2 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/models.py:47                     in __repr__
-  srcpy/alerting/models.py:47                     in __repr__
+references to [pd] StationState
+  defined at srcpy/alerting/models.py:75
+3 references                    [L0, exact]
+ALL 3 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
+  srcpy/alerting/models.py:98                     in __init__
+  srcpy/alerting/models.py:117                    in state_for
+  srcpy/alerting/models.py:120                    in state_for
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs sp --context line --repo <repo>
+$ cairn refs pd --context line --repo <repo>
 exit 0
-references to [sp] self
-  defined at srcpy/alerting/models.py:46
-2 references                    [L0, exact]
-ALL 2 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/models.py:47                     in __repr__   |  return f"<{type(self).__name__} {self.as_row()}>"
-  srcpy/alerting/models.py:47                     in __repr__   |  return f"<{type(self).__name__} {self.as_row()}>"
+references to [pd] StationState
+  defined at srcpy/alerting/models.py:75
+3 references                    [L0, exact]
+ALL 3 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
+  srcpy/alerting/models.py:98                     in __init__   |  self._state: dict[str, StationState] = {}
+  srcpy/alerting/models.py:117                    in state_for   |  def state_for(self, station_id: str) -> StationState:
+  srcpy/alerting/models.py:120                    in state_for   |  state = StationState(station_id=station_id)
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs sp --budget 300
+$ cairn refs pd --budget 300
 exit 0
-references to [sp] self
-  defined at srcpy/alerting/models.py:46
-2 references                    [L0, exact]
-ALL 2 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/models.py:47                     in __repr__
-  srcpy/alerting/models.py:47                     in __repr__
+references to [pd] StationState
+  defined at srcpy/alerting/models.py:75
+3 references                    [L0, exact]
+ALL 3 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
+  srcpy/alerting/models.py:98                     in __init__
+  srcpy/alerting/models.py:117                    in state_for
+  srcpy/alerting/models.py:120                    in state_for
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs zu
-exit 1
-references to [zu] AlertStore.__init__
-  defined at srcpy/alerting/models.py:96
-0 references                    [L0, exact]
-  (none outside generated code)
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs zu --include-generated
-exit 1
-references to [zu] AlertStore.__init__
-  defined at srcpy/alerting/models.py:96
-0 references                    [L0, exact]
-  (none outside generated code)
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs zu --context line --repo <repo>
-exit 1
-references to [zu] AlertStore.__init__
-  defined at srcpy/alerting/models.py:96
-0 references                    [L0, exact]
-  (none outside generated code)
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs zu --budget 300
-exit 1
-references to [zu] AlertStore.__init__
-  defined at srcpy/alerting/models.py:96
-0 references                    [L0, exact]
-  (none outside generated code)
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs z7
+$ cairn refs 4m
 exit 0
-references to [z7] dict.items
-2 references                    [L0, exact]
-ALL 2 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/models.py:40                     in __init__
-  srcpy/alerting/models.py:44                     in as_row
+references to [4m] station_id
+  defined at srcpy/alerting/models.py:110
+1 references                    [L0, exact]
+ALL 1 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
+  srcpy/alerting/models.py:111                    in close_alert
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs z7 --include-generated
+$ cairn refs 4m --include-generated
 exit 0
-references to [z7] dict.items
-2 references                    [L0, exact]
-ALL 2 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/models.py:40                     in __init__
-  srcpy/alerting/models.py:44                     in as_row
+references to [4m] station_id
+  defined at srcpy/alerting/models.py:110
+1 references                    [L0, exact]
+ALL 1 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
+  srcpy/alerting/models.py:111                    in close_alert
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs z7 --context line --repo <repo>
+$ cairn refs 4m --context line --repo <repo>
 exit 0
-references to [z7] dict.items
-2 references                    [L0, exact]
-ALL 2 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/models.py:40                     in __init__   |  for key, value in values.items():
-  srcpy/alerting/models.py:44                     in as_row   |  return {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
+references to [4m] station_id
+  defined at srcpy/alerting/models.py:110
+1 references                    [L0, exact]
+ALL 1 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
+  srcpy/alerting/models.py:111                    in close_alert   |  alert = self._alerts.get(station_id)
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs z7 --budget 300
+$ cairn refs 4m --budget 300
 exit 0
-references to [z7] dict.items
-2 references                    [L0, exact]
-ALL 2 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/models.py:40                     in __init__
-  srcpy/alerting/models.py:44                     in as_row
+references to [4m] station_id
+  defined at srcpy/alerting/models.py:110
+1 references                    [L0, exact]
+ALL 1 references ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
+  srcpy/alerting/models.py:111                    in close_alert
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 4mg
+$ cairn refs pz2
 exit 0
-references to [4mg] celsius
-  defined at srcpy/alerting/rules.py:30
-5 references                    [L0, exact]
-ALL 5 references ARE IN ONE FILE: srcpy/alerting/rules.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/rules.py:32                      in classify
-  srcpy/alerting/rules.py:34                      in classify
+references to [pz2] SEVERE_HEAT_C
+  defined at srcpy/alerting/rules.py:12
+1 references                    [L0, exact]
+ALL 1 references ARE IN ONE FILE: srcpy/alerting/rules.py. Reading it is probably cheaper than further queries.
   srcpy/alerting/rules.py:36                      in classify
-  srcpy/alerting/rules.py:38                      in classify
-  srcpy/alerting/rules.py:40                      in classify
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 4mg --include-generated
+$ cairn refs pz2 --include-generated
 exit 0
-references to [4mg] celsius
-  defined at srcpy/alerting/rules.py:30
-5 references                    [L0, exact]
-ALL 5 references ARE IN ONE FILE: srcpy/alerting/rules.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/rules.py:32                      in classify
-  srcpy/alerting/rules.py:34                      in classify
+references to [pz2] SEVERE_HEAT_C
+  defined at srcpy/alerting/rules.py:12
+1 references                    [L0, exact]
+ALL 1 references ARE IN ONE FILE: srcpy/alerting/rules.py. Reading it is probably cheaper than further queries.
   srcpy/alerting/rules.py:36                      in classify
-  srcpy/alerting/rules.py:38                      in classify
-  srcpy/alerting/rules.py:40                      in classify
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 4mg --context line --repo <repo>
+$ cairn refs pz2 --context line --repo <repo>
 exit 0
-references to [4mg] celsius
-  defined at srcpy/alerting/rules.py:30
-5 references                    [L0, exact]
-ALL 5 references ARE IN ONE FILE: srcpy/alerting/rules.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/rules.py:32                      in classify   |  if not plausible(celsius, humidity):
-  srcpy/alerting/rules.py:34                      in classify   |  if celsius <= SEVERE_COLD_C:
+references to [pz2] SEVERE_HEAT_C
+  defined at srcpy/alerting/rules.py:12
+1 references                    [L0, exact]
+ALL 1 references ARE IN ONE FILE: srcpy/alerting/rules.py. Reading it is probably cheaper than further queries.
   srcpy/alerting/rules.py:36                      in classify   |  if celsius >= SEVERE_HEAT_C:
-  srcpy/alerting/rules.py:38                      in classify   |  if celsius <= FROST_C and humidity >= 90:
-  srcpy/alerting/rules.py:40                      in classify   |  if celsius <= FROST_C:
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 4mg --budget 300
+$ cairn refs pz2 --budget 300
 exit 0
-references to [4mg] celsius
-  defined at srcpy/alerting/rules.py:30
-5 references                    [L0, exact]
-ALL 5 references ARE IN ONE FILE: srcpy/alerting/rules.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/rules.py:32                      in classify
-  srcpy/alerting/rules.py:34                      in classify
+references to [pz2] SEVERE_HEAT_C
+  defined at srcpy/alerting/rules.py:12
+1 references                    [L0, exact]
+ALL 1 references ARE IN ONE FILE: srcpy/alerting/rules.py. Reading it is probably cheaper than further queries.
   srcpy/alerting/rules.py:36                      in classify
-  srcpy/alerting/rules.py:38                      in classify
-  srcpy/alerting/rules.py:40                      in classify
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs c4
+$ cairn refs j7
 exit 0
-references to [c4] key
+references to [j7] severity
+  defined at srcpy/alerting/rules.py:73
 1 references                    [L0, exact]
 ALL 1 references ARE IN ONE FILE: srcpy/alerting/rules.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/rules.py:82                      in worst
+  srcpy/alerting/rules.py:75                      in severity_rank
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs c4 --include-generated
+$ cairn refs j7 --include-generated
 exit 0
-references to [c4] key
+references to [j7] severity
+  defined at srcpy/alerting/rules.py:73
 1 references                    [L0, exact]
 ALL 1 references ARE IN ONE FILE: srcpy/alerting/rules.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/rules.py:82                      in worst
+  srcpy/alerting/rules.py:75                      in severity_rank
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs c4 --context line --repo <repo>
+$ cairn refs j7 --context line --repo <repo>
 exit 0
-references to [c4] key
+references to [j7] severity
+  defined at srcpy/alerting/rules.py:73
 1 references                    [L0, exact]
 ALL 1 references ARE IN ONE FILE: srcpy/alerting/rules.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/rules.py:82                      in worst   |  return max(judgements, key=lambda j: severity_rank(j.severity))
+  srcpy/alerting/rules.py:75                      in severity_rank   |  return {"info": 0, "warning": 1, "severe": 2, "critical": 3}.get(severity, 0)
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs c4 --budget 300
+$ cairn refs j7 --budget 300
 exit 0
-references to [c4] key
+references to [j7] severity
+  defined at srcpy/alerting/rules.py:73
 1 references                    [L0, exact]
 ALL 1 references ARE IN ONE FILE: srcpy/alerting/rules.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/rules.py:82                      in worst
+  srcpy/alerting/rules.py:75                      in severity_rank
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs t4
-exit 0
-references to [t4] __init__
-  defined at srcpy/schema/telemetry/__init__.py:1
-2 references                    [L0, exact]
-  srcpy/alerting/service.py:13                    (module level)
-  srcpy/alerting/worker.py:14                     (module level)
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs t4 --include-generated
-exit 0
-references to [t4] __init__
-  defined at srcpy/schema/telemetry/__init__.py:1
-2 references                    [L0, exact]
-  srcpy/alerting/service.py:13                    (module level)
-  srcpy/alerting/worker.py:14                     (module level)
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs t4 --context line --repo <repo>
-exit 0
-references to [t4] __init__
-  defined at srcpy/schema/telemetry/__init__.py:1
-2 references                    [L0, exact]
-  srcpy/alerting/service.py:13                    (module level)   |  from schema.telemetry import AlertAck, AlertRequest, AlertServiceBase
-  srcpy/alerting/worker.py:14                     (module level)   |  from schema.telemetry import AlertRequest, ReadingBatch, TelemetryServiceStub
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs t4 --budget 300
-exit 0
-references to [t4] __init__
-  defined at srcpy/schema/telemetry/__init__.py:1
-2 references                    [L0, exact]
-  srcpy/alerting/service.py:13                    (module level)
-  srcpy/alerting/worker.py:14                     (module level)
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs fm
-exit 0
-references to [fm] station_id
-  defined at srcpy/alerting/worker.py:33
-1 references                    [L0, exact]
-ALL 1 references ARE IN ONE FILE: srcpy/alerting/worker.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/worker.py:35                     in feed
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs fm --include-generated
-exit 0
-references to [fm] station_id
-  defined at srcpy/alerting/worker.py:33
-1 references                    [L0, exact]
-ALL 1 references ARE IN ONE FILE: srcpy/alerting/worker.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/worker.py:35                     in feed
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs fm --context line --repo <repo>
-exit 0
-references to [fm] station_id
-  defined at srcpy/alerting/worker.py:33
-1 references                    [L0, exact]
-ALL 1 references ARE IN ONE FILE: srcpy/alerting/worker.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/worker.py:35                     in feed   |  AlertRequest(station_id=station_id, celsius=celsius, reason="")
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs fm --budget 300
-exit 0
-references to [fm] station_id
-  defined at srcpy/alerting/worker.py:33
-1 references                    [L0, exact]
-ALL 1 references ARE IN ONE FILE: srcpy/alerting/worker.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/worker.py:35                     in feed
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs jz
-exit 0
-references to [jz] SystemExit
-1 references                    [L0, exact]
-ALL 1 references ARE IN ONE FILE: srcpy/alerting/worker.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/worker.py:61                     (module level)
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs jz --include-generated
-exit 0
-references to [jz] SystemExit
-1 references                    [L0, exact]
-ALL 1 references ARE IN ONE FILE: srcpy/alerting/worker.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/worker.py:61                     (module level)
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs jz --context line --repo <repo>
-exit 0
-references to [jz] SystemExit
-1 references                    [L0, exact]
-ALL 1 references ARE IN ONE FILE: srcpy/alerting/worker.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/worker.py:61                     (module level)   |  raise SystemExit(main())
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs jz --budget 300
-exit 0
-references to [jz] SystemExit
-1 references                    [L0, exact]
-ALL 1 references ARE IN ONE FILE: srcpy/alerting/worker.py. Reading it is probably cheaper than further queries.
-  srcpy/alerting/worker.py:61                     (module level)
-suppressed: none
-unknown: none
-stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
-
-$ cairn refs 3jq
+$ cairn refs 3b
 exit 1
-references to [3jq] TelemetryServiceStub.__init__
-  defined at srcpy/schema/telemetry/__init__.py:73
+references to [3b] AlertServiceBase.raise_alert
+  defined at srcpy/schema/telemetry/__init__.py:63
 0 references                    [L0, exact]
   (none outside generated code)
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 3jq --include-generated
+$ cairn refs 3b --include-generated
 exit 1
-references to [3jq] TelemetryServiceStub.__init__
-  defined at srcpy/schema/telemetry/__init__.py:73
+references to [3b] AlertServiceBase.raise_alert
+  defined at srcpy/schema/telemetry/__init__.py:63
 0 references                    [L0, exact]
   (none outside generated code)
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 3jq --context line --repo <repo>
+$ cairn refs 3b --context line --repo <repo>
 exit 1
-references to [3jq] TelemetryServiceStub.__init__
-  defined at srcpy/schema/telemetry/__init__.py:73
+references to [3b] AlertServiceBase.raise_alert
+  defined at srcpy/schema/telemetry/__init__.py:63
 0 references                    [L0, exact]
   (none outside generated code)
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 3jq --budget 300
+$ cairn refs 3b --budget 300
 exit 1
-references to [3jq] TelemetryServiceStub.__init__
-  defined at srcpy/schema/telemetry/__init__.py:73
+references to [3b] AlertServiceBase.raise_alert
+  defined at srcpy/schema/telemetry/__init__.py:63
 0 references                    [L0, exact]
   (none outside generated code)
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 2p9
-exit 1
-references to [2p9] test_dispatch_reaches_a_registered_handler
-  defined at srcpy/tests/test_rules.py:56
-0 references                    [L0, exact]
-  (none outside generated code)
+$ cairn refs ah
+exit 0
+references to [ah] self
+  defined at srcpy/alerting/worker.py:22
+3 references                    [L0, exact]
+ALL 3 references ARE IN ONE FILE: srcpy/alerting/worker.py. Reading it is probably cheaper than further queries.
+  srcpy/alerting/worker.py:23                     in __init__
+  srcpy/alerting/worker.py:24                     in __init__
+  srcpy/alerting/worker.py:25                     in __init__
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 2p9 --include-generated
-exit 1
-references to [2p9] test_dispatch_reaches_a_registered_handler
-  defined at srcpy/tests/test_rules.py:56
-0 references                    [L0, exact]
-  (none outside generated code)
+$ cairn refs ah --include-generated
+exit 0
+references to [ah] self
+  defined at srcpy/alerting/worker.py:22
+3 references                    [L0, exact]
+ALL 3 references ARE IN ONE FILE: srcpy/alerting/worker.py. Reading it is probably cheaper than further queries.
+  srcpy/alerting/worker.py:23                     in __init__
+  srcpy/alerting/worker.py:24                     in __init__
+  srcpy/alerting/worker.py:25                     in __init__
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 2p9 --context line --repo <repo>
-exit 1
-references to [2p9] test_dispatch_reaches_a_registered_handler
-  defined at srcpy/tests/test_rules.py:56
-0 references                    [L0, exact]
-  (none outside generated code)
+$ cairn refs ah --context line --repo <repo>
+exit 0
+references to [ah] self
+  defined at srcpy/alerting/worker.py:22
+3 references                    [L0, exact]
+ALL 3 references ARE IN ONE FILE: srcpy/alerting/worker.py. Reading it is probably cheaper than further queries.
+  srcpy/alerting/worker.py:23                     in __init__   |  self.service = service
+  srcpy/alerting/worker.py:24                     in __init__   |  self.stub = stub
+  srcpy/alerting/worker.py:25                     in __init__   |  self.polls = 0
 suppressed: none
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 
-$ cairn refs 2p9 --budget 300
-exit 1
-references to [2p9] test_dispatch_reaches_a_registered_handler
-  defined at srcpy/tests/test_rules.py:56
-0 references                    [L0, exact]
-  (none outside generated code)
+$ cairn refs ah --budget 300
+exit 0
+references to [ah] self
+  defined at srcpy/alerting/worker.py:22
+3 references                    [L0, exact]
+ALL 3 references ARE IN ONE FILE: srcpy/alerting/worker.py. Reading it is probably cheaper than further queries.
+  srcpy/alerting/worker.py:23                     in __init__
+  srcpy/alerting/worker.py:24                     in __init__
+  srcpy/alerting/worker.py:25                     in __init__
 suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs hm
+exit 0
+references to [hm] TelemetryServiceStub.upload_readings
+  defined at srcpy/schema/telemetry/__init__.py:76
+1 references                    [L0, exact]
+ALL 1 references ARE IN ONE FILE: srcpy/alerting/worker.py. Reading it is probably cheaper than further queries.
+  srcpy/alerting/worker.py:29                     in poll_once
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs hm --include-generated
+exit 0
+references to [hm] TelemetryServiceStub.upload_readings
+  defined at srcpy/schema/telemetry/__init__.py:76
+1 references                    [L0, exact]
+ALL 1 references ARE IN ONE FILE: srcpy/alerting/worker.py. Reading it is probably cheaper than further queries.
+  srcpy/alerting/worker.py:29                     in poll_once
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs hm --context line --repo <repo>
+exit 0
+references to [hm] TelemetryServiceStub.upload_readings
+  defined at srcpy/schema/telemetry/__init__.py:76
+1 references                    [L0, exact]
+ALL 1 references ARE IN ONE FILE: srcpy/alerting/worker.py. Reading it is probably cheaper than further queries.
+  srcpy/alerting/worker.py:29                     in poll_once   |  ack = await self.stub.upload_readings(ReadingBatch(source="worker"))
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs hm --budget 300
+exit 0
+references to [hm] TelemetryServiceStub.upload_readings
+  defined at srcpy/schema/telemetry/__init__.py:76
+1 references                    [L0, exact]
+ALL 1 references ARE IN ONE FILE: srcpy/alerting/worker.py. Reading it is probably cheaper than further queries.
+  srcpy/alerting/worker.py:29                     in poll_once
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs zjq
+exit 1
+USE GREP FOR THIS ONE. `StationQuery.station_id` is an attribute on a type, and attribute access resolves only where the holder's type is known - for ORM instances and dicts-as-records it usually is not, so the list below is a lower bound and not a blast radius. Run instead:  grep -rn 'station_id' <src> --include='*.py'
+
+references to [zjq] StationQuery.station_id
+  defined at srcpy/schema/telemetry/__init__.py:49
+0 of 0 references              [L0, exact, partial]
+  (none outside generated code)
+suppressed: 1 references in generated code (rerun with --include-generated)
+unknown: `StationQuery.station_id` is an attribute on a type. Uses are only resolved where the holder's type is known, which for ORM models, dicts-as-records and dynamically built objects it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs zjq --include-generated
+exit 0
+USE GREP FOR THIS ONE. `StationQuery.station_id` is an attribute on a type, and attribute access resolves only where the holder's type is known - for ORM instances and dicts-as-records it usually is not, so the list below is a lower bound and not a blast radius. Run instead:  grep -rn 'station_id' <src> --include='*.py'
+
+references to [zjq] StationQuery.station_id
+  defined at srcpy/schema/telemetry/__init__.py:49
+1 references                    [L0, exact]
+ALL 1 references ARE IN ONE FILE: srcpy/schema/telemetry/__init__.py. Reading it is probably cheaper than further queries.
+  srcpy/schema/telemetry/__init__.py:80           in describe_station
+suppressed: none
+unknown: `StationQuery.station_id` is an attribute on a type. Uses are only resolved where the holder's type is known, which for ORM models, dicts-as-records and dynamically built objects it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs zjq --context line --repo <repo>
+exit 1
+USE GREP FOR THIS ONE. `StationQuery.station_id` is an attribute on a type, and attribute access resolves only where the holder's type is known - for ORM instances and dicts-as-records it usually is not, so the list below is a lower bound and not a blast radius. Run instead:  grep -rn 'station_id' <src> --include='*.py'
+
+references to [zjq] StationQuery.station_id
+  defined at srcpy/schema/telemetry/__init__.py:49
+0 of 0 references              [L0, exact, partial]
+  (none outside generated code)
+suppressed: 1 references in generated code (rerun with --include-generated)
+unknown: `StationQuery.station_id` is an attribute on a type. Uses are only resolved where the holder's type is known, which for ORM models, dicts-as-records and dynamically built objects it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs zjq --budget 300
+exit 1
+USE GREP FOR THIS ONE. `StationQuery.station_id` is an attribute on a type, and attribute access resolves only where the holder's type is known - for ORM instances and dicts-as-records it usually is not, so the list below is a lower bound and not a blast radius. Run instead:  grep -rn 'station_id' <src> --include='*.py'
+
+references to [zjq] StationQuery.station_id
+  defined at srcpy/schema/telemetry/__init__.py:49
+0 of 0 references              [L0, exact, partial]
+  (none outside generated code)
+suppressed: 1 references in generated code (rerun with --include-generated)
+unknown: `StationQuery.station_id` is an attribute on a type. Uses are only resolved where the holder's type is known, which for ORM models, dicts-as-records and dynamically built objects it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs xz
+exit 1
+references to [xz] object
+0 of 0 references              [L0, exact, partial]
+  (none outside generated code)
+suppressed: 1 references in generated code (rerun with --include-generated)
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs xz --include-generated
+exit 0
+references to [xz] object
+1 references                    [L0, exact]
+ALL 1 references ARE IN ONE FILE: srcpy/schema/telemetry/__init__.py. Reading it is probably cheaper than further queries.
+  srcpy/schema/telemetry/__init__.py:73           in __init__
+suppressed: none
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs xz --context line --repo <repo>
+exit 1
+references to [xz] object
+0 of 0 references              [L0, exact, partial]
+  (none outside generated code)
+suppressed: 1 references in generated code (rerun with --include-generated)
+unknown: none
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn refs xz --budget 300
+exit 1
+references to [xz] object
+0 of 0 references              [L0, exact, partial]
+  (none outside generated code)
+suppressed: 1 references in generated code (rerun with --include-generated)
 unknown: none
 stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
 

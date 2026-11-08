@@ -27,9 +27,9 @@ suppressed: none
 unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
 stale: none
 
-$ cairn entrypoints --reaches ne
+$ cairn entrypoints --reaches cd
 exit 1
-0 entrypoint(s) can run [ne] , across 0 service(s)   [L1 + L0-D, exact]
+0 entrypoint(s) can run [cd] , across 0 service(s)   [L1 + L0-D, exact]
   (nothing starts any code here - no compose file resolved, or no service declares a command)
 suppressed: none
 unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
@@ -43,49 +43,49 @@ suppressed: none
 unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
 stale: none
 
-$ cairn entrypoints --reaches 8d
+$ cairn entrypoints --reaches a7
 exit 0
-1 entrypoint(s) can run [8d] AlertAck.GetRaised, across 1 service(s)   [L1 + L0-D, exact]
+1 entrypoint(s) can run [a7] unimplementedError.Error, across 1 service(s)   [L1 + L0-D, exact]
   start              telemetry-collector  /bin/collector                             srcgo/cmd/collector/main.go
 suppressed: none
 unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
 stale: none
 
-$ cairn entrypoints --reaches dk
+$ cairn entrypoints --reaches pc
 exit 0
-1 entrypoint(s) can run [dk] AlertRequest.Celsius, across 1 service(s)   [L1 + L0-D, exact]
+1 entrypoint(s) can run [pc] StationInfo.StationId, across 1 service(s)   [L1 + L0-D, exact]
   start              telemetry-collector  /bin/collector                             srcgo/cmd/collector/main.go
 suppressed: none
 unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
 stale: none
 
-$ cairn entrypoints --reaches ph
+$ cairn entrypoints --reaches mb5
 exit 0
-1 entrypoint(s) can run [ph] unimplementedError, across 1 service(s)   [L1 + L0-D, exact]
+1 entrypoint(s) can run [mb5] StationInfo.Label, across 1 service(s)   [L1 + L0-D, exact]
   start              telemetry-collector  /bin/collector                             srcgo/cmd/collector/main.go
 suppressed: none
 unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
 stale: none
 
-$ cairn entrypoints --reaches 2ig
+$ cairn entrypoints --reaches zj
 exit 1
-0 entrypoint(s) can run [2ig] 2, across 0 service(s)   [L1 + L0-D, exact]
+0 entrypoint(s) can run [zj] 1, across 0 service(s)   [L1 + L0-D, exact]
   (nothing starts any code here - no compose file resolved, or no service declares a command)
 suppressed: none
 unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
 stale: none
 
-$ cairn entrypoints --reaches 7r
+$ cairn entrypoints --reaches ez5
 exit 0
-1 entrypoint(s) can run [7r] Service.rejected, across 1 service(s)   [L1 + L0-D, exact]
+1 entrypoint(s) can run [ez5] Service.UploadReadings, across 1 service(s)   [L1 + L0-D, exact]
   start              telemetry-collector  /bin/collector                             srcgo/cmd/collector/main.go
 suppressed: none
 unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
 stale: none
 
-$ cairn entrypoints --reaches q4
+$ cairn entrypoints --reaches qs
 exit 1
-0 entrypoint(s) can run [q4] TestDescribeStationReportsTheRegistry, across 0 service(s)   [L1 + L0-D, exact]
+0 entrypoint(s) can run [qs] stubConn.calls, across 0 service(s)   [L1 + L0-D, exact]
   (nothing starts any code here - no compose file resolved, or no service declares a command)
 suppressed: none
 unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
@@ -99,125 +99,125 @@ suppressed: none
 unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
 stale: none
 
-$ cairn entrypoints --reaches pu
+$ cairn entrypoints --reaches 3zh
+exit 0
+1 entrypoint(s) can run [3zh] sort, across 1 service(s)   [L1 + L0-D, exact]
+  start              telemetry-collector  /bin/collector                             srcgo/cmd/collector/main.go
+suppressed: none
+unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
+stale: none
+
+$ cairn entrypoints --reaches p3
+exit 0
+1 entrypoint(s) can run [p3] register, across 1 service(s)   [L1 + L0-D, exact]
+  cron 30 3 * * *    alert-worker         python3 -m alerting.dispatch               srcpy/alerting/dispatch.py
+                     via deploy/nightly_digest.sh
+suppressed: none
+unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
+stale: none
+
+$ cairn entrypoints --reaches 87
+exit 0
+2 entrypoint(s) can run [87] alert, across 1 service(s)   [L1 + L0-D, exact]
+  start              alert-worker         python3 -m alerting.worker                 srcpy/alerting/worker.py
+  cron 30 3 * * *    alert-worker         python3 -m alerting.dispatch               srcpy/alerting/dispatch.py
+                     via deploy/nightly_digest.sh
+suppressed: none
+unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
+stale: none
+
+$ cairn entrypoints --reaches 2b
+exit 0
+2 entrypoint(s) can run [2b] StationState.should_escalate, across 1 service(s)   [L1 + L0-D, exact]
+  start              alert-worker         python3 -m alerting.worker                 srcpy/alerting/worker.py
+  cron 30 3 * * *    alert-worker         python3 -m alerting.dispatch               srcpy/alerting/dispatch.py
+                     via deploy/nightly_digest.sh
+suppressed: none
+unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
+stale: none
+
+$ cairn entrypoints --reaches hx
+exit 0
+2 entrypoint(s) can run [hx] obj, across 1 service(s)   [L1 + L0-D, exact]
+  start              alert-worker         python3 -m alerting.worker                 srcpy/alerting/worker.py
+  cron 30 3 * * *    alert-worker         python3 -m alerting.dispatch               srcpy/alerting/dispatch.py
+                     via deploy/nightly_digest.sh
+suppressed: none
+unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
+stale: none
+
+$ cairn entrypoints --reaches pd
+exit 0
+2 entrypoint(s) can run [pd] StationState, across 1 service(s)   [L1 + L0-D, exact]
+  start              alert-worker         python3 -m alerting.worker                 srcpy/alerting/worker.py
+  cron 30 3 * * *    alert-worker         python3 -m alerting.dispatch               srcpy/alerting/dispatch.py
+                     via deploy/nightly_digest.sh
+suppressed: none
+unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
+stale: none
+
+$ cairn entrypoints --reaches 4m
+exit 0
+2 entrypoint(s) can run [4m] station_id, across 1 service(s)   [L1 + L0-D, exact]
+  start              alert-worker         python3 -m alerting.worker                 srcpy/alerting/worker.py
+  cron 30 3 * * *    alert-worker         python3 -m alerting.dispatch               srcpy/alerting/dispatch.py
+                     via deploy/nightly_digest.sh
+suppressed: none
+unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
+stale: none
+
+$ cairn entrypoints --reaches pz2
+exit 0
+1 entrypoint(s) can run [pz2] SEVERE_HEAT_C, across 1 service(s)   [L1 + L0-D, exact]
+  start              alert-worker         python3 -m alerting.worker                 srcpy/alerting/worker.py
+suppressed: none
+unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
+stale: none
+
+$ cairn entrypoints --reaches j7
 exit 1
-0 entrypoint(s) can run [pu] ToLower, across 0 service(s)   [L1 + L0-D, exact]
+0 entrypoint(s) can run [j7] severity, across 0 service(s)   [L1 + L0-D, exact]
   (nothing starts any code here - no compose file resolved, or no service declares a command)
 suppressed: none
 unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
 stale: none
 
-$ cairn entrypoints --reaches d7
+$ cairn entrypoints --reaches 3b
 exit 0
-1 entrypoint(s) can run [d7] store, across 1 service(s)   [L1 + L0-D, exact]
-  cron 30 3 * * *    alert-worker         python3 -m alerting.dispatch               srcpy/alerting/dispatch.py
-                     via deploy/nightly_digest.sh
-suppressed: none
-unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
-stale: none
-
-$ cairn entrypoints --reaches yha
-exit 0
-2 entrypoint(s) can run [yha] Alert, across 1 service(s)   [L1 + L0-D, exact]
-  start              alert-worker         python3 -m alerting.worker                 srcpy/alerting/worker.py
-  cron 30 3 * * *    alert-worker         python3 -m alerting.dispatch               srcpy/alerting/dispatch.py
-                     via deploy/nightly_digest.sh
-suppressed: none
-unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
-stale: none
-
-$ cairn entrypoints --reaches 7y
-exit 0
-2 entrypoint(s) can run [7y] Field.name, across 1 service(s)   [L1 + L0-D, exact]
-  start              alert-worker         python3 -m alerting.worker                 srcpy/alerting/worker.py
-  cron 30 3 * * *    alert-worker         python3 -m alerting.dispatch               srcpy/alerting/dispatch.py
-                     via deploy/nightly_digest.sh
-suppressed: none
-unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
-stale: none
-
-$ cairn entrypoints --reaches sp
-exit 0
-2 entrypoint(s) can run [sp] self, across 1 service(s)   [L1 + L0-D, exact]
-  start              alert-worker         python3 -m alerting.worker                 srcpy/alerting/worker.py
-  cron 30 3 * * *    alert-worker         python3 -m alerting.dispatch               srcpy/alerting/dispatch.py
-                     via deploy/nightly_digest.sh
-suppressed: none
-unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
-stale: none
-
-$ cairn entrypoints --reaches zu
-exit 0
-2 entrypoint(s) can run [zu] AlertStore.__init__, across 1 service(s)   [L1 + L0-D, exact]
-  start              alert-worker         python3 -m alerting.worker                 srcpy/alerting/worker.py
-  cron 30 3 * * *    alert-worker         python3 -m alerting.dispatch               srcpy/alerting/dispatch.py
-                     via deploy/nightly_digest.sh
-suppressed: none
-unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
-stale: none
-
-$ cairn entrypoints --reaches z7
-exit 0
-2 entrypoint(s) can run [z7] dict.items, across 1 service(s)   [L1 + L0-D, exact]
-  start              alert-worker         python3 -m alerting.worker                 srcpy/alerting/worker.py
-  cron 30 3 * * *    alert-worker         python3 -m alerting.dispatch               srcpy/alerting/dispatch.py
-                     via deploy/nightly_digest.sh
-suppressed: none
-unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
-stale: none
-
-$ cairn entrypoints --reaches 4mg
-exit 0
-1 entrypoint(s) can run [4mg] celsius, across 1 service(s)   [L1 + L0-D, exact]
+1 entrypoint(s) can run [3b] AlertServiceBase.raise_alert, across 1 service(s)   [L1 + L0-D, exact]
   start              alert-worker         python3 -m alerting.worker                 srcpy/alerting/worker.py
 suppressed: none
 unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
 stale: none
 
-$ cairn entrypoints --reaches c4
-exit 1
-0 entrypoint(s) can run [c4] key, across 0 service(s)   [L1 + L0-D, exact]
-  (nothing starts any code here - no compose file resolved, or no service declares a command)
-suppressed: none
-unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
-stale: none
-
-$ cairn entrypoints --reaches t4
+$ cairn entrypoints --reaches ah
 exit 0
-1 entrypoint(s) can run [t4] __init__, across 1 service(s)   [L1 + L0-D, exact]
+1 entrypoint(s) can run [ah] self, across 1 service(s)   [L1 + L0-D, exact]
   start              alert-worker         python3 -m alerting.worker                 srcpy/alerting/worker.py
 suppressed: none
 unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
 stale: none
 
-$ cairn entrypoints --reaches fm
+$ cairn entrypoints --reaches hm
 exit 0
-1 entrypoint(s) can run [fm] station_id, across 1 service(s)   [L1 + L0-D, exact]
+1 entrypoint(s) can run [hm] TelemetryServiceStub.upload_readings, across 1 service(s)   [L1 + L0-D, exact]
   start              alert-worker         python3 -m alerting.worker                 srcpy/alerting/worker.py
 suppressed: none
 unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
 stale: none
 
-$ cairn entrypoints --reaches jz
+$ cairn entrypoints --reaches zjq
 exit 0
-1 entrypoint(s) can run [jz] SystemExit, across 1 service(s)   [L1 + L0-D, exact]
+1 entrypoint(s) can run [zjq] StationQuery.station_id, across 1 service(s)   [L1 + L0-D, exact]
   start              alert-worker         python3 -m alerting.worker                 srcpy/alerting/worker.py
 suppressed: none
 unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
 stale: none
 
-$ cairn entrypoints --reaches 3jq
+$ cairn entrypoints --reaches xz
 exit 0
-1 entrypoint(s) can run [3jq] TelemetryServiceStub.__init__, across 1 service(s)   [L1 + L0-D, exact]
+1 entrypoint(s) can run [xz] object, across 1 service(s)   [L1 + L0-D, exact]
   start              alert-worker         python3 -m alerting.worker                 srcpy/alerting/worker.py
-suppressed: none
-unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
-stale: none
-
-$ cairn entrypoints --reaches 2p9
-exit 1
-0 entrypoint(s) can run [2p9] test_dispatch_reaches_a_registered_handler, across 0 service(s)   [L1 + L0-D, exact]
-  (nothing starts any code here - no compose file resolved, or no service declares a command)
 suppressed: none
 unknown: this is what the deployment declares. A process started outside it - a developer shell, a CI job, an orchestrator living in another repository - is not here
 stale: none

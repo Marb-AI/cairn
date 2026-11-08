@@ -13,9 +13,9 @@ suppressed: none
 unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
 stale: none
 
-$ cairn runs ne
+$ cairn runs cd
 exit 1
-[ne]  runs in 0 service(s)        [L1 + L0-D, exact]
+[cd]  runs in 0 service(s)        [L1 + L0-D, exact]
   (no service entrypoint reaches it)
 suppressed: none
 unknown (2):
@@ -31,33 +31,33 @@ suppressed: none
 unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
 stale: none
 
-$ cairn runs 8d
+$ cairn runs a7
 exit 0
-[8d] AlertAck.GetRaised runs in 1 service(s)        [L1 + L0-D, exact]
+[a7] unimplementedError.Error runs in 1 service(s)        [L1 + L0-D, exact]
   telemetry-collector
 suppressed: none
 unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
 stale: none
 
-$ cairn runs dk
+$ cairn runs pc
 exit 0
-[dk] AlertRequest.Celsius runs in 1 service(s)        [L1 + L0-D, exact]
+[pc] StationInfo.StationId runs in 1 service(s)        [L1 + L0-D, exact]
   telemetry-collector
 suppressed: none
 unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
 stale: none
 
-$ cairn runs ph
+$ cairn runs mb5
 exit 0
-[ph] unimplementedError runs in 1 service(s)        [L1 + L0-D, exact]
+[mb5] StationInfo.Label runs in 1 service(s)        [L1 + L0-D, exact]
   telemetry-collector
 suppressed: none
 unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
 stale: none
 
-$ cairn runs 2ig
+$ cairn runs zj
 exit 1
-[2ig] 2 runs in 0 service(s)        [L1 + L0-D, exact]
+[zj] 1 runs in 0 service(s)        [L1 + L0-D, exact]
   (no service entrypoint reaches it)
 suppressed: none
 unknown (2):
@@ -65,17 +65,17 @@ unknown (2):
   this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
 stale: none
 
-$ cairn runs 7r
+$ cairn runs ez5
 exit 0
-[7r] Service.rejected runs in 1 service(s)        [L1 + L0-D, exact]
+[ez5] Service.UploadReadings runs in 1 service(s)        [L1 + L0-D, exact]
   telemetry-collector
 suppressed: none
 unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
 stale: none
 
-$ cairn runs q4
+$ cairn runs qs
 exit 1
-[q4] TestDescribeStationReportsTheRegistry runs in 0 service(s)        [L1 + L0-D, exact]
+[qs] stubConn.calls runs in 0 service(s)        [L1 + L0-D, exact]
   (no service entrypoint reaches it)
 suppressed: none
 unknown (2):
@@ -91,126 +91,121 @@ suppressed: none
 unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
 stale: none
 
-$ cairn runs pu
-exit 1
-[pu] ToLower runs in 0 service(s)        [L1 + L0-D, exact]
-  (no service entrypoint reaches it)
+$ cairn runs 3zh
+exit 0
+[3zh] sort runs in 1 service(s)        [L1 + L0-D, exact]
+  telemetry-collector
 suppressed: none
-unknown (2):
-  no service reaches this within 12 call hops. That can mean dead code, a deeper path, or an entrypoint the topology could not resolve - check `cairn topology` before concluding it is unused
-  this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
+unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
 stale: none
 
-$ cairn runs d7
+$ cairn runs p3
 exit 0
-[d7] store runs in 1 service(s)        [L1 + L0-D, exact]
+[p3] register runs in 1 service(s)        [L1 + L0-D, exact]
   alert-worker (cron 30 3 * * *: python3 -m alerting.dispatch)
 suppressed: none
 unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
 stale: none
 
-$ cairn runs yha
+$ cairn runs 87
 exit 0
-[yha] Alert runs in 2 service(s)        [L1 + L0-D, exact]
-  alert-worker
-  alert-worker (cron 30 3 * * *: python3 -m alerting.dispatch)
-suppressed: none
-unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
-stale: none
-
-$ cairn runs 7y
-exit 0
-[7y] Field.name runs in 2 service(s)        [L1 + L0-D, exact]
+[87] alert runs in 2 service(s)        [L1 + L0-D, exact]
   alert-worker
   alert-worker (cron 30 3 * * *: python3 -m alerting.dispatch)
 suppressed: none
 unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
 stale: none
 
-$ cairn runs sp
+$ cairn runs 2b
 exit 0
-[sp] self runs in 2 service(s)        [L1 + L0-D, exact]
+[2b] StationState.should_escalate runs in 2 service(s)        [L1 + L0-D, exact]
   alert-worker
   alert-worker (cron 30 3 * * *: python3 -m alerting.dispatch)
 suppressed: none
 unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
 stale: none
 
-$ cairn runs zu
+$ cairn runs hx
 exit 0
-[zu] AlertStore.__init__ runs in 2 service(s)        [L1 + L0-D, exact]
+[hx] obj runs in 2 service(s)        [L1 + L0-D, exact]
   alert-worker
   alert-worker (cron 30 3 * * *: python3 -m alerting.dispatch)
 suppressed: none
 unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
 stale: none
 
-$ cairn runs z7
+$ cairn runs pd
 exit 0
-[z7] dict.items runs in 2 service(s)        [L1 + L0-D, exact]
+[pd] StationState runs in 2 service(s)        [L1 + L0-D, exact]
   alert-worker
   alert-worker (cron 30 3 * * *: python3 -m alerting.dispatch)
 suppressed: none
 unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
 stale: none
 
-$ cairn runs 4mg
+$ cairn runs 4m
 exit 0
-[4mg] celsius runs in 1 service(s)        [L1 + L0-D, exact]
+[4m] station_id runs in 2 service(s)        [L1 + L0-D, exact]
+  alert-worker
+  alert-worker (cron 30 3 * * *: python3 -m alerting.dispatch)
+suppressed: none
+unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
+stale: none
+
+$ cairn runs pz2
+exit 0
+[pz2] SEVERE_HEAT_C runs in 1 service(s)        [L1 + L0-D, exact]
   alert-worker
 suppressed: none
 unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
 stale: none
 
-$ cairn runs c4
-exit 1
-[c4] key runs in 0 service(s)        [L1 + L0-D, exact]
-  (no service entrypoint reaches it)
-suppressed: none
-unknown (2):
-  no service reaches this within 12 call hops. That can mean dead code, a deeper path, or an entrypoint the topology could not resolve - check `cairn topology` before concluding it is unused
-  this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
-stale: none
-
-$ cairn runs t4
+$ cairn runs j7
 exit 0
-[t4] __init__ runs in 1 service(s)        [L1 + L0-D, exact]
+[j7] severity runs in 1 service(s)        [L1 + L0-D, via the file, not a call path]
+  answered for the file this sits in: nothing calls it statically and it owns no dispatched method, which is the shape of a framework route handler. This says the module is loaded by that service, not that a call path reaches this symbol
   alert-worker
 suppressed: none
 unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
 stale: none
 
-$ cairn runs fm
+$ cairn runs 3b
 exit 0
-[fm] station_id runs in 1 service(s)        [L1 + L0-D, exact]
+[3b] AlertServiceBase.raise_alert runs in 1 service(s)        [L1 + L0-D, exact]
   alert-worker
 suppressed: none
 unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
 stale: none
 
-$ cairn runs jz
+$ cairn runs ah
 exit 0
-[jz] SystemExit runs in 1 service(s)        [L1 + L0-D, exact]
+[ah] self runs in 1 service(s)        [L1 + L0-D, exact]
   alert-worker
 suppressed: none
 unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
 stale: none
 
-$ cairn runs 3jq
+$ cairn runs hm
 exit 0
-[3jq] TelemetryServiceStub.__init__ runs in 1 service(s)        [L1 + L0-D, exact]
+[hm] TelemetryServiceStub.upload_readings runs in 1 service(s)        [L1 + L0-D, exact]
   alert-worker
 suppressed: none
 unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
 stale: none
 
-$ cairn runs 2p9
-exit 1
-[2p9] test_dispatch_reaches_a_registered_handler runs in 0 service(s)        [L1 + L0-D, exact]
-  (no service entrypoint reaches it)
+$ cairn runs zjq
+exit 0
+[zjq] StationQuery.station_id runs in 1 service(s)        [L1 + L0-D, exact]
+  alert-worker
 suppressed: none
-unknown (2):
-  no service reaches this within 12 call hops. That can mean dead code, a deeper path, or an entrypoint the topology could not resolve - check `cairn topology` before concluding it is unused
-  this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
+unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
+stale: none
+
+$ cairn runs xz
+exit 0
+[xz] object runs in 1 service(s)        [L1 + L0-D, exact]
+  alert-worker
+suppressed: none
+unknown: this list covers only what a service runs at start-up. 1 service(s) start nothing (metrics-sidecar) and run code on demand instead - cron, a management command, `docker exec`. If one of those could invoke this, grep its cron and entrypoint scripts; reachability cannot see them
 stale: none
 
