@@ -243,17 +243,37 @@ STOP - every seed is a module __init__ or a test file, so nothing here answers
 
 That one message took a losing task from 13 tool calls to 7.
 
-**These five questions were not chosen in advance.** A later round was: ten scenarios
-fixed before any number existed, measuring round trips rather than tokens. It is the more
-honest test and it reads worse. **Cairn costs more on five of the ten**, so "never worse"
-is not supported, and across the whole mix it is roughly a 20 % saving — real, and an
-order of magnitude smaller than the best cases above, because half the mix is questions
-the tool is not for. Two of those losses are not fixable by any change to the output: a
-stale index, and a question about files no indexer reads.
+**These five questions were not chosen in advance.** Two later rounds were: scenarios and
+answer keys fixed before any number existed, measuring round trips rather than tokens. That
+is the more honest test, and both rounds are reported below as they came out.
 
-Individual scenarios were re-measured after the defects that round exposed were fixed, and
-sit around a halving of round trips at the median. The full ledger, including the runs
-that went the wrong way and the ones too noisy to call, is in
+**Backend, ten scenarios, sixty runs, median 0.433** — a 57 % saving in round trips, with
+seven of the ten meeting a pre-registered acceptance rule (same answer → at most half the
+round trips or half the wall clock). It costs more on **one** of the ten: a question about
+files no indexer reads, where the index cannot help and the guide it loads is pure overhead.
+The best single result on record is one call against twenty-two to twenty-six, three times out
+of three, on "which deployed services does this change touch".
+
+**Frontend, three scenarios, eighteen runs, median 0.74** — and only one of the three meets
+the rule: a translation key, where the subject is not a symbol at all and there is no graph to
+use. A trace through generated code came out at 0.74 and an ordinary reference question at
+0.88. **So the saving is concentrated where there is an edge to be handed**, and on a codebase
+without one the honest advice is to reach for `for find` and little else.
+
+**And the thing that bounds every number above: in sixty backend runs, the grep baseline was
+never *wrong*.** Not one of its thirty answers was graded worse; on one scenario both arms
+answered better than the pre-registered key. So the case for this tool is **cost, not
+correctness** — a capable agent with `rg` gets there too, and pays two to twenty-five times
+the round trips. "It prevents wrong answers" is a claim this measurement does not support, and
+it is not made here.
+
+One mechanism check that came out of the same logs: the two arms pull in **the same volume of
+source** (16 288 lines against 16 562, over thirty runs each). The cairn arm opens more whole
+files; the grep arm takes more ranges with `sed`. Whatever the remaining token difference is,
+it is not that one arm reads more code.
+
+The full ledger — the pre-registrations written before the runs, the batches discarded for
+rig defects, the predictions that failed, and the runs too noisy to call — is in
 [eval/RESULTS.md](eval/RESULTS.md).
 
 **How much to trust this.** One repository, one language pair, one model — and a
