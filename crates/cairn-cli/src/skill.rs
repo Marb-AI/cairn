@@ -82,3 +82,41 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod arm_tests {
+    use super::SKILL;
+
+    /// Every measured arm must hand the agent the guide that ships, not a copy of it.
+    ///
+    /// A copy is what it was. `eval/arms/cairn_full.md` embedded a guide 1,379 characters
+    /// behind `skill/SKILL.md` — missing both the paragraph on what a *searched* miss means
+    /// and the one on `UNCHECKED` and exit 3 being "I did not look" rather than "there is
+    /// nothing". Those bear directly on two of the ten backend scenarios, so the arm was
+    /// about to be measured on advice the tool no longer gives. The protocol already warns
+    /// twice that a number here goes stale while the file it describes grows; so does a
+    /// quoted guide, and unlike a number nothing was checking it.
+    #[test]
+    fn every_arm_embeds_the_guide_that_ships() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("the workspace root")
+            .to_path_buf();
+        let arms = [
+            "eval/arms/cairn_full.md",
+            "eval/arms/cairn_full_frontend.md",
+        ];
+        for arm in arms {
+            let path = root.join(arm);
+            let text = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("reading {}: {e}", path.display()));
+            assert!(
+                text.contains(SKILL.trim()),
+                "{arm} does not embed the current skill/SKILL.md. Refresh it: the arm is \
+                 preamble + the guide verbatim, and a stale copy measures advice the tool \
+                 no longer gives."
+            );
+        }
+    }
+}
