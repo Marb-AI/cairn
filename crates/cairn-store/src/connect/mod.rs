@@ -208,15 +208,6 @@ impl DefaultConnector {
             },
         }
     }
-
-    /// Compose files this connector reads, in the order a later one overrides an earlier.
-    const COMPOSE_FILES: &'static [&'static str] = &[
-        "compose.yaml",
-        "compose.yml",
-        "docker-compose.yml",
-        "compose.local.yaml",
-        "compose.override.yaml",
-    ];
 }
 
 impl Connector for DefaultConnector {
@@ -252,7 +243,19 @@ impl Connector for DefaultConnector {
             return Ok(report);
         };
 
-        let topo = crate::deploy::parse_compose(root, Self::COMPOSE_FILES)?;
+        // From the rule pack, not from a constant here: a repository whose stack is
+        // described in `compose.w17.yaml` was invisible to this whole layer, and a
+        // connector that cannot be told where to look is a connector that only works on
+        // repositories shaped like the one it was written against (D16).
+        let files: Vec<&str> = ctx
+            .store
+            .rules
+            .deploy
+            .compose_files
+            .iter()
+            .map(|f| f.as_str())
+            .collect();
+        let topo = crate::deploy::parse_compose(root, &files)?;
         if topo.services.is_empty() {
             return Ok(report);
         }

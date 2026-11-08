@@ -354,6 +354,33 @@ impl Envelope {
     }
 }
 
+/// Which declared containers the rows of one answer belong to, keyed by symbol id.
+///
+/// Built by the caller, because containment is a store question and a renderer has no
+/// store. Empty whenever no connector declared any - which is every index without one,
+/// and is why an answer with no containers prints exactly as it did before.
+#[derive(Debug, Default)]
+pub struct Containers(pub std::collections::BTreeMap<i64, Vec<String>>);
+
+impl Containers {
+    pub fn of(&self, symbol_id: i64) -> &[String] {
+        self.0.get(&symbol_id).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.values().all(|v| v.is_empty())
+    }
+
+    /// The heading a row sits under: its first container, or `None` for a row in none.
+    ///
+    /// First rather than all: a row in two containers is listed under the first by id,
+    /// and `containers` in the data carries the full set. Repeating a row under every
+    /// container it belongs to would make the counts in the header wrong.
+    fn heading(&self, symbol_id: i64) -> Option<&str> {
+        self.of(symbol_id).first().map(|s| s.as_str())
+    }
+}
+
 /// A symbol as data: what every JSON answer says about one.
 ///
 /// One shape for every command, so a consumer learns it once. The fields the plan
@@ -383,6 +410,9 @@ pub struct SymbolJson {
     /// Definition sits in generated code.
     pub generated: bool,
     pub refs: i64,
+    /// Declared containers this symbol is part of, e.g. `w17:domain/orders`. Empty
+    /// unless a connector declared containment.
+    pub containers: Vec<String>,
     /// How the row was reached, where it arrived through an edge: `L1, exact`,
     /// `L2, agent-asserted`, `L1, declared by w17`. `null` when the row is the answer's
     /// own subject.
@@ -407,14 +437,28 @@ impl SymbolJson {
             end_line: s.def_end_line.map(|l| l + 1),
             generated: s.def.as_ref().map(|d| d.generated).unwrap_or(false),
             refs: s.ref_count,
+            containers: Vec::new(),
             source: None,
         }
     }
 
-    pub fn from_source(s: &SymbolRow, source: EdgeSource, origin: Option<&str>) -> SymbolJson {
+    /// The same, with the containers the caller looked up.
+    pub fn in_containers(s: &SymbolRow, containers: &Containers) -> SymbolJson {
+        SymbolJson {
+            containers: containers.of(s.id).to_vec(),
+            ..SymbolJson::of(s)
+        }
+    }
+
+    pub fn from_source(
+        s: &SymbolRow,
+        source: EdgeSource,
+        origin: Option<&str>,
+        containers: &Containers,
+    ) -> SymbolJson {
         SymbolJson {
             source: Some(source.label_with_origin(origin)),
-            ..SymbolJson::of(s)
+            ..SymbolJson::in_containers(s, containers)
         }
     }
 }
@@ -587,6 +631,18 @@ pub fn symbols(
     env
 }
 
+/// How each site is rendered: the source to read it from, how much of it to show, and
+/// the containers to group the sites under.
+///
+/// A struct rather than three more parameters: they travel together, they are all about
+/// presentation rather than about which sites were selected, and the function was at the
+/// point where one more argument makes a call site unreadable.
+pub struct SiteView<'a> {
+    pub source: Option<&'a mut Source>,
+    pub context: SiteContext,
+    pub containers: &'a Containers,
+}
+
 /// One reference site as data.
 #[derive(Debug, Clone, serde::Serialize, schemars::JsonSchema)]
 pub struct RefJson {
@@ -600,6 +656,9 @@ pub struct RefJson {
     pub enclosing: Option<String>,
     pub generated: bool,
     pub definition: bool,
+    /// Declared containers of the function this site sits in. Empty unless a connector
+    /// declared containment.
+    pub containers: Vec<String>,
     /// Source lines shown at this site, when `--context` asked for any. Empty otherwise.
     pub context: Vec<SourceLine>,
 }
@@ -754,7 +813,7 @@ pub struct RefsData {
 }
 
 impl RefJson {
-    fn of(r: &Occurrence, context: Vec<SourceLine>) -> RefJson {
+    fn of(r: &Occurrence, context: Vec<SourceLine>, containers: &Containers) -> RefJson {
         RefJson {
             file: r.path.clone(),
             line: r.line + 1,
@@ -763,6 +822,10 @@ impl RefJson {
             enclosing: r.enclosing.clone(),
             generated: r.generated,
             definition: r.is_definition(),
+            containers: r
+                .enclosing_id
+                .map(|id| containers.of(id).to_vec())
+                .unwrap_or_default(),
             context,
         }
     }
@@ -781,10 +844,14 @@ pub fn references_with_context(
     // How many the filters matched before --limit. Without it a truncated list looked
     // complete, which is the failure the envelope exists to prevent.
     total: i64,
-    source: Option<&mut Source>,
-    ctx: SiteContext,
+    view: SiteView<'_>,
     budget: &mut Budget,
 ) -> Envelope {
+    let SiteView {
+        source,
+        context: ctx,
+        containers,
+    } = view;
     let mut body = String::new();
     // Leading, not trailing: a recommendation the caller reads after paying for the
     // whole answer has not saved them anything.
@@ -820,7 +887,45 @@ pub fn references_with_context(
     let mut source = source;
     let mut shown = 0usize;
     let mut sites: Vec<RefJson> = Vec::new();
-    for (i, r) in refs.iter().enumerate() {
+    // Grouped by the declared container of the function each site sits in, where there
+    // is one. A use list is already flat, so the grouping costs nothing but a heading -
+    // and "which domains use this" is a question the ungrouped list cannot answer at a
+    // glance.
+    let grouped = !containers.is_empty();
+    let order: Vec<usize> = if grouped {
+        let mut idx: Vec<usize> = (0..refs.len()).collect();
+        idx.sort_by(|a, b| {
+            let key = |i: &usize| {
+                (
+                    refs[*i]
+                        .enclosing_id
+                        .and_then(|id| containers.heading(id))
+                        .unwrap_or("\u{7f}")
+                        .to_string(),
+                    *i,
+                )
+            };
+            key(a).cmp(&key(b))
+        });
+        idx
+    } else {
+        (0..refs.len()).collect()
+    };
+    let mut heading: Option<String> = None;
+    for (i, r) in order.iter().map(|i| (*i, &refs[*i])) {
+        if grouped {
+            let within = r
+                .enclosing_id
+                .and_then(|id| containers.heading(id))
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "(no declared container)".to_string());
+            if heading.as_deref() != Some(within.as_str()) {
+                if !budget.push(&mut body, &format!("  within {within}")) {
+                    break;
+                }
+                heading = Some(within);
+            }
+        }
         let inside = r
             .enclosing
             .as_deref()
@@ -839,6 +944,7 @@ pub fn references_with_context(
                     text: text.clone(),
                 })
                 .collect(),
+            containers,
         );
         let inline = if lines.len() == 1 {
             format!("   |  {}", lines[0].1.trim())
@@ -854,6 +960,9 @@ pub fn references_with_context(
         // After the budget check, not before: a site the budget cut is in neither the
         // text nor the data, and `suppressed` is what says it existed.
         sites.push(as_data);
+        // Counted, not derived from the index: with rows reordered by container, `i + 1`
+        // is a position in the walk rather than a number of rows printed.
+        shown += 1;
         if lines.len() > 1 {
             for (n, text) in &lines {
                 let marker = if *n as i64 == r.line + 1 { ">" } else { " " };
@@ -862,7 +971,7 @@ pub fn references_with_context(
                 }
             }
         }
-        shown = i + 1;
+        let _ = i;
     }
     if refs.is_empty() {
         let _ = writeln!(body, "  (none outside generated code)");
@@ -900,6 +1009,7 @@ pub fn references(
     refs: &[Occurrence],
     suppressed_generated: i64,
     total: i64,
+    containers: &Containers,
 ) -> Envelope {
     let mut body = String::new();
     let _ = writeln!(body, "references to [{}] {}", sym.handle, sym.qualified());
@@ -922,7 +1032,10 @@ pub fn references(
         symbol: SymbolJson::of(sym),
         total,
         complete: refs.len() as i64 == total && suppressed_generated == 0,
-        references: refs.iter().map(|r| RefJson::of(r, Vec::new())).collect(),
+        references: refs
+            .iter()
+            .map(|r| RefJson::of(r, Vec::new(), containers))
+            .collect(),
     });
     let dropped = total - refs.len() as i64;
     if dropped > 0 {
@@ -983,6 +1096,7 @@ pub fn walk(
     detail: Detail,
     source: Option<&mut Source>,
     budget: &mut Budget,
+    containers: &Containers,
 ) -> Envelope {
     let mut body = String::new();
     let _ = writeln!(body, "{title}");
@@ -991,7 +1105,48 @@ pub fn walk(
     let mut as_data: Vec<WalkNodeJson> = Vec::new();
     let mut source = source;
     let mut shown = 0usize;
-    for (i, node) in w.nodes.iter().enumerate() {
+    // Grouped by declared container where there is one to group by, and only in the flat
+    // view: a tree already carries structure in its indentation, and a second structure
+    // fighting it would make both unreadable. In a tree the container rides on the node
+    // instead, which is the same fact in the place a reader is already looking.
+    let grouped = view == View::List && !containers.is_empty();
+    let order: Vec<usize> = if grouped {
+        let mut idx: Vec<usize> = (0..w.nodes.len()).collect();
+        // The root first, then by container, then in walk order: a stable total order, so
+        // the same walk prints the same page twice.
+        idx.sort_by(|a, b| {
+            let key = |i: &usize| {
+                (
+                    *i != 0,
+                    containers
+                        .heading(w.nodes[*i].symbol.id)
+                        .unwrap_or("\u{7f}")
+                        .to_string(),
+                    *i,
+                )
+            };
+            key(a).cmp(&key(b))
+        });
+        idx
+    } else {
+        (0..w.nodes.len()).collect()
+    };
+    let mut heading: Option<String> = None;
+    for (i, node) in order.iter().map(|i| (*i, &w.nodes[*i])) {
+        if grouped && i != 0 {
+            // One heading per container, printed when the group starts. A row in none
+            // gets the last group, named so it is not mistaken for part of the previous.
+            let within = containers
+                .heading(node.symbol.id)
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "(no declared container)".to_string());
+            if heading.as_deref() != Some(within.as_str()) {
+                if !budget.push(&mut body, &format!("  within {within}")) {
+                    break;
+                }
+                heading = Some(within);
+            }
+        }
         let line = match view {
             View::Tree => {
                 let indent = "  ".repeat(node.depth);
@@ -1011,8 +1166,13 @@ pub fn walk(
                         node.source.label_with_origin(node.origin.as_deref())
                     )
                 };
-                format!("{indent}{}{site}{tag}", symbol_line(&node.symbol))
+                let within = containers
+                    .heading(node.symbol.id)
+                    .map(|c| format!("  ({c})"))
+                    .unwrap_or_default();
+                format!("{indent}{}{site}{tag}{within}", symbol_line(&node.symbol))
             }
+            // Grouped under a heading above, so the row itself stays narrow.
             View::List => symbol_line(&node.symbol),
         };
         if !budget.push(&mut body, &line) {
@@ -1020,7 +1180,12 @@ pub fn walk(
         }
         shown = i + 1;
         as_data.push(WalkNodeJson {
-            symbol: SymbolJson::from_source(&node.symbol, node.source, node.origin.as_deref()),
+            symbol: SymbolJson::from_source(
+                &node.symbol,
+                node.source,
+                node.origin.as_deref(),
+                containers,
+            ),
             depth: node.depth,
             parent: node.parent,
             site: node.site.clone(),

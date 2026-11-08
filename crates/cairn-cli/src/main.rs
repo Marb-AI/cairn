@@ -752,6 +752,28 @@ fn command() -> &'static str {
     COMMAND.get().map(|s| s.as_str()).unwrap_or("")
 }
 
+/// Refuse a blank query, the same way everywhere.
+///
+/// An empty query is a caller's mistake, not a search: it matches everything, and the
+/// answer comes back looking like a fact. `symbol`, `context` and `for` each grew their
+/// own guard and their own wording; `literal`, `outline`, `unreached` and `docs --about`
+/// never got one, and `unreached ""` is the worst of those - it is the command whose whole
+/// purpose is finding code safe to delete, and it answered "60 symbols with no production
+/// caller" for a query that means nothing. An agent interpolating an empty variable would
+/// believe it.
+///
+/// One function so the next command that takes free text cannot be the fifth to forget.
+fn refuse_blank(value: &str, command: &str, needs: &str) -> bool {
+    if !value.trim().is_empty() {
+        return false;
+    }
+    eprintln!(
+        "cairn: empty query - `cairn {command}` needs {needs}. An empty one matches \
+         everything, and an answer to it reads as a fact rather than as a mistake"
+    );
+    true
+}
+
 /// Print something that carries no envelope today, without inventing one.
 ///
 /// `rules` and `config` print a rule pack and a settings list: they are not answers about
@@ -968,12 +990,32 @@ fn produce_indexes(repo: &Path, out_rel: &Path, survey: &index::Survey) -> Resul
 
     println!("repository: {}", repo.display());
     for f in &survey.found {
+        // The project count belongs on this line, because it is what the run is about to
+        // cost: one indexer per root. A Go workspace has as many as it has modules - 33
+        // on the repository this was measured against - and knowing that before the wait
+        // rather than during it is the difference between a plan and a surprise.
+        let projects = match f.roots.len() {
+            1 => String::new(),
+            n => format!("  {n} projects"),
+        };
         println!(
-            "  {:<10} {:>6} files  ({:.0}%)",
+            "  {:<10} {:>6} files  ({:.0}%){projects}",
             f.language.name,
             f.files,
             f.share * 100.0
         );
+        // Named when there are few enough to read. Beyond that the count is the useful
+        // part and the names arrive one per line as each is indexed.
+        if f.roots.len() > 1 && f.roots.len() <= 8 {
+            for root in &f.roots {
+                let rel = root.strip_prefix(repo).unwrap_or(root);
+                let shown = rel.to_string_lossy();
+                println!(
+                    "             {}",
+                    if shown.is_empty() { "." } else { &shown }
+                );
+            }
+        }
     }
     for (language, files, share) in &survey.unsupported {
         println!(
@@ -1287,7 +1329,7 @@ fn run() -> Result<u8> {
             // kept: what the tree held is half of every coverage answer, and re-walking
             // it at query time would answer about the tree as it is now rather than the
             // one this index was built from.
-            let (indexes, survey, failed_projects) = if indexes.is_empty() {
+            let (indexes, survey, mut failed_projects) = if indexes.is_empty() {
                 let repo = repo.as_deref().unwrap();
                 let survey = index::scan(repo)?;
                 let produced = produce_indexes(repo, &index_dir_rel(&db, repo), &survey)?;
@@ -1345,6 +1387,29 @@ fn run() -> Result<u8> {
                         stats.duplicate_occurrences
                     );
                 }
+                // An index with no documents in it is not a small index, it is not an
+                // index. Measured on a real repository: scip-go run at the root of a Go
+                // *workspace* - where there is no `go.mod`, only `go.work` - printed its
+                // progress, exited 0, and wrote 69 bytes describing nothing. Ingesting
+                // that as a success is how a repository ends up with an empty graph that
+                // every later answer reports as a fact about the code.
+                //
+                // Recorded as a failed project rather than only warned about, so the gap
+                // rides on every answer (D8) instead of scrolling past during an index
+                // nobody was watching.
+                if stats.documents == 0 {
+                    eprintln!(
+                        "cairn: {} describes no documents at all. That is an empty index \
+                         rather than a partial one - the indexer that produced it found \
+                         nothing to read, which for a Go workspace usually means it ran \
+                         somewhere there is no go.mod",
+                        path.display()
+                    );
+                    failed_projects.push((
+                        "scip".to_string(),
+                        format!("{} (no documents)", path.display()),
+                    ));
+                }
                 if repo.is_some() && stats.generated_files > 0 && stats.marker_detected == 0 {
                     eprintln!(
                         "cairn: warning - {} files flagged generated by path pattern and none \
@@ -1376,6 +1441,10 @@ fn run() -> Result<u8> {
                 // Written after the ingest, which drops and rebuilds the schema, and
                 // written unconditionally so a run that fixes a project clears the record
                 // of it having been broken.
+                store.set_failed_projects(&failed_projects)?;
+            } else if !failed_projects.is_empty() {
+                // A direct ingest has no survey, but it can still have produced nothing -
+                // and that has to be recorded, or the gap exists only in the scrollback.
                 store.set_failed_projects(&failed_projects)?;
             }
 
@@ -1541,16 +1610,12 @@ fn run() -> Result<u8> {
             // `for change ""` answered for one of the ten symbols whose name is empty, and
             // `for find ""` returned every line of every file it read with exit 0. The
             // entry point the skill sends an agent to first was the one that lacked it.
-            if subj.trim().is_empty() {
-                eprintln!(
-                    "cairn: empty query - `cairn for {}` needs a name, or part of one. An \
-                     empty string matches everything, which is never the question.",
-                    match purpose {
-                        Purpose::Change => "change",
-                        Purpose::Understand => "understand",
-                        Purpose::Find => "find",
-                    }
-                );
+            let for_what = match purpose {
+                Purpose::Change => "for change",
+                Purpose::Understand => "for understand",
+                Purpose::Find => "for find",
+            };
+            if refuse_blank(&subj, for_what, "a name, a handle, or part of one") {
                 return Ok(exit::ERROR);
             }
             let store = open(&db)?;
@@ -1629,8 +1694,7 @@ fn run() -> Result<u8> {
         }
 
         Cmd::Context { query, limit } => {
-            if query.trim().is_empty() {
-                eprintln!("cairn: empty query - describe the feature in a word or two");
+            if refuse_blank(&query, "context", "a word or two describing the feature") {
                 return Ok(exit::ERROR);
             }
             let store = open(&db)?;
@@ -1646,6 +1710,12 @@ fn run() -> Result<u8> {
         }
 
         Cmd::Unreached { prefix, limit } => {
+            // The command whose answer reads as "safe to delete". A blank prefix answered
+            // for the whole repository, which is the one place a meaningless query is
+            // most expensive to believe.
+            if refuse_blank(&prefix, "unreached", "a path prefix") {
+                return Ok(exit::ERROR);
+            }
             let store = open(&db)?;
             let mut rows = store.unreached(&prefix, limit)?;
             // A file named `x.web.ts` next to `x.ts` is one module with two
@@ -1697,6 +1767,9 @@ fn run() -> Result<u8> {
         }
 
         Cmd::Outline { prefix, limit } => {
+            if refuse_blank(&prefix, "outline", "a path prefix") {
+                return Ok(exit::ERROR);
+            }
             let store = open(&db)?;
             let (rows, total) = store.outline(&prefix, limit)?;
             let found = !rows.is_empty();
@@ -1746,12 +1819,10 @@ fn run() -> Result<u8> {
         }
 
         Cmd::Symbol { query, limit, repo } => {
-            // An empty or blank query is a caller mistake, not a search. It used to match
-            // everything — fifteen arbitrary symbols returned as "15 matches" with
-            // `unknown: none`, which is the tool asserting it found something and knows of
-            // no gaps. An agent interpolating an empty variable would believe it.
-            if query.trim().is_empty() {
-                eprintln!("cairn: empty query - give a name, or part of one");
+            // It used to match everything — fifteen arbitrary symbols returned as "15
+            // matches" with `unknown: none`, which is the tool asserting it found
+            // something and knows of no gaps.
+            if refuse_blank(&query, "symbol", "a name, or part of one") {
                 return Ok(exit::ERROR);
             }
             let store = open(&db)?;
@@ -1860,13 +1931,19 @@ fn run() -> Result<u8> {
                     .and_then(|d| d.parent())
                     .map(|root| Source::new(root.to_path_buf())),
             };
+            // The container of the function each site sits in, for grouping. Empty on an
+            // index with no connector, which is what keeps this answer identical there.
+            let containers = containers_of(&store, refs.iter().filter_map(|r| r.enclosing_id))?;
             let mut env = cairn_fmt::references_with_context(
                 &sym,
                 &refs,
                 suppressed,
                 total,
-                source.as_mut(),
-                ctx,
+                cairn_fmt::SiteView {
+                    source: source.as_mut(),
+                    context: ctx,
+                    containers: &containers,
+                },
                 &mut budget,
             )
             .mark_stale(dirty.as_deref(), &paths);
@@ -1937,8 +2014,20 @@ fn run() -> Result<u8> {
             let title =
                 format!("{label} [{handle}] {root}   depth={depth} fanout={fanout}   [L1, exact]");
             let paths = paths_of(w.nodes.iter().map(|n| n.symbol.def.as_ref()));
-            let mut env = cairn_fmt::walk(&w, &title, view, detail, source.as_mut(), &mut budget)
-                .mark_stale(dirty.as_deref(), &paths);
+            // Which declared container each node sits in, looked up once per node. Empty
+            // on an index with no connector, which is what keeps the answer identical
+            // there.
+            let containers = containers_of(&store, w.nodes.iter().map(|n| n.symbol.id))?;
+            let mut env = cairn_fmt::walk(
+                &w,
+                &title,
+                view,
+                detail,
+                source.as_mut(),
+                &mut budget,
+                &containers,
+            )
+            .mark_stale(dirty.as_deref(), &paths);
             if let Some((label, _)) = &scope {
                 env = env.within(label.clone(), outside);
             }
@@ -2140,6 +2229,9 @@ fn run() -> Result<u8> {
             repo,
             limit,
         } => {
+            if refuse_blank(&text, "literal", "text to look for") {
+                return Ok(exit::ERROR);
+            }
             let store = open(&db)?;
             let rows = store.literals(&text, limit)?;
             let found = !rows.is_empty();
@@ -2199,6 +2291,9 @@ fn run() -> Result<u8> {
                     Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
                 }
                 (None, Some(q)) => {
+                    if refuse_blank(&q, "docs --about", "the words a section would name") {
+                        return Ok(exit::ERROR);
+                    }
                     // Bodies are read from disk, so this needs the repository. Same way
                     // the watcher works it out: `<repo>/.cairn/index.sqlite`.
                     let root = db
@@ -3655,6 +3750,26 @@ fn resolve_for_purpose(
          spelling, or `cairn symbol {subj}` for a partial-name search."
     );
     Ok(Subject::Answered(exit::ERROR))
+}
+
+/// The declared containers of a set of symbols, for grouping an answer.
+///
+/// One query per row, which is bounded by `--limit` and the budget - the rows are the
+/// ones about to be printed. Returns an empty index when nothing declared containment,
+/// and every renderer then behaves exactly as it did before connectors existed.
+fn containers_of(store: &Store, ids: impl Iterator<Item = i64>) -> Result<cairn_fmt::Containers> {
+    let mut out = std::collections::BTreeMap::new();
+    for id in ids {
+        let names: Vec<String> = store
+            .containers_of(id)?
+            .into_iter()
+            .map(|c| c.node_id)
+            .collect();
+        if !names.is_empty() {
+            out.insert(id, names);
+        }
+    }
+    Ok(cairn_fmt::Containers(out))
 }
 
 /// The container `--within` names, and everything inside it.

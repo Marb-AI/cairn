@@ -42,14 +42,37 @@ pub struct Language {
     /// Files that mark a project root for this language. Used only to choose *where* to
     /// run the indexer once the extensions have already said the language is here.
     pub markers: &'static [&'static str],
-    /// Do sibling project roots have to be indexed separately?
+    /// Which directories the indexer has to be run in.
+    pub roots: RootRule,
+    /// The file that names the modules of a workspace, when the language has one.
     ///
-    /// False for Go and Python, where the outermost project sees every package inside it,
-    /// so the shallowest marker is the whole repository. True for JavaScript workspaces,
-    /// where `apps/a` and `apps/b` are separate compilations with separate dependency
-    /// trees - indexing the shallowest one there covered a retired app and silently left
-    /// out the live one of 827 files.
-    pub roots_are_independent: bool,
+    /// Authoritative where it exists: `go.work` lists exactly the modules that build
+    /// together, which is a better answer than any search of the tree - it includes
+    /// generated modules a walk would have to guess about and excludes ones the
+    /// repository deliberately leaves out.
+    pub workspace_file: Option<&'static str>,
+}
+
+/// How many places an indexer has to run for one language.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RootRule {
+    /// One run at the shallowest marker: the outermost project sees everything inside it.
+    Shallowest,
+    /// One run per marker that is not inside another marker's directory.
+    ///
+    /// JavaScript workspaces: `apps/a` and `apps/b` are separate compilations with
+    /// separate dependency trees, and indexing the shallowest one covered a retired app
+    /// while silently leaving out the live one of 827 files.
+    Outermost,
+    /// One run per marker, nesting included.
+    ///
+    /// Go's own rule: a `go.mod` inside another module's directory is *excluded* from
+    /// that module, so it is a separate compilation and nothing else will index it. This
+    /// was `Shallowest`, on the stated grounds that "the outermost project sees every
+    /// package inside it" - true of a single-module repository and false of every
+    /// workspace. Measured on a real monorepo: 33 Go modules, of which exactly one was
+    /// indexed, and the other 32 were missing from every answer with nothing saying so.
+    EveryModule,
 }
 
 pub const LANGUAGES: &[Language] = &[
@@ -58,7 +81,8 @@ pub const LANGUAGES: &[Language] = &[
         extensions: &["go"],
         indexer: "scip-go",
         markers: &["go.mod"],
-        roots_are_independent: false,
+        roots: RootRule::EveryModule,
+        workspace_file: Some("go.work"),
     },
     Language {
         name: "python",
@@ -70,7 +94,9 @@ pub const LANGUAGES: &[Language] = &[
             "setup.cfg",
             "requirements.txt",
         ],
-        roots_are_independent: false,
+        // One run: a Python package tree below the outermost project is part of it.
+        roots: RootRule::Shallowest,
+        workspace_file: None,
     },
     Language {
         // `.js` and `.jsx` are indexed by the same tool and land in the same graph, so
@@ -83,9 +109,64 @@ pub const LANGUAGES: &[Language] = &[
         // project at all, so the indexer was pointed at a directory with no tsconfig and
         // refused. What marks a TypeScript project is the file the compiler reads.
         markers: &["tsconfig.json", "jsconfig.json"],
-        roots_are_independent: true,
+        roots: RootRule::Outermost,
+        workspace_file: None,
     },
 ];
+
+/// The module directories a workspace file names, as repo-relative absolute paths.
+///
+/// `go.work` is the only shape read today and the parse is deliberately dumb: the `use`
+/// entries, one per line or in a parenthesised block, which is all the file is. A module
+/// it names that is not on disk is dropped rather than guessed at - that is the state a
+/// fresh checkout of a repository with generated modules is in, and pointing an indexer
+/// at a directory that does not exist produces an error instead of an answer.
+fn workspace_members(repo: &Path, file: &Path) -> Vec<PathBuf> {
+    let Ok(text) = std::fs::read_to_string(file) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let mut in_block = false;
+    for raw in text.lines() {
+        let line = raw.split("//").next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        if in_block {
+            if line == ")" {
+                in_block = false;
+                continue;
+            }
+            push_member(repo, line, &mut out);
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("use") {
+            let rest = rest.trim();
+            if rest == "(" {
+                in_block = true;
+            } else if !rest.is_empty() {
+                push_member(repo, rest, &mut out);
+            }
+        }
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+fn push_member(repo: &Path, entry: &str, out: &mut Vec<PathBuf>) {
+    let cleaned = entry.trim().trim_matches('"').trim_start_matches("./");
+    if cleaned.is_empty() || cleaned == "." {
+        out.push(repo.to_path_buf());
+        return;
+    }
+    let path = repo.join(cleaned);
+    // Only what is there. A `go.work` in a fresh checkout names generated modules that
+    // codegen has not produced yet, and a missing one is not a project to index.
+    if path.join("go.mod").exists() {
+        out.push(path);
+    }
+}
 
 /// Extensions cairn cannot index, named so a warning can say which language was skipped
 /// rather than leaving someone to guess from a file count.
@@ -224,23 +305,36 @@ pub fn scan(repo: &Path) -> Result<Survey> {
                 .cloned()
                 .unwrap_or_else(|| repo.to_path_buf());
             let mut roots = vec![shallowest];
-            if lang.roots_are_independent {
-                if let Some(all) = all_markers.get(lang.name) {
-                    // Every marker not inside another one: a `tsconfig.json` below a
-                    // project it belongs to is part of that compilation, not a second one.
-                    let mut outer: Vec<PathBuf> = all
+            // The workspace file first, where the language has one and the repository
+            // wrote one: it names the modules that build together, which is a stronger
+            // answer than anything a walk can conclude.
+            let from_workspace = lang
+                .workspace_file
+                .map(|f| repo.join(f))
+                .filter(|p| p.exists())
+                .map(|p| workspace_members(repo, &p))
+                .unwrap_or_default();
+            if !from_workspace.is_empty() {
+                roots = from_workspace;
+            } else if let Some(all) = all_markers.get(lang.name) {
+                let mut chosen: Vec<PathBuf> = match lang.roots {
+                    RootRule::Shallowest => Vec::new(),
+                    // A marker below another one belongs to that compilation.
+                    RootRule::Outermost => all
                         .iter()
                         .filter(|p| !all.iter().any(|q| q != *p && p.starts_with(q)))
                         .cloned()
-                        .collect();
-                    outer.sort();
-                    outer.dedup();
-                    // Sorted, so which project is indexed first does not depend on the
-                    // order the filesystem handed back its entries. It did: the first run
-                    // on a three-app workspace picked the retired one.
-                    if !outer.is_empty() {
-                        roots = outer;
-                    }
+                        .collect(),
+                    // Every one of them, nesting included: see `RootRule::EveryModule`.
+                    RootRule::EveryModule => all.clone(),
+                };
+                chosen.sort();
+                chosen.dedup();
+                // Sorted, so which project is indexed first does not depend on the
+                // order the filesystem handed back its entries. It did: the first run
+                // on a three-app workspace picked the retired one.
+                if !chosen.is_empty() {
+                    roots = chosen;
                 }
             }
             Some(Found {
@@ -805,7 +899,12 @@ mod tests {
     }
 
     #[test]
-    fn the_indexer_runs_at_the_shallowest_marker() {
+    fn every_go_module_is_its_own_root_nesting_included() {
+        // This test asserted the opposite, on the grounds that "the root module sees
+        // every package". Go's own rule is the reverse: a `go.mod` inside another
+        // module's directory is *excluded* from it, so `services/inner` is a separate
+        // compilation and indexing only the root leaves its ten files out of the index
+        // with nothing saying so. Measured on a real monorepo, where it was 32 modules.
         let mut files = vec![
             ("go.mod".to_string(), "module x".to_string()),
             ("services/inner/go.mod".to_string(), "module y".to_string()),
@@ -815,8 +914,34 @@ mod tests {
         let survey = scan(&dir).unwrap();
         assert_eq!(
             survey.found[0].roots,
-            vec![dir],
-            "the root module sees every package, so there is one root"
+            vec![dir.clone(), dir.join("services/inner")],
+            "both modules have to be indexed, and in a fixed order"
+        );
+    }
+
+    #[test]
+    fn a_go_workspace_names_its_own_modules() {
+        // `go.work` is authoritative where it exists: it lists the modules that build
+        // together, including generated ones a walk would have to guess about. The
+        // module it names but that is not on disk is dropped - that is the state of a
+        // fresh checkout before codegen has run, and pointing an indexer at a directory
+        // that is not there produces an error instead of an answer.
+        let mut files = vec![
+            (
+                "go.work".to_string(),
+                "go 1.26\n\nuse (\n\t./src\n\t./gen\n\t./not-generated-yet\n)\n".to_string(),
+            ),
+            ("src/go.mod".to_string(), "module x".to_string()),
+            ("gen/go.mod".to_string(), "module y".to_string()),
+        ];
+        files.extend(many("src", "go", 8));
+        files.extend(many("gen", "go", 4));
+        let dir = tree("go-workspace", &refs(&files));
+        let survey = scan(&dir).unwrap();
+        assert_eq!(
+            survey.found[0].roots,
+            vec![dir.join("gen"), dir.join("src")],
+            "the workspace's own list, minus what is not on disk"
         );
     }
 

@@ -33,6 +33,7 @@ pub struct Rules {
     pub build_selected: BuildSelectedRules,
     pub proto: ProtoRules,
     pub on_demand: OnDemandRules,
+    pub deploy: DeployRules,
 }
 
 /// Files chosen by a build tool rather than by an import statement.
@@ -135,6 +136,21 @@ pub struct OnDemandRules {
     pub runner_suffixes: Vec<String>,
     /// Directories never worth walking for deployment scripts.
     pub skip_dirs: Vec<String>,
+}
+
+/// Where a deployment describes itself.
+///
+/// The file names were a constant inside the default connector, and a repository whose
+/// stack lives anywhere else was invisible to the whole deployment layer with no way to
+/// say otherwise short of a patch. Measured on a real monorepo: its w17 services are in
+/// `compose.w17.yaml`, cairn read five other names, and `runs`, `affects`, `entrypoints`
+/// and `topology` all answered about nothing - honestly, but about nothing.
+///
+/// Order is meaning: a later file overrides an earlier one, the way compose itself reads
+/// them.
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeployRules {
+    pub compose_files: Vec<String>,
 }
 
 impl Default for Rules {

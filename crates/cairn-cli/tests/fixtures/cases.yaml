@@ -431,6 +431,36 @@
   contains: ["empty query"]
   max_seconds: 5
 
+# And the four that were still missing it, measured on a real repository before the fix:
+# `literal ""` returned thirty literals, `outline ""` reported "80 of 5753 definitions",
+# `docs --about ""` searched for nothing, and `unreached ""` answered "60 symbols with no
+# production caller" — a list that reads as code safe to delete, for a query that means
+# nothing. One guard now, so the next command that takes free text cannot be the fifth to
+# forget.
+- name: an empty prefix does not make `unreached` offer the whole repository for deletion
+  args: [unreached, ""]
+  exit: 2
+  contains: ["empty query"]
+  max_seconds: 5
+
+- name: an empty prefix is a bad query for `outline`
+  args: [outline, ""]
+  exit: 2
+  contains: ["empty query"]
+  max_seconds: 5
+
+- name: an empty needle is a bad query for `literal`
+  args: [literal, ""]
+  exit: 2
+  contains: ["empty query"]
+  max_seconds: 5
+
+- name: an empty subject is a bad query for `docs --about`
+  args: [docs, --about, ""]
+  exit: 2
+  contains: ["empty query"]
+  max_seconds: 5
+
 # ── the tool is the escalation, rather than the thing that recommends one ─────────────
 #
 # `symbol` used to answer a miss with "grep is the tool", which spends a round trip to

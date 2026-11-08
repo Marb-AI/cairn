@@ -31,7 +31,20 @@ tests:
   path_contains: ["/tests/", "/testdata/", "/__tests__/", "/__mocks__/"]
   path_prefixes: ["tests/"]
   file_prefixes: ["test_"]
-  file_suffixes: ["_test.go", "_test.py", ".test.ts", ".spec.ts"]
+  # `.tsx`/`.jsx` as well as `.ts`/`.js`: a React component's tests are named
+  # `Thing.test.tsx`, and the list that stopped at `.ts` counted every one of them as
+  # production code - so a component whose only caller was its own test looked alive.
+  file_suffixes:
+    - "_test.go"
+    - "_test.py"
+    - ".test.ts"
+    - ".test.tsx"
+    - ".test.js"
+    - ".test.jsx"
+    - ".spec.ts"
+    - ".spec.tsx"
+    - ".spec.js"
+    - ".spec.jsx"
 
 # Files a build tool picks between, which no import statement names. A symbol defined only
 # in one of these has no static caller by construction, so reachability must decline rather
@@ -100,4 +113,19 @@ on_demand:
     - ".mypy_cache"
     - ".ruff_cache"
     - ".pytest_cache"
+
+# Where a deployment describes itself. Order is meaning: a later file overrides an
+# earlier one, the way `docker compose` reads them itself.
+#
+# A repository whose stack is described somewhere else - `compose.w17.yaml`,
+# `deploy/compose.prod.yaml`, anything - adds it here. Without this the deployment layer
+# sees nothing and `runs`, `affects`, `entrypoints` and `topology` all answer about
+# nothing: honestly, because they say the entrypoints are missing, but about nothing.
+deploy:
+  compose_files:
+    - compose.yaml
+    - compose.yml
+    - docker-compose.yml
+    - compose.local.yaml
+    - compose.override.yaml
 
