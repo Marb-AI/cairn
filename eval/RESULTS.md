@@ -3240,3 +3240,33 @@ price.**
   entirely on the envelope saying `stale:` unprompted. If it answers "no callers" without
   flagging that the index may not have seen the file, that is graded **worse** — accidentally
   right and unusable.
+
+### Addendum to the backend pre-registration, written after eighteen runs and before any counted one
+
+The first eighteen runs were **discarded and re-run**, for the same cause as the frontend
+round's first batch and by my own omission: the warning about the stale install was added to
+the frontend arm this morning and not to this one. `/usr/local/bin/cairn` is an 0.1.1
+install that exits 3 on a current index, and **eight of the nine cairn runs typed the bare
+name**, paying one to three round trips each. One of them — scenario 10 — concluded from the
+exit 3 that the index was unusable and answered the question by reading files, with the tool
+switched off.
+
+That is not a tax one can subtract afterwards: it varies per run, falls on one arm only, and
+in one case changed what was being measured. Both preambles now carry the same sentence, and
+the discarded logs are kept as `DISCARDED-stale-path-*`.
+
+**Two findings from those runs are kept, because they are about answers rather than counts**,
+and both weaken rather than flatter the case for the tool:
+
+- **Scenario 3's predicted grep failure did not happen.** `SCENARIOS.md` predicts the grep
+  arm misses `share.go` — the tenth call site, "the one a reader assembling this by hand
+  misses" — and fails the acceptance rule at any price. It found it, named it "a second,
+  easy-to-miss entry point", and gave the full RPC table.
+- **Scenario 5's predicted grep failure did not happen either**, and the grep arm arguably
+  answered *better* than the key: it enumerated the package by AST and reported that only one
+  of the four symbols is genuinely dead, where the key lists four. The cairn arm reached the
+  same conclusion from `unreached` plus `usage` and `weaklinks`. Two arms converging on a
+  better answer than the pre-registered key is a finding about the key.
+
+Neither is retracted by the re-run; the answers were not what the stale binary affected. The
+prediction above stands as written.
