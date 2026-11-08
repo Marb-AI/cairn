@@ -2318,9 +2318,17 @@ fn run() -> Result<u8> {
                 None => {
                     // "Not within this bound" is a different statement from "never",
                     // and the difference matters to whoever asked.
+                    // Data on the negative too: a consumer asking "is there a path"
+                    // gets an empty chain, which is an answer, rather than `null`,
+                    // which is indistinguishable from a command that does not publish
+                    // any.
                     let mut env = cairn_fmt::Envelope::new(format!(
                         "no call path from [{from}] to [{to}] within {max_depth} hops\n"
                     ))
+                    .data(cairn_fmt::PathData {
+                        hops: 0,
+                        chain: Vec::new(),
+                    })
                     .unknown(
                         "only static calls were followed; a dynamic dispatch on the way \
                          would not appear here",
@@ -2378,14 +2386,22 @@ fn run() -> Result<u8> {
             };
             let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
             let mut body = format!("{}\n", cairn_fmt::symbol_line(&sym));
+            // The lines actually printed, collected as they are printed so the data and
+            // the page cannot describe two different extents.
+            let mut shown_source: Vec<cairn_fmt::SourceLine> = Vec::new();
+            let data = |detail: &str, source: Vec<cairn_fmt::SourceLine>| cairn_fmt::ExpandData {
+                symbol: cairn_fmt::SymbolJson::of(&sym),
+                detail: detail.to_string(),
+                source,
+            };
             let mut env;
             match detail.as_str() {
                 "skeleton" => {
-                    env = cairn_fmt::Envelope::new(body);
+                    env = cairn_fmt::Envelope::new(body).data(data("skeleton", Vec::new()));
                 }
                 "body" | "doc" => {
                     let Some(def) = &sym.def else {
-                        env = cairn_fmt::Envelope::new(body);
+                        env = cairn_fmt::Envelope::new(body).data(data(&detail, Vec::new()));
                         env = env.unknown("no definition indexed, nothing to show");
                         emit(env);
                         return Ok(exit::NOT_FOUND);
@@ -2406,8 +2422,12 @@ fn run() -> Result<u8> {
                         if !budget.push(&mut body, &format!("{:>6} {line}", i + 1)) {
                             break;
                         }
+                        shown_source.push(cairn_fmt::SourceLine {
+                            line: i + 1,
+                            text: line.to_string(),
+                        });
                     }
-                    env = cairn_fmt::Envelope::new(body);
+                    env = cairn_fmt::Envelope::new(body).data(data(&detail, shown_source));
                     if sym.def_end_line.is_none() {
                         env = env.unknown(
                             "the indexer gave no body extent for this symbol; showing its \
@@ -2650,7 +2670,8 @@ fn run() -> Result<u8> {
             // for more than one reason.
             let root = db.parent().and_then(|d| d.parent());
             let head = root.and_then(cairn_store::llmverify::head_commit);
-            body.push_str(&cairn_fmt::coverage(&store.coverage(head.as_deref())?));
+            let areas = store.coverage(head.as_deref())?;
+            body.push_str(&cairn_fmt::coverage(&areas));
 
             // The parts, built once, and arranged twice below. `status` is the one answer
             // whose text does not print the envelope last - the stale lines sit in the
@@ -2661,6 +2682,7 @@ fn run() -> Result<u8> {
             // Lines that follow the stale ones in text, and belong to the body in JSON.
             let mut trailer = String::new();
             let mut dirty_files: Vec<String> = Vec::new();
+            let mut daemon_data: Option<cairn_fmt::DaemonJson> = None;
 
             let socket = cairn_daemon::socket_path(&db);
             let tracked = match cairn_daemon::Client::connect(&socket) {
@@ -2725,6 +2747,17 @@ fn run() -> Result<u8> {
                     // be read and most of what it says is still true. `status` returning
                     // 3 for the same condition made it the one command that called a
                     // readable index unreadable.
+                    daemon_data = Some(cairn_fmt::DaemonJson {
+                        repo: st.repo.clone(),
+                        files_tracked: st.files_tracked,
+                        uptime_secs: st.uptime_secs,
+                        complete: d.complete,
+                        modified: d.modified.clone(),
+                        created: d.created.clone(),
+                        removed: d.removed.clone(),
+                        generation: d.generation,
+                        reindex_due: d.reindex_due.clone(),
+                    });
                     true
                 }
                 None => {
@@ -2763,7 +2796,24 @@ fn run() -> Result<u8> {
                     }
                 }
                 Format::Json => {
-                    let mut env = cairn_fmt::Envelope::new(format!("{body}{trailer}"));
+                    let mut env = cairn_fmt::Envelope::new(format!("{body}{trailer}")).data(
+                        cairn_fmt::StatusData {
+                            index: db.display().to_string(),
+                            files: c.files,
+                            symbols: c.symbols,
+                            occurrences: c.occurrences,
+                            generated_files: c.generated_files,
+                            coverage: areas
+                                .iter()
+                                .map(|a| cairn_fmt::AreaJson {
+                                    name: a.name.clone(),
+                                    state: a.state.label().to_string(),
+                                    detail: a.detail.clone(),
+                                })
+                                .collect(),
+                            daemon: daemon_data,
+                        },
+                    );
                     // `stale: none` is a text convention for an empty section; as a field
                     // it would be a note claiming there are no notes.
                     env.stale = stale.iter().filter(|s| *s != "none").cloned().collect();

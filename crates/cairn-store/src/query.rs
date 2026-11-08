@@ -15,6 +15,14 @@ const HANDLE_MAX_LEN: usize = 12;
 pub struct SymbolRow {
     pub id: i64,
     pub handle: String,
+    /// The full SCIP symbol string, for indexes built at schema v20 or later.
+    ///
+    /// The identifier that outlives the index: a handle is short because it is meant to
+    /// be typed, and it is only stable for as long as the index that minted it (D4).
+    /// Anything that stores a reference to a symbol — a connector, an editor, a comment
+    /// in a review — needs this one. `None` only for a row that was written without it,
+    /// which in practice means a test fixture.
+    pub scip: Option<String>,
     pub name: String,
     pub container: Option<String>,
     pub module: Option<String>,
@@ -256,7 +264,7 @@ impl Store {
             SELECT s.id, h.s AS name, c.s AS container, m.s AS module, s.kind, s.lang,
                    s.ref_count, s.def_generated,
                    p.s AS def_path, s.def_line, s.def_col_start, s.def_col_end,
-                   f.generated, f.gen_via, s.def_end_line
+                   f.generated, f.gen_via, s.def_end_line, s.scip
               FROM hits h
               JOIN symbols s ON s.name_id = h.id
               LEFT JOIN strings c ON c.id = s.container_id
@@ -299,16 +307,18 @@ impl Store {
                     r.get::<_, i64>(6)?,
                     def,
                     r.get::<_, Option<i64>>(14)?,
+                    r.get::<_, Option<String>>(15)?,
                 ))
             },
         )?;
 
         let mut out = Vec::new();
         for row in rows {
-            let (id, name, container, module, kind, lang, refs, def, def_end_line) = row?;
+            let (id, name, container, module, kind, lang, refs, def, def_end_line, scip) = row?;
             out.push(SymbolRow {
                 id,
                 handle: self.handle_for(id)?,
+                scip,
                 name,
                 container,
                 module,
@@ -325,7 +335,7 @@ impl Store {
     pub fn symbol(&self, symbol_id: i64) -> Result<Option<SymbolRow>> {
         let mut stmt = self.conn.prepare_cached(
             r#"
-            SELECT s.id, n.s, c.s, m.s, s.kind, s.lang, s.ref_count, s.def_end_line
+            SELECT s.id, n.s, c.s, m.s, s.kind, s.lang, s.ref_count, s.def_end_line, s.scip
               FROM symbols s
               JOIN strings n ON n.id = s.name_id
               LEFT JOIN strings c ON c.id = s.container_id
@@ -341,6 +351,7 @@ impl Store {
         Ok(Some(SymbolRow {
             id,
             handle: self.handle_for(id)?,
+            scip: r.get(8)?,
             name: r.get(1)?,
             container: r.get(2)?,
             module: r.get(3)?,

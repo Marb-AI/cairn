@@ -1,0 +1,272 @@
+{
+  "$defs": {
+    "CrossCallerJson": {
+      "description": "One caller on the other side of a gRPC boundary.",
+      "properties": {
+        "package": {
+          "type": "string"
+        },
+        "rpc": {
+          "description": "The RPC, where the answer is per-RPC rather than per-service.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "service": {
+          "type": "string"
+        },
+        "symbol": {
+          "$ref": "#/$defs/SymbolJson"
+        }
+      },
+      "required": [
+        "symbol",
+        "package",
+        "service"
+      ],
+      "type": "object"
+    },
+    "ReachesData": {
+      "description": "`cairn reaches` as data, in either direction.",
+      "properties": {
+        "basis": {
+          "description": "How the edges were derived: `rpc` is the per-RPC call graph through the generated\nclient, `convention` is the protobuf generator's naming convention.",
+          "type": "string"
+        },
+        "callers": {
+          "items": {
+            "$ref": "#/$defs/CrossCallerJson"
+          },
+          "type": "array"
+        },
+        "direction": {
+          "description": "`incoming` is who reaches this; `outgoing` is what this reaches.",
+          "type": "string"
+        },
+        "services": {
+          "description": "Services the symbol takes part in, as `(package, service, role)`.",
+          "items": {
+            "$ref": "#/$defs/ServiceRoleJson"
+          },
+          "type": "array"
+        },
+        "symbol": {
+          "$ref": "#/$defs/SymbolJson"
+        },
+        "via_symbol": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SymbolJson"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The enclosing type the answer was given for, when a binding names the handler\nrather than each of its RPC methods."
+        }
+      },
+      "required": [
+        "symbol",
+        "direction",
+        "basis",
+        "services",
+        "callers"
+      ],
+      "type": "object"
+    },
+    "ServiceRoleJson": {
+      "description": "A service the symbol takes part in, and on which side.",
+      "properties": {
+        "package": {
+          "type": "string"
+        },
+        "role": {
+          "description": "`serves` or `calls`.",
+          "type": "string"
+        },
+        "service": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "package",
+        "service",
+        "role"
+      ],
+      "type": "object"
+    },
+    "Stale": {
+      "description": "The staleness section of a JSON answer: `StaleFiles` plus the sentences text prints.",
+      "properties": {
+        "dirty": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mentioned": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tracked": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "dirty",
+        "mentioned",
+        "notes"
+      ],
+      "type": "object"
+    },
+    "SymbolJson": {
+      "description": "A symbol as data: what every JSON answer says about one.\n\nOne shape for every command, so a consumer learns it once. The fields the plan\nrequires of it — handle, the SCIP symbol string, file, line, the generated flag, the\nedge source label — plus what the text line already shows, which is free here and\nwould otherwise have to be parsed back out of `body`.\n\nLines are 1-based, as the text line prints them and as every editor counts them. The\nstore keeps them 0-based; a JSON answer that quietly used the storage convention\nwould put every consumer one line out.",
+      "properties": {
+        "end_line": {
+          "description": "Last line of the definition's body, when the indexer emitted one.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "generated": {
+          "description": "Definition sits in generated code.",
+          "type": "boolean"
+        },
+        "handle": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "lang": {
+          "type": "string"
+        },
+        "line": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "qualified": {
+          "description": "`Type.method` where the container is a type, else the bare name — what the text\nline shows.",
+          "type": "string"
+        },
+        "refs": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "source": {
+          "description": "How the row was reached, where it arrived through an edge: `L1, exact`,\n`L2, agent-asserted`. `null` when the row is the answer's own subject.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "symbol": {
+          "description": "The full SCIP symbol string. `null` on an index built before schema v20, which\ncannot print one — not an absent symbol, an index that did not record the name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "handle",
+        "name",
+        "qualified",
+        "kind",
+        "lang",
+        "generated",
+        "refs"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One answer, as `--format json` prints it.\n\nBorrowed from the envelope rather than owning a copy: this is built once, on the way\nout, and an answer can carry a megabyte of body.\n\nGeneric in the payload for one reason: printing uses `serde_json::Value`, because the\nenvelope is built where the command is no longer known, while the published schema\nhas to name the command's own data type. One declaration, instantiated twice, so the\nschema in `docs/json-schema/v1/` describes the object this actually prints.",
+  "properties": {
+    "body": {
+      "description": "The text answer, exactly as text mode prints it above the envelope lines. The\nthree sections are fields here, so repeating them inside the body would be the\nsame claim twice and two places for it to drift.",
+      "type": "string"
+    },
+    "command": {
+      "description": "The command that produced this, as it would be typed: `refs`, `for change`.",
+      "type": "string"
+    },
+    "data": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReachesData"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The answer as fields. `null` until the command has a data builder."
+    },
+    "rows": {
+      "format": "uint",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "schema": {
+      "type": "string"
+    },
+    "stale": {
+      "$ref": "#/$defs/Stale"
+    },
+    "suppressed": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "unknown": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "command",
+    "truncated",
+    "unknown",
+    "suppressed",
+    "stale",
+    "body"
+  ],
+  "title": "Answer",
+  "type": "object"
+}

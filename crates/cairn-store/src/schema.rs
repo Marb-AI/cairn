@@ -22,7 +22,11 @@ use rusqlite::Connection;
 /// reads as "nothing failed" — a confident negative from a database that was never asked.
 /// Invalidating it costs one `cairn index` and buys back the one guarantee that matters
 /// here: an answer knows the shape of its own gaps.
-pub const SCHEMA_VERSION: i64 = 19;
+/// v20 adds `symbols.scip`, the full SCIP symbol string. An older index has the hash and
+/// nothing to print from it, so every machine-readable answer would have to omit the one
+/// identifier that outlives the index — and omitting it silently is how a consumer ends
+/// up keying on handles, which are only stable while the index is.
+pub const SCHEMA_VERSION: i64 = 20;
 
 pub const SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -56,6 +60,14 @@ CREATE TABLE IF NOT EXISTS files (
 CREATE TABLE IF NOT EXISTS symbols (
     id           INTEGER PRIMARY KEY,
     hash         BLOB    NOT NULL UNIQUE,  -- blake3-128 of the full SCIP symbol string
+    -- The symbol string itself. The hash above is enough to *resolve* one, which is why
+    -- this was not stored for nineteen schema versions - but it cannot be printed from a
+    -- hash, and a machine-readable answer has to carry an identifier that outlives the
+    -- index it came from. A handle is short and stable only while the index is (D4); the
+    -- SCIP string is what a connector, an editor or another tool can hold onto and hand
+    -- back later. Not interned: these are unique per symbol, so a `strings` row plus its
+    -- UNIQUE index would store every one of them twice.
+    scip         TEXT,
     name_id      INTEGER NOT NULL REFERENCES strings(id),
     module_id    INTEGER          REFERENCES strings(id),
     container_id INTEGER          REFERENCES strings(id),

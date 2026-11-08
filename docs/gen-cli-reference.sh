@@ -72,6 +72,34 @@ What holds across both formats:
 * **`data`** is the answer as fields. It is `null` for commands that still have only a
   text renderer; the envelope around it is there either way.
 
+### The data of each command
+
+`symbol`, `refs`, `graph`, `path`, `affects`, `runs`, `reaches`, `expand`, `status`,
+`verify`, `concept show`, `concept list` and `links` fill `data`. Every symbol in it
+carries the same shape:
+
+```
+{
+  "handle": "nph",
+  "symbol": "scip-go gomod telemetry.example/srcgo . `…/station`/Registry#Add().",
+  "name": "Add", "qualified": "Registry.Add", "kind": "fn", "lang": "go",
+  "file": "srcgo/internal/station/registry.go", "line": 52, "end_line": 66,
+  "generated": false, "refs": 9, "source": null
+}
+```
+
+`symbol` is the full SCIP symbol string — the identifier that outlives the index. A
+handle is short because it is meant to be typed, and it is only stable while the index
+that minted it is; anything *storing* a reference to a symbol should store the SCIP
+string. It is `null` on an index built before schema v20, which did not record it.
+`source` is the edge source label (`L1, exact`, `L2, agent-asserted`) where the row was
+reached through an edge, and `null` where the row is the answer's own subject. Lines are
+1-based, as the text prints them.
+
+The full shape of each command's answer is published as JSON Schema under
+[`docs/json-schema/v1/`](json-schema/v1/), generated from the same structs that serialise
+it, and a test both regenerates them and validates real output against them.
+
 HEADER
 
 printf '## cairn\n\n```\n'

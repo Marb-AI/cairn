@@ -1,0 +1,331 @@
+{
+  "$defs": {
+    "AffectsData": {
+      "description": "`cairn affects` as data.",
+      "properties": {
+        "blind": {
+          "description": "Services that start nothing and run code on demand. Where one appears above it is\non a path; how it is triggered is not something reachability can see.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "hops": {
+          "items": {
+            "$ref": "#/$defs/AffectsHopJson"
+          },
+          "type": "array"
+        },
+        "in_process": {
+          "items": {
+            "$ref": "#/$defs/InProcessJson"
+          },
+          "type": "array"
+        },
+        "outgoing": {
+          "items": {
+            "$ref": "#/$defs/OutgoingJson"
+          },
+          "type": "array"
+        },
+        "services": {
+          "description": "Distinct deployed services a change here touches.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "symbol": {
+          "$ref": "#/$defs/SymbolJson"
+        },
+        "truncated_hops": {
+          "description": "The service chain continued past the hop limit.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "symbol",
+        "services",
+        "in_process",
+        "hops",
+        "outgoing",
+        "blind",
+        "truncated_hops"
+      ],
+      "type": "object"
+    },
+    "AffectsHopJson": {
+      "description": "One network hop into this symbol, as the text groups them: a route, and the RPCs it\ncarries.",
+      "properties": {
+        "call_sites": {
+          "description": "How many call sites this route was observed at.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "file": {
+          "description": "File the calls sit in.",
+          "type": "string"
+        },
+        "from": {
+          "description": "Services that start the calling side. Empty means nothing starts it.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "from_by_file": {
+          "type": "boolean"
+        },
+        "package": {
+          "type": "string"
+        },
+        "rpcs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "service": {
+          "type": "string"
+        },
+        "to": {
+          "description": "Services that serve the called side. Empty means none was resolved.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "package",
+        "service",
+        "rpcs",
+        "call_sites",
+        "file",
+        "from_by_file"
+      ],
+      "type": "object"
+    },
+    "InProcessJson": {
+      "description": "The whole answer to \"what does changing this touch\", shaped like the answer.\n\nLaid out so it can be used as the deliverable rather than as material for one: the\nin-process services with the command that makes them the runner, then the network\nroute hop by hop with the RPC that carries it. The `unknown:` section names what\nreachability cannot see, so a caller can tell a complete answer from a partial one\nwithout going to check — which is the whole point of answering in one call.\nA service that runs this code in its own process.",
+      "properties": {
+        "by_file": {
+          "description": "Attributed through the file the symbol sits in rather than through a call path —\nthe `~` of the text answer. The module is loaded there; no call path was found.",
+          "type": "boolean"
+        },
+        "command": {
+          "description": "The start command that makes it the runner. `null` means the image default.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "service": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "service",
+        "by_file"
+      ],
+      "type": "object"
+    },
+    "OutgoingJson": {
+      "description": "A network call *out* of this symbol: a change here changes what the far side receives.",
+      "properties": {
+        "package": {
+          "type": "string"
+        },
+        "served_by": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "service": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "served_by",
+        "package",
+        "service"
+      ],
+      "type": "object"
+    },
+    "Stale": {
+      "description": "The staleness section of a JSON answer: `StaleFiles` plus the sentences text prints.",
+      "properties": {
+        "dirty": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mentioned": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tracked": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "dirty",
+        "mentioned",
+        "notes"
+      ],
+      "type": "object"
+    },
+    "SymbolJson": {
+      "description": "A symbol as data: what every JSON answer says about one.\n\nOne shape for every command, so a consumer learns it once. The fields the plan\nrequires of it — handle, the SCIP symbol string, file, line, the generated flag, the\nedge source label — plus what the text line already shows, which is free here and\nwould otherwise have to be parsed back out of `body`.\n\nLines are 1-based, as the text line prints them and as every editor counts them. The\nstore keeps them 0-based; a JSON answer that quietly used the storage convention\nwould put every consumer one line out.",
+      "properties": {
+        "end_line": {
+          "description": "Last line of the definition's body, when the indexer emitted one.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "generated": {
+          "description": "Definition sits in generated code.",
+          "type": "boolean"
+        },
+        "handle": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "lang": {
+          "type": "string"
+        },
+        "line": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "qualified": {
+          "description": "`Type.method` where the container is a type, else the bare name — what the text\nline shows.",
+          "type": "string"
+        },
+        "refs": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "source": {
+          "description": "How the row was reached, where it arrived through an edge: `L1, exact`,\n`L2, agent-asserted`. `null` when the row is the answer's own subject.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "symbol": {
+          "description": "The full SCIP symbol string. `null` on an index built before schema v20, which\ncannot print one — not an absent symbol, an index that did not record the name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "handle",
+        "name",
+        "qualified",
+        "kind",
+        "lang",
+        "generated",
+        "refs"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One answer, as `--format json` prints it.\n\nBorrowed from the envelope rather than owning a copy: this is built once, on the way\nout, and an answer can carry a megabyte of body.\n\nGeneric in the payload for one reason: printing uses `serde_json::Value`, because the\nenvelope is built where the command is no longer known, while the published schema\nhas to name the command's own data type. One declaration, instantiated twice, so the\nschema in `docs/json-schema/v1/` describes the object this actually prints.",
+  "properties": {
+    "body": {
+      "description": "The text answer, exactly as text mode prints it above the envelope lines. The\nthree sections are fields here, so repeating them inside the body would be the\nsame claim twice and two places for it to drift.",
+      "type": "string"
+    },
+    "command": {
+      "description": "The command that produced this, as it would be typed: `refs`, `for change`.",
+      "type": "string"
+    },
+    "data": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AffectsData"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The answer as fields. `null` until the command has a data builder."
+    },
+    "rows": {
+      "format": "uint",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "schema": {
+      "type": "string"
+    },
+    "stale": {
+      "$ref": "#/$defs/Stale"
+    },
+    "suppressed": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "unknown": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "command",
+    "truncated",
+    "unknown",
+    "suppressed",
+    "stale",
+    "body"
+  ],
+  "title": "Answer",
+  "type": "object"
+}

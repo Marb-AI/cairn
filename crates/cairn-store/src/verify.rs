@@ -13,7 +13,9 @@ use anyhow::Result;
 use rusqlite::params;
 use std::path::Path;
 
-#[derive(Debug, Default, Clone)]
+/// Serialised as-is for `cairn verify --format json`: the report *is* the data, so a
+/// second struct mirroring it would only be a place for the two to disagree.
+#[derive(Debug, Default, Clone, serde::Serialize, schemars::JsonSchema)]
 pub struct Report {
     pub files: i64,
     pub symbols: i64,

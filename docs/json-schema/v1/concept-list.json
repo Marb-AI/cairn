@@ -1,0 +1,145 @@
+{
+  "$defs": {
+    "ConceptListData": {
+      "description": "`cairn concept list` as data.",
+      "properties": {
+        "concepts": {
+          "items": {
+            "$ref": "#/$defs/ConceptSummaryJson"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "concepts"
+      ],
+      "type": "object"
+    },
+    "ConceptSummaryJson": {
+      "properties": {
+        "author": {
+          "type": "string"
+        },
+        "links": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "namespace",
+        "name",
+        "note",
+        "author",
+        "links"
+      ],
+      "type": "object"
+    },
+    "Stale": {
+      "description": "The staleness section of a JSON answer: `StaleFiles` plus the sentences text prints.",
+      "properties": {
+        "dirty": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mentioned": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tracked": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "dirty",
+        "mentioned",
+        "notes"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One answer, as `--format json` prints it.\n\nBorrowed from the envelope rather than owning a copy: this is built once, on the way\nout, and an answer can carry a megabyte of body.\n\nGeneric in the payload for one reason: printing uses `serde_json::Value`, because the\nenvelope is built where the command is no longer known, while the published schema\nhas to name the command's own data type. One declaration, instantiated twice, so the\nschema in `docs/json-schema/v1/` describes the object this actually prints.",
+  "properties": {
+    "body": {
+      "description": "The text answer, exactly as text mode prints it above the envelope lines. The\nthree sections are fields here, so repeating them inside the body would be the\nsame claim twice and two places for it to drift.",
+      "type": "string"
+    },
+    "command": {
+      "description": "The command that produced this, as it would be typed: `refs`, `for change`.",
+      "type": "string"
+    },
+    "data": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ConceptListData"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The answer as fields. `null` until the command has a data builder."
+    },
+    "rows": {
+      "format": "uint",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "schema": {
+      "type": "string"
+    },
+    "stale": {
+      "$ref": "#/$defs/Stale"
+    },
+    "suppressed": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "unknown": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "command",
+    "truncated",
+    "unknown",
+    "suppressed",
+    "stale",
+    "body"
+  ],
+  "title": "Answer",
+  "type": "object"
+}

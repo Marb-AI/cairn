@@ -23,7 +23,36 @@ exit 0
     ]
   },
   "body": "index      <db>\nfiles      16\nsymbols    490\noccurrence 1580\ngenerated  2 files\n\ncoverage   what each mechanism produced, against the tree it was built from\n           indexed -> verified -> verify stale -> verified. `indexed` is the pass\n           having run and matched the tree, which is counting; the rungs above\n           are judgements recorded by `cairn llm verify` and expire with the tree\n  entrypoints    indexed       4 entrypoints, 3 resolve to code, 1 idle\n  cross-api      indexed       2 gRPC services, 5 serve, 8 call links\n  go             indexed       217 symbols, ingested from SCIP with no tree walk to compare\n  python         indexed       273 symbols, ingested from SCIP with no tree walk to compare\ndaemon     not running\n",
-  "data": null
+  "data": {
+    "coverage": [
+      {
+        "detail": "4 entrypoints, 3 resolve to code, 1 idle",
+        "name": "entrypoints",
+        "state": "indexed"
+      },
+      {
+        "detail": "2 gRPC services, 5 serve, 8 call links",
+        "name": "cross-api",
+        "state": "indexed"
+      },
+      {
+        "detail": "217 symbols, ingested from SCIP with no tree walk to compare",
+        "name": "go",
+        "state": "indexed"
+      },
+      {
+        "detail": "273 symbols, ingested from SCIP with no tree walk to compare",
+        "name": "python",
+        "state": "indexed"
+      }
+    ],
+    "daemon": null,
+    "files": 16,
+    "generated_files": 2,
+    "index": "<db>",
+    "occurrences": 1580,
+    "symbols": 490
+  }
 }
 
 $ cairn --format json verify
@@ -49,7 +78,30 @@ exit 0
     "notes": []
   },
   "body": "index coverage\n  files                          16\n  symbols                       490\n  references                   1197   1093 with a caller\n",
-  "data": null
+  "data": {
+    "ambiguous_definitions": 2,
+    "concept_links": 0,
+    "concept_links_dangling": 0,
+    "concept_links_stale": 0,
+    "concept_links_unanchored": 0,
+    "concepts": 0,
+    "definitions_with_body_span": 146,
+    "definitions_without_body_span": 234,
+    "files": 16,
+    "files_without_content_hash": 0,
+    "generated_by_path_only": 0,
+    "generated_files": 2,
+    "manual_edges": 0,
+    "manual_edges_stale": 0,
+    "missing_files": [],
+    "references": 1197,
+    "references_without_caller": 104,
+    "stale_files": [],
+    "staleness_checked": false,
+    "symbols": 490,
+    "symbols_without_definition": 110,
+    "weak_edges": 2
+  }
 }
 
 $ cairn --format json topology
@@ -151,7 +203,9 @@ exit 1
     "notes": []
   },
   "body": "0 concepts\n  (none)\n",
-  "data": null
+  "data": {
+    "concepts": []
+  }
 }
 
 $ cairn --format json symbol Dispatcher
@@ -174,7 +228,11 @@ exit 1
     ]
   },
   "body": "0 matches for \"Dispatcher\"\n(nothing matched)\n",
-  "data": null
+  "data": {
+    "complete": true,
+    "matches": [],
+    "query": "Dispatcher"
+  }
 }
 
 $ cairn --format json context alerting
@@ -319,7 +377,46 @@ exit 0
     ]
   },
   "body": "references to [ad] server\n  defined at srcgo/cmd/collector/main.go:26\n2 references                    [L0, exact]\nALL 2 references ARE IN ONE FILE: srcgo/cmd/collector/main.go. Reading it is probably cheaper than further queries.\n  srcgo/cmd/collector/main.go:30                  in RegisterHandler\n  srcgo/cmd/collector/main.go:50                  in run\n",
-  "data": null
+  "data": {
+    "complete": true,
+    "references": [
+      {
+        "col_end": 15,
+        "col_start": 9,
+        "context": [],
+        "definition": false,
+        "enclosing": "RegisterHandler",
+        "file": "srcgo/cmd/collector/main.go",
+        "generated": false,
+        "line": 30
+      },
+      {
+        "col_end": 15,
+        "col_start": 9,
+        "context": [],
+        "definition": false,
+        "enclosing": "run",
+        "file": "srcgo/cmd/collector/main.go",
+        "generated": false,
+        "line": 50
+      }
+    ],
+    "symbol": {
+      "end_line": null,
+      "file": "srcgo/cmd/collector/main.go",
+      "generated": false,
+      "handle": "ad",
+      "kind": "type",
+      "lang": "go",
+      "line": 26,
+      "name": "server",
+      "qualified": "server",
+      "refs": 2,
+      "source": null,
+      "symbol": "scip-go gomod telemetry.example/srcgo . `telemetry.example/srcgo/cmd/collector`/server#"
+    },
+    "total": 2
+  }
 }
 
 $ cairn --format json usage ad
@@ -357,7 +454,24 @@ exit 0
     "notes": []
   },
   "body": "[ad] server                                   type   go  srcgo/cmd/collector/main.go:26\n",
-  "data": null
+  "data": {
+    "detail": "skeleton",
+    "source": [],
+    "symbol": {
+      "end_line": null,
+      "file": "srcgo/cmd/collector/main.go",
+      "generated": false,
+      "handle": "ad",
+      "kind": "type",
+      "lang": "go",
+      "line": 26,
+      "name": "server",
+      "qualified": "server",
+      "refs": 2,
+      "source": null,
+      "symbol": "scip-go gomod telemetry.example/srcgo . `telemetry.example/srcgo/cmd/collector`/server#"
+    }
+  }
 }
 
 $ cairn --format json graph ad --aspect callers
@@ -380,7 +494,98 @@ exit 0
     ]
   },
   "body": "callers of [ad] server   depth=2 fanout=8   [L1, exact]\n[ad] server                                   type   go  srcgo/cmd/collector/main.go:26\n  [e6] server.RegisterHandler                   fn     go  srcgo/cmd/collector/main.go:30-35  @ srcgo/cmd/collector/main.go:30\n  [9t] run                                      fn     go  srcgo/cmd/collector/main.go:45-56  @ srcgo/cmd/collector/main.go:50\n    [nn] main                                     fn     go  srcgo/cmd/collector/main.go:58-63  @ srcgo/cmd/collector/main.go:59\n",
-  "data": null
+  "data": {
+    "nodes": [
+      {
+        "depth": 0,
+        "excerpt": [],
+        "parent": null,
+        "site": null,
+        "symbol": {
+          "end_line": null,
+          "file": "srcgo/cmd/collector/main.go",
+          "generated": false,
+          "handle": "ad",
+          "kind": "type",
+          "lang": "go",
+          "line": 26,
+          "name": "server",
+          "qualified": "server",
+          "refs": 2,
+          "source": "L1, exact",
+          "symbol": "scip-go gomod telemetry.example/srcgo . `telemetry.example/srcgo/cmd/collector`/server#"
+        },
+        "truncated_children": 0
+      },
+      {
+        "depth": 1,
+        "excerpt": [],
+        "parent": 0,
+        "site": "srcgo/cmd/collector/main.go:30",
+        "symbol": {
+          "end_line": 35,
+          "file": "srcgo/cmd/collector/main.go",
+          "generated": false,
+          "handle": "e6",
+          "kind": "fn",
+          "lang": "go",
+          "line": 30,
+          "name": "RegisterHandler",
+          "qualified": "server.RegisterHandler",
+          "refs": 0,
+          "source": "L1, exact",
+          "symbol": "scip-go gomod telemetry.example/srcgo . `telemetry.example/srcgo/cmd/collector`/server#RegisterHandler()."
+        },
+        "truncated_children": 0
+      },
+      {
+        "depth": 1,
+        "excerpt": [],
+        "parent": 0,
+        "site": "srcgo/cmd/collector/main.go:50",
+        "symbol": {
+          "end_line": 56,
+          "file": "srcgo/cmd/collector/main.go",
+          "generated": false,
+          "handle": "9t",
+          "kind": "fn",
+          "lang": "go",
+          "line": 45,
+          "name": "run",
+          "qualified": "run",
+          "refs": 1,
+          "source": "L1, exact",
+          "symbol": "scip-go gomod telemetry.example/srcgo . `telemetry.example/srcgo/cmd/collector`/run()."
+        },
+        "truncated_children": 0
+      },
+      {
+        "depth": 2,
+        "excerpt": [],
+        "parent": 2,
+        "site": "srcgo/cmd/collector/main.go:59",
+        "symbol": {
+          "end_line": 63,
+          "file": "srcgo/cmd/collector/main.go",
+          "generated": false,
+          "handle": "nn",
+          "kind": "fn",
+          "lang": "go",
+          "line": 58,
+          "name": "main",
+          "qualified": "main",
+          "refs": 0,
+          "source": "L1, exact",
+          "symbol": "scip-go gomod telemetry.example/srcgo . `telemetry.example/srcgo/cmd/collector`/main()."
+        },
+        "truncated_children": 0
+      }
+    ],
+    "revisited": 0,
+    "title": "callers of [ad] server   depth=2 fanout=8   [L1, exact]",
+    "truncated": 0,
+    "view": "tree"
+  }
 }
 
 $ cairn --format json reaches ad
@@ -401,7 +606,27 @@ exit 1
     "notes": []
   },
   "body": "[ad] server — 0 callers across gRPC        [L1, convention]\n  (reaches it, in the other language)\n  (nothing on the other side of a service boundary)\n",
-  "data": null
+  "data": {
+    "basis": "convention",
+    "callers": [],
+    "direction": "incoming",
+    "services": [],
+    "symbol": {
+      "end_line": null,
+      "file": "srcgo/cmd/collector/main.go",
+      "generated": false,
+      "handle": "ad",
+      "kind": "type",
+      "lang": "go",
+      "line": 26,
+      "name": "server",
+      "qualified": "server",
+      "refs": 2,
+      "source": null,
+      "symbol": "scip-go gomod telemetry.example/srcgo . `telemetry.example/srcgo/cmd/collector`/server#"
+    },
+    "via_symbol": null
+  }
 }
 
 $ cairn --format json runs ad
@@ -422,7 +647,31 @@ exit 0
     "notes": []
   },
   "body": "[ad] server runs in 1 service(s)        [L1 + L0-D, exact]\n  telemetry-collector\n",
-  "data": null
+  "data": {
+    "blind": [
+      "metrics-sidecar"
+    ],
+    "depth": 12,
+    "services": [
+      "telemetry-collector"
+    ],
+    "symbol": {
+      "end_line": null,
+      "file": "srcgo/cmd/collector/main.go",
+      "generated": false,
+      "handle": "ad",
+      "kind": "type",
+      "lang": "go",
+      "line": 26,
+      "name": "server",
+      "qualified": "server",
+      "refs": 2,
+      "source": null,
+      "symbol": "scip-go gomod telemetry.example/srcgo . `telemetry.example/srcgo/cmd/collector`/server#"
+    },
+    "via": "direct",
+    "via_symbol": null
+  }
 }
 
 $ cairn --format json affects ad
@@ -445,7 +694,36 @@ exit 0
     "notes": []
   },
   "body": "[ad] server — affects 1 deployed service(s)        [L1 + L0-D]\n\nin-process\n  telemetry-collector  /bin/collector\n",
-  "data": null
+  "data": {
+    "blind": [
+      "metrics-sidecar"
+    ],
+    "hops": [],
+    "in_process": [
+      {
+        "by_file": false,
+        "command": "/bin/collector",
+        "service": "telemetry-collector"
+      }
+    ],
+    "outgoing": [],
+    "services": 1,
+    "symbol": {
+      "end_line": null,
+      "file": "srcgo/cmd/collector/main.go",
+      "generated": false,
+      "handle": "ad",
+      "kind": "type",
+      "lang": "go",
+      "line": 26,
+      "name": "server",
+      "qualified": "server",
+      "refs": 2,
+      "source": null,
+      "symbol": "scip-go gomod telemetry.example/srcgo . `telemetry.example/srcgo/cmd/collector`/server#"
+    },
+    "truncated_hops": false
+  }
 }
 
 $ cairn --format json weaklinks ad
@@ -483,7 +761,23 @@ exit 1
     "notes": []
   },
   "body": "asserted links for [ad] server\n  (none)\n",
-  "data": null
+  "data": {
+    "links": [],
+    "symbol": {
+      "end_line": null,
+      "file": "srcgo/cmd/collector/main.go",
+      "generated": false,
+      "handle": "ad",
+      "kind": "type",
+      "lang": "go",
+      "line": 26,
+      "name": "server",
+      "qualified": "server",
+      "refs": 2,
+      "source": null,
+      "symbol": "scip-go gomod telemetry.example/srcgo . `telemetry.example/srcgo/cmd/collector`/server#"
+    }
+  }
 }
 
 $ cairn --format json for change ad
@@ -546,6 +840,9 @@ exit 1
     "notes": []
   },
   "body": "no call path from [ad] to [ne] within 8 hops\n",
-  "data": null
+  "data": {
+    "chain": [],
+    "hops": 0
+  }
 }
 

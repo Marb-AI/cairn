@@ -54,7 +54,7 @@ a week.
 
 ## Tests
 
-Four layers, and each exists because the one before it was not enough.
+Five layers, and each exists because the one before it was not enough.
 
 - **Unit tests** cover the pure functions: symbol parsing, command shapes, naming
   conventions.
@@ -70,6 +70,13 @@ Four layers, and each exists because the one before it was not enough.
   of them would notice a refactor that reworded a note, dropped a column or moved a line
   while keeping every assertion true. A diff here is a change in what the tool says; read
   it, then `CAIRN_BLESS=1 cargo test --test golden` to accept it.
+- **The published schemas** (`crates/cairn-cli/tests/schema.rs`) keep
+  `docs/json-schema/v1/` honest. They are generated from the structs that serialise
+  `--format json`, so the test regenerates them and fails when a committed file no longer
+  matches — `CAIRN_BLESS=1 cargo test --test schema` accepts the new shape — and then runs
+  every command with data and validates the real answer against its schema. The validator
+  is small and has its own negative test, because one that passes everything is worse than
+  none.
 
 The recordings are made from the fixture corpus, because one that differed per machine
 could not be committed — and sixteen files is not where a refactor hides. The same walk
@@ -84,8 +91,8 @@ diff -ru /tmp/golden-before /tmp/golden-after
 
 Not part of CI and not a test — nothing there asserts anything, and the diff is the output.
 
-The last two need an index, and a fresh clone has none, so both fall back to a fixture
-corpus in `crates/cairn-cli/tests/fixtures/` — an invented Go and Python codebase shaped
+Every layer below the unit tests needs an index, and a fresh clone has none, so they fall
+back to a fixture corpus in `crates/cairn-cli/tests/fixtures/` — an invented Go and Python codebase shaped
 around the things that are hard: a gRPC boundary crossed in both directions, generated code,
 handlers reached through a registry, two shapes of deployment. It exists so that CI running
 green means the cases ran, rather than that they skipped.

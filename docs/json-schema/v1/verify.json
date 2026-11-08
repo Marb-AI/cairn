@@ -1,0 +1,235 @@
+{
+  "$defs": {
+    "Report": {
+      "description": "Serialised as-is for `cairn verify --format json`: the report *is* the data, so a\nsecond struct mirroring it would only be a place for the two to disagree.",
+      "properties": {
+        "ambiguous_definitions": {
+          "description": "Same symbol defined in more than one file. Ranking picks one; the others are\ninvisible unless asked for.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "concept_links": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "concept_links_dangling": {
+          "description": "Authored links whose symbol is not in the current index: the code was renamed\nor deleted after the claim was made.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "concept_links_stale": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "concept_links_unanchored": {
+          "description": "Concept links with no anchor: nothing can ever invalidate them.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "concepts": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "definitions_with_body_span": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "definitions_without_body_span": {
+          "description": "Definitions the indexer gave no body extent for. `--detail body` degrades to a\nsingle line for these.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "files": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "files_without_content_hash": {
+          "description": "Files whose contents could not be read at index time, so generated-code\ndetection fell back to guessing for them.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "generated_by_path_only": {
+          "description": "Generated files identified only by filename pattern - the weak signal.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "generated_files": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "manual_edges": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "manual_edges_stale": {
+          "description": "Manual edges whose anchor file changed after the edge was recorded.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "missing_files": {
+          "description": "Files present in the index but gone from disk.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "references": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "references_without_caller": {
+          "description": "References that sit in no function body, so they have no caller. Module-level\nuse: real code, correctly attributed to nothing.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "stale_files": {
+          "description": "Files whose contents differ from what was indexed.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "staleness_checked": {
+          "description": "Whether staleness could be checked at all.",
+          "type": "boolean"
+        },
+        "symbols": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "symbols_without_definition": {
+          "description": "Symbols referenced but defined nowhere in the index. Usually third-party or\nstdlib: expected, but it bounds what \"find the definition\" can ever answer.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "weak_edges": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "files",
+        "symbols",
+        "symbols_without_definition",
+        "definitions_without_body_span",
+        "definitions_with_body_span",
+        "references",
+        "references_without_caller",
+        "ambiguous_definitions",
+        "generated_files",
+        "generated_by_path_only",
+        "files_without_content_hash",
+        "weak_edges",
+        "manual_edges",
+        "manual_edges_stale",
+        "concepts",
+        "concept_links",
+        "concept_links_unanchored",
+        "concept_links_stale",
+        "concept_links_dangling",
+        "stale_files",
+        "missing_files",
+        "staleness_checked"
+      ],
+      "type": "object"
+    },
+    "Stale": {
+      "description": "The staleness section of a JSON answer: `StaleFiles` plus the sentences text prints.",
+      "properties": {
+        "dirty": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mentioned": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tracked": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "dirty",
+        "mentioned",
+        "notes"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One answer, as `--format json` prints it.\n\nBorrowed from the envelope rather than owning a copy: this is built once, on the way\nout, and an answer can carry a megabyte of body.\n\nGeneric in the payload for one reason: printing uses `serde_json::Value`, because the\nenvelope is built where the command is no longer known, while the published schema\nhas to name the command's own data type. One declaration, instantiated twice, so the\nschema in `docs/json-schema/v1/` describes the object this actually prints.",
+  "properties": {
+    "body": {
+      "description": "The text answer, exactly as text mode prints it above the envelope lines. The\nthree sections are fields here, so repeating them inside the body would be the\nsame claim twice and two places for it to drift.",
+      "type": "string"
+    },
+    "command": {
+      "description": "The command that produced this, as it would be typed: `refs`, `for change`.",
+      "type": "string"
+    },
+    "data": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Report"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The answer as fields. `null` until the command has a data builder."
+    },
+    "rows": {
+      "format": "uint",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "schema": {
+      "type": "string"
+    },
+    "stale": {
+      "$ref": "#/$defs/Stale"
+    },
+    "suppressed": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "unknown": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema",
+    "command",
+    "truncated",
+    "unknown",
+    "suppressed",
+    "stale",
+    "body"
+  ],
+  "title": "Answer",
+  "type": "object"
+}

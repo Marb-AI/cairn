@@ -53,8 +53,13 @@ pub const ANSWER_SCHEMA: &str = "cairn.answer/1";
 ///
 /// Borrowed from the envelope rather than owning a copy: this is built once, on the way
 /// out, and an answer can carry a megabyte of body.
-#[derive(serde::Serialize)]
-pub struct Answer<'a> {
+///
+/// Generic in the payload for one reason: printing uses `serde_json::Value`, because the
+/// envelope is built where the command is no longer known, while the published schema
+/// has to name the command's own data type. One declaration, instantiated twice, so the
+/// schema in `docs/json-schema/v1/` describes the object this actually prints.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct Answer<'a, T = serde_json::Value> {
     pub schema: &'static str,
     /// The command that produced this, as it would be typed: `refs`, `for change`.
     pub command: &'a str,
@@ -68,11 +73,46 @@ pub struct Answer<'a> {
     /// same claim twice and two places for it to drift.
     pub body: &'a str,
     /// The answer as fields. `null` until the command has a data builder.
-    pub data: Option<&'a serde_json::Value>,
+    pub data: Option<&'a T>,
+}
+
+/// The JSON Schema of one command's answer: the envelope, with `data` as that command's
+/// own shape.
+///
+/// Generated from the same structs that serialise the answer, so the published contract
+/// cannot drift from what the binary prints. A hand-written schema would be a second
+/// declaration of the same thing, and the second one is always the stale one.
+pub fn answer_schema<T: schemars::JsonSchema + 'static>() -> serde_json::Value {
+    serde_json::to_value(schemars::schema_for!(Answer<'static, T>))
+        .unwrap_or(serde_json::Value::Null)
+}
+
+/// Every command whose answer carries data, with the schema of that answer.
+///
+/// The list the published schemas are generated from and the list a test validates real
+/// output against — one definition, so a command cannot be added to one and forgotten in
+/// the other. Commands absent from it print `data: null`, which the envelope's own
+/// schema already describes.
+pub fn answer_schemas() -> Vec<(&'static str, serde_json::Value)> {
+    vec![
+        ("symbol", answer_schema::<SymbolsData>()),
+        ("refs", answer_schema::<RefsData>()),
+        ("graph", answer_schema::<WalkData>()),
+        ("path", answer_schema::<PathData>()),
+        ("affects", answer_schema::<AffectsData>()),
+        ("runs", answer_schema::<RunsData>()),
+        ("reaches", answer_schema::<ReachesData>()),
+        ("expand", answer_schema::<ExpandData>()),
+        ("status", answer_schema::<StatusData>()),
+        ("verify", answer_schema::<cairn_store::Report>()),
+        ("concept-show", answer_schema::<ConceptData>()),
+        ("concept-list", answer_schema::<ConceptListData>()),
+        ("links", answer_schema::<LinksData>()),
+    ]
 }
 
 /// The staleness section of a JSON answer: `StaleFiles` plus the sentences text prints.
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, schemars::JsonSchema)]
 pub struct Stale<'a> {
     pub tracked: Option<bool>,
     pub dirty: &'a [String],
@@ -91,7 +131,7 @@ pub struct Stale<'a> {
 /// — most reports do not —, `Some(false)` that the watcher could not say, and
 /// `Some(true)` that it did. An empty `dirty` with `tracked: Some(false)` is not clean,
 /// and that is precisely the case a bare empty list would hide.
-#[derive(Debug, Clone, Default, serde::Serialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, schemars::JsonSchema)]
 pub struct StaleFiles {
     pub tracked: Option<bool>,
     /// Files this answer mentions that have changed since the index was built.
@@ -289,23 +329,93 @@ impl Envelope {
     }
 }
 
+/// A symbol as data: what every JSON answer says about one.
+///
+/// One shape for every command, so a consumer learns it once. The fields the plan
+/// requires of it — handle, the SCIP symbol string, file, line, the generated flag, the
+/// edge source label — plus what the text line already shows, which is free here and
+/// would otherwise have to be parsed back out of `body`.
+///
+/// Lines are 1-based, as the text line prints them and as every editor counts them. The
+/// store keeps them 0-based; a JSON answer that quietly used the storage convention
+/// would put every consumer one line out.
+#[derive(Debug, Clone, serde::Serialize, schemars::JsonSchema)]
+pub struct SymbolJson {
+    pub handle: String,
+    /// The full SCIP symbol string. `null` on an index built before schema v20, which
+    /// cannot print one — not an absent symbol, an index that did not record the name.
+    pub symbol: Option<String>,
+    pub name: String,
+    /// `Type.method` where the container is a type, else the bare name — what the text
+    /// line shows.
+    pub qualified: String,
+    pub kind: &'static str,
+    pub lang: &'static str,
+    pub file: Option<String>,
+    pub line: Option<i64>,
+    /// Last line of the definition's body, when the indexer emitted one.
+    pub end_line: Option<i64>,
+    /// Definition sits in generated code.
+    pub generated: bool,
+    pub refs: i64,
+    /// How the row was reached, where it arrived through an edge: `L1, exact`,
+    /// `L2, agent-asserted`. `null` when the row is the answer's own subject.
+    pub source: Option<&'static str>,
+}
+
+impl SymbolJson {
+    pub fn of(s: &SymbolRow) -> SymbolJson {
+        SymbolJson {
+            handle: s.handle.clone(),
+            symbol: s.scip.clone(),
+            name: s.name.clone(),
+            qualified: s.qualified(),
+            kind: s.kind.as_str(),
+            lang: s.lang.tag(),
+            file: s.def.as_ref().map(|d| d.path.clone()),
+            line: s.def.as_ref().map(|d| d.line + 1),
+            end_line: s.def_end_line.map(|l| l + 1),
+            generated: s.def.as_ref().map(|d| d.generated).unwrap_or(false),
+            refs: s.ref_count,
+            source: None,
+        }
+    }
+
+    pub fn from_source(s: &SymbolRow, source: EdgeSource) -> SymbolJson {
+        SymbolJson {
+            source: Some(source.label()),
+            ..SymbolJson::of(s)
+        }
+    }
+}
+
 /// One result line: `[handle] Qualified.name  kind  lang  path:start-end`
 ///
 /// The line range, not just the start, is deliberate: an agent that wants to audit on
 /// its own terms - or build its own graph rather than trusting ours - needs to know
 /// where the symbol ends without opening the file to find out.
 pub fn symbol_line(s: &SymbolRow) -> String {
-    let loc = match (s.def.as_ref(), s.def_end_line) {
-        (Some(d), Some(end)) if end > d.line => format!("{}-{}", d.location(), end + 1),
-        (Some(d), _) => d.location(),
-        (None, _) => "<no definition indexed>".to_string(),
+    symbol_line_of(&SymbolJson::of(s))
+}
+
+/// The same line, rendered from the data rather than from the row.
+///
+/// Both entry points exist so there is one implementation: a command that attaches data
+/// renders its text from exactly the fields it published, and a command that has not
+/// been converted yet keeps the signature it had. Two formatters for one line is how
+/// text and JSON start disagreeing about what the answer was.
+pub fn symbol_line_of(s: &SymbolJson) -> String {
+    let loc = match (s.file.as_deref(), s.line, s.end_line) {
+        (Some(path), Some(line), Some(end)) if end > line => format!("{path}:{line}-{end}"),
+        (Some(path), Some(line), _) => format!("{path}:{line}"),
+        _ => "<no definition indexed>".to_string(),
     };
     format!(
         "[{}] {:<40} {:<6} {}  {}",
         s.handle,
-        truncate(&s.qualified(), 40),
-        s.kind.as_str(),
-        s.lang.tag(),
+        truncate(&s.qualified, 40),
+        s.kind,
+        s.lang,
         loc
     )
 }
@@ -323,6 +433,15 @@ pub struct TreeProbe {
     pub files: usize,
     /// The search stopped at its limit, so `hits` is a floor and not a count.
     pub truncated: bool,
+}
+
+/// `cairn symbol` as data.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct SymbolsData {
+    pub query: String,
+    /// False when `--limit` may have cut the list — there may be more matches than these.
+    pub complete: bool,
+    pub matches: Vec<SymbolJson>,
 }
 
 pub fn symbols(
@@ -353,9 +472,12 @@ pub fn symbols(
     if let Some(note) = concentration_note(&defined_in, complete, "matches") {
         let _ = writeln!(body, "{note}");
     }
+    // Built before the loop, and the loop renders from it: the lines printed and the rows
+    // published are then the same rows by construction rather than by agreement.
+    let all: Vec<SymbolJson> = rows.iter().map(SymbolJson::of).collect();
     let mut shown = 0;
-    for s in rows {
-        if !budget.push(&mut body, &symbol_line(s)) {
+    for s in &all {
+        if !budget.push(&mut body, &symbol_line_of(s)) {
             break;
         }
         shown += 1;
@@ -363,7 +485,14 @@ pub fn symbols(
     if rows.is_empty() {
         let _ = writeln!(body, "(nothing matched)");
     }
-    let mut env = Envelope::new(body).rows(shown);
+    let mut env = Envelope::new(body).rows(shown).data(SymbolsData {
+        query: query.to_string(),
+        complete,
+        // What the answer carried, not what matched: the rest is described by
+        // `suppressed`, and counting it in both places would make one list mean two
+        // things.
+        matches: all[..shown].to_vec(),
+    });
     if shown < rows.len() {
         env = env.suppressed(budget.cut_note(rows.len() - shown, "matches"));
     }
@@ -428,6 +557,113 @@ pub fn symbols(
     env
 }
 
+/// One reference site as data.
+#[derive(Debug, Clone, serde::Serialize, schemars::JsonSchema)]
+pub struct RefJson {
+    pub file: String,
+    /// 1-based, as printed.
+    pub line: i64,
+    pub col_start: i64,
+    pub col_end: i64,
+    /// Symbol whose body contains this site. `null` is a site outside any function —
+    /// an import, a module-level use — which is a fact about the site, not a gap.
+    pub enclosing: Option<String>,
+    pub generated: bool,
+    pub definition: bool,
+    /// Source lines shown at this site, when `--context` asked for any. Empty otherwise.
+    pub context: Vec<SourceLine>,
+}
+
+/// A line of source carried beside an answer. 1-based, as the renderer prints it.
+#[derive(Debug, Clone, serde::Serialize, schemars::JsonSchema)]
+pub struct SourceLine {
+    pub line: usize,
+    pub text: String,
+}
+
+/// `cairn status` as data.
+///
+/// The one answer whose text prints its envelope in the middle rather than at the end,
+/// so the CLI arranges the parts twice; this is the shape the JSON arrangement publishes.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct StatusData {
+    pub index: String,
+    pub files: i64,
+    pub symbols: i64,
+    pub occurrences: i64,
+    pub generated_files: i64,
+    /// What each mechanism produced, in the order `coverage` prints them.
+    pub coverage: Vec<AreaJson>,
+    /// `null` when no daemon is watching this index.
+    pub daemon: Option<DaemonJson>,
+}
+
+/// One mechanism's coverage: what it produced, and how far it has been checked.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct AreaJson {
+    pub name: String,
+    /// `indexed`, `verified`, `stale` — the rung this mechanism has reached.
+    pub state: String,
+    /// What it produced, in its own words.
+    pub detail: String,
+}
+
+/// The watcher behind an answer, when there is one.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct DaemonJson {
+    pub repo: String,
+    pub files_tracked: usize,
+    pub uptime_secs: u64,
+    /// False while the initial scan is still running: the dirty set below is partial.
+    pub complete: bool,
+    pub modified: Vec<String>,
+    /// Files nothing in the index has ever seen. Not stale — absent.
+    pub created: Vec<String>,
+    pub removed: Vec<String>,
+    pub generation: u64,
+    /// Why a reindex is due, when it is.
+    pub reindex_due: Option<String>,
+}
+
+/// `cairn expand` as data.
+///
+/// Rendered in the CLI rather than here — it is three lines of formatting over one
+/// symbol — so this is the one data struct whose builder is its caller.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct ExpandData {
+    pub symbol: SymbolJson,
+    /// What was asked for: `skeleton`, `doc` or `body`.
+    pub detail: String,
+    /// The source that was printed. Empty for `skeleton`, which prints none.
+    pub source: Vec<SourceLine>,
+}
+
+/// `cairn refs` as data.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct RefsData {
+    pub symbol: SymbolJson,
+    /// How many references the filters matched before `--limit` and the budget cut.
+    pub total: i64,
+    /// True when every match is in `references` and nothing was hidden.
+    pub complete: bool,
+    pub references: Vec<RefJson>,
+}
+
+impl RefJson {
+    fn of(r: &Occurrence, context: Vec<SourceLine>) -> RefJson {
+        RefJson {
+            file: r.path.clone(),
+            line: r.line + 1,
+            col_start: r.col_start,
+            col_end: r.col_end,
+            enclosing: r.enclosing.clone(),
+            generated: r.generated,
+            definition: r.is_definition(),
+            context,
+        }
+    }
+}
+
 /// Reference list, optionally with the source line at each site.
 ///
 /// A bare `path:line` is a location, not information: every measured task spent most of
@@ -479,6 +715,7 @@ pub fn references_with_context(
 
     let mut source = source;
     let mut shown = 0usize;
+    let mut sites: Vec<RefJson> = Vec::new();
     for (i, r) in refs.iter().enumerate() {
         let inside = r
             .enclosing
@@ -489,6 +726,16 @@ pub fn references_with_context(
             .as_deref_mut()
             .map(|src| src.site(&r.path, r.line, ctx))
             .unwrap_or_default();
+        let as_data = RefJson::of(
+            r,
+            lines
+                .iter()
+                .map(|(n, text)| SourceLine {
+                    line: *n,
+                    text: text.clone(),
+                })
+                .collect(),
+        );
         let inline = if lines.len() == 1 {
             format!("   |  {}", lines[0].1.trim())
         } else {
@@ -500,6 +747,9 @@ pub fn references_with_context(
         ) {
             break;
         }
+        // After the budget check, not before: a site the budget cut is in neither the
+        // text nor the data, and `suppressed` is what says it existed.
+        sites.push(as_data);
         if lines.len() > 1 {
             for (n, text) in &lines {
                 let marker = if *n as i64 == r.line + 1 { ">" } else { " " };
@@ -514,7 +764,12 @@ pub fn references_with_context(
         let _ = writeln!(body, "  (none outside generated code)");
     }
 
-    let mut env = Envelope::new(body).rows(shown);
+    let mut env = Envelope::new(body).rows(shown).data(RefsData {
+        symbol: SymbolJson::of(sym),
+        total,
+        complete,
+        references: sites,
+    });
     let dropped = total - refs.len() as i64;
     if dropped > 0 {
         env = env.suppressed(format!(
@@ -559,7 +814,12 @@ pub fn references(
         let _ = writeln!(body, "  (none outside generated code)");
     }
 
-    let mut env = Envelope::new(body).rows(refs.len());
+    let mut env = Envelope::new(body).rows(refs.len()).data(RefsData {
+        symbol: SymbolJson::of(sym),
+        total,
+        complete: refs.len() as i64 == total && suppressed_generated == 0,
+        references: refs.iter().map(|r| RefJson::of(r, Vec::new())).collect(),
+    });
     let dropped = total - refs.len() as i64;
     if dropped > 0 {
         env = env.suppressed(format!(
@@ -582,6 +842,36 @@ pub fn references(
 ///
 /// `detail` decides how much of each node is printed. Anything above `Skeleton` needs
 /// `source`, and is the audit shape: walk the callers and show me their code.
+/// One node of a walk as data.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct WalkNodeJson {
+    pub symbol: SymbolJson,
+    /// Hops from the root. 0 is the root itself.
+    pub depth: usize,
+    /// Index into `nodes` of the node this was reached from. `null` for the root — which
+    /// is what makes the flat list a tree without repeating any symbol.
+    pub parent: Option<usize>,
+    /// Where the edge was observed, for call edges: `file:line`.
+    pub site: Option<String>,
+    /// Children this node had that `--fanout` cut.
+    pub truncated_children: usize,
+    /// Source printed for this node, when `--detail` asked for any.
+    pub excerpt: Vec<SourceLine>,
+}
+
+/// `cairn graph` as data — and every other answer built from a walk.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct WalkData {
+    /// The header line, which names what was walked and in which direction.
+    pub title: String,
+    pub view: &'static str,
+    pub nodes: Vec<WalkNodeJson>,
+    /// Neighbours dropped by `--fanout`, across all nodes.
+    pub truncated: usize,
+    /// Nodes reachable by more than one path. Counted, not repeated.
+    pub revisited: usize,
+}
+
 pub fn walk(
     w: &Walk,
     title: &str,
@@ -594,6 +884,7 @@ pub fn walk(
     let _ = writeln!(body, "{title}");
 
     let mut notes: Vec<String> = Vec::new();
+    let mut as_data: Vec<WalkNodeJson> = Vec::new();
     let mut source = source;
     let mut shown = 0usize;
     for (i, node) in w.nodes.iter().enumerate() {
@@ -618,6 +909,14 @@ pub fn walk(
             break;
         }
         shown = i + 1;
+        as_data.push(WalkNodeJson {
+            symbol: SymbolJson::from_source(&node.symbol, node.source),
+            depth: node.depth,
+            parent: node.parent,
+            site: node.site.clone(),
+            truncated_children: node.truncated_children,
+            excerpt: Vec::new(),
+        });
 
         if detail.needs_source() {
             let indent = if view == View::Tree {
@@ -625,21 +924,38 @@ pub fn walk(
             } else {
                 "  ".into()
             };
-            if !emit_excerpt(
+            let mut excerpt: Vec<SourceLine> = Vec::new();
+            let fits = emit_excerpt(
                 &mut body,
                 &indent,
                 &node.symbol,
                 detail,
                 source.as_deref_mut(),
                 budget,
-                &mut notes,
-            ) {
+                ExcerptSink {
+                    notes: &mut notes,
+                    lines: &mut excerpt,
+                },
+            );
+            if let Some(last) = as_data.last_mut() {
+                last.excerpt = excerpt;
+            }
+            if !fits {
                 break;
             }
         }
     }
 
-    let mut env = Envelope::new(body).rows(shown);
+    let mut env = Envelope::new(body).rows(shown).data(WalkData {
+        title: title.to_string(),
+        view: match view {
+            View::Tree => "tree",
+            View::List => "list",
+        },
+        nodes: as_data,
+        truncated: w.truncated,
+        revisited: w.revisited,
+    });
     for n in notes {
         env = env.suppressed(n);
     }
@@ -662,6 +978,23 @@ pub fn walk(
     env
 }
 
+/// One hop of a call path as data.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct HopJson {
+    pub symbol: SymbolJson,
+    /// Call site inside the *previous* symbol that leads here. `null` on the first hop.
+    pub site: Option<String>,
+    pub excerpt: Vec<SourceLine>,
+}
+
+/// `cairn path` as data.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct PathData {
+    /// Edges between the hops, which is one fewer than the hops themselves.
+    pub hops: usize,
+    pub chain: Vec<HopJson>,
+}
+
 /// A resolved call chain, one hop per line with the call site that leads onward.
 pub fn path(
     hops: &[PathHop],
@@ -670,6 +1003,7 @@ pub fn path(
     budget: &mut Budget,
 ) -> Envelope {
     let mut body = String::new();
+    let mut as_data: Vec<HopJson> = Vec::new();
     let _ = writeln!(
         body,
         "call path, {} hops                              [L1, exact]",
@@ -690,21 +1024,37 @@ pub fn path(
             break;
         }
         shown = i + 1;
-        if detail.needs_source()
-            && !emit_excerpt(
+        as_data.push(HopJson {
+            symbol: SymbolJson::of(&hop.symbol),
+            site: hop.site.clone(),
+            excerpt: Vec::new(),
+        });
+        if detail.needs_source() {
+            let mut excerpt: Vec<SourceLine> = Vec::new();
+            let fits = emit_excerpt(
                 &mut body,
                 "   ",
                 &hop.symbol,
                 detail,
                 source.as_deref_mut(),
                 budget,
-                &mut notes,
-            )
-        {
-            break;
+                ExcerptSink {
+                    notes: &mut notes,
+                    lines: &mut excerpt,
+                },
+            );
+            if let Some(last) = as_data.last_mut() {
+                last.excerpt = excerpt;
+            }
+            if !fits {
+                break;
+            }
         }
     }
-    let mut env = Envelope::new(body).rows(shown);
+    let mut env = Envelope::new(body).rows(shown).data(PathData {
+        hops: hops.len().saturating_sub(1),
+        chain: as_data,
+    });
     for n in notes {
         env = env.suppressed(n);
     }
@@ -788,6 +1138,18 @@ pub fn weak_links(sym: &SymbolRow, sites: &[(String, f64)], budget: &mut Budget)
 /// Print one symbol's source at the requested detail. Returns false when the budget
 /// ran out mid-excerpt, so the caller stops the whole walk rather than emitting
 /// half-symbols to the end of the list.
+/// Where an excerpt reports what it did: the notes that become `suppressed` entries, and
+/// the lines it printed.
+///
+/// `lines` exists so that an answer carrying source in its text carries the same source
+/// in its data. Without it `--detail body` was a page of code in one format and an empty
+/// field in the other, which is the sort of difference a consumer discovers by reaching
+/// for something that is not there.
+struct ExcerptSink<'a> {
+    notes: &'a mut Vec<String>,
+    lines: &'a mut Vec<SourceLine>,
+}
+
 fn emit_excerpt(
     out: &mut String,
     indent: &str,
@@ -795,8 +1157,12 @@ fn emit_excerpt(
     detail: Detail,
     source: Option<&mut Source>,
     budget: &mut Budget,
-    notes: &mut Vec<String>,
+    sink: ExcerptSink<'_>,
 ) -> bool {
+    let ExcerptSink {
+        notes,
+        lines: collected,
+    } = sink;
     let (Some(src), Some(def)) = (source, sym.def.as_ref()) else {
         return true;
     };
@@ -809,6 +1175,7 @@ fn emit_excerpt(
             notes.push(format!("[{}] excerpt cut by the budget", sym.handle));
             return false;
         }
+        collected.push(SourceLine { line: n, text });
     }
     true
 }
@@ -836,7 +1203,10 @@ pub fn verify(r: &cairn_store::Report) -> Envelope {
         r.references - r.references_without_caller
     );
 
-    let mut env = Envelope::new(body);
+    // The report itself is the data. Every counter the text turns into a sentence is a
+    // field here, which is the difference between a consumer reading "2 weak links are
+    // candidates" and reading `weak_edges: 2`.
+    let mut env = Envelope::new(body).data(r);
 
     // Everything below is a limit on what answers can mean. It is stated even when
     // benign, because an agent cannot infer a gap it was never told about.
@@ -933,6 +1303,29 @@ pub fn verify(r: &cairn_store::Report) -> Envelope {
 }
 
 /// Hand-authored links touching a symbol.
+/// One hand-authored link as data.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct LinkJson {
+    /// Which way it runs, read from the subject: `out` is subject -> other.
+    pub direction: &'static str,
+    pub other: Option<SymbolJson>,
+    /// The source label, e.g. `L2, agent-asserted`.
+    pub source: &'static str,
+    /// Where in the tree the claim was anchored when it was made.
+    pub anchor: Option<String>,
+    /// Why the link was asserted. Required when recording one, so never empty.
+    pub note: String,
+    /// The anchor file changed after the link was recorded: a claim to re-check.
+    pub needs_review: bool,
+}
+
+/// `cairn links` as data.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct LinksData {
+    pub symbol: SymbolJson,
+    pub links: Vec<LinkJson>,
+}
+
 pub fn asserted(
     store: &cairn_store::Store,
     sym: &SymbolRow,
@@ -940,6 +1333,7 @@ pub fn asserted(
     budget: &mut Budget,
 ) -> anyhow::Result<Envelope> {
     let mut body = String::new();
+    let mut as_data: Vec<LinkJson> = Vec::new();
     let _ = writeln!(
         body,
         "asserted links for [{}] {}",
@@ -950,8 +1344,9 @@ pub fn asserted(
     let mut shown = 0usize;
     for (i, l) in links.iter().enumerate() {
         let other = if l.src == sym.id { l.dst } else { l.src };
-        let other_name = store
-            .symbol(other)?
+        let other_row = store.symbol(other)?;
+        let other_name = other_row
+            .as_ref()
             .map(|s| format!("[{}] {}", s.handle, s.qualified()))
             .unwrap_or_else(|| format!("symbol {other}"));
         let arrow = if l.src == sym.id { "->" } else { "<-" };
@@ -970,12 +1365,23 @@ pub fn asserted(
         if !budget.push(&mut body, &line) {
             break;
         }
+        as_data.push(LinkJson {
+            direction: if l.src == sym.id { "out" } else { "in" },
+            other: other_row.as_ref().map(SymbolJson::of),
+            source: l.source.label(),
+            anchor: l.anchor.clone(),
+            note: l.note.clone(),
+            needs_review: l.needs_review,
+        });
         shown = i + 1;
     }
     if links.is_empty() {
         let _ = writeln!(body, "  (none)");
     }
-    let mut env = Envelope::new(body).rows(shown);
+    let mut env = Envelope::new(body).rows(shown).data(LinksData {
+        symbol: SymbolJson::of(sym),
+        links: as_data,
+    });
     if shown < links.len() {
         env = env.suppressed(budget.cut_note(links.len() - shown, "links"));
     }
@@ -989,6 +1395,47 @@ pub fn asserted(
 }
 
 /// A concept and everything attached to it.
+/// One symbol attached to a concept.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct ConceptLinkJson {
+    /// Free text, the caller's own vocabulary: `part-of`, `entry-point`, `owns`.
+    pub rel: String,
+    /// `null` when the symbol this link names is no longer in the index — the code was
+    /// renamed or deleted after the claim was made, which `resolved` reports.
+    pub symbol: Option<SymbolJson>,
+    pub note: String,
+    /// Where in the tree the claim was anchored. `null` can never be invalidated.
+    pub anchor: Option<String>,
+    pub needs_review: bool,
+    pub resolved: bool,
+}
+
+/// `cairn concept show` as data.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct ConceptData {
+    pub namespace: String,
+    pub name: String,
+    pub note: String,
+    /// Who asserted it, e.g. `L2, agent-asserted`.
+    pub author: &'static str,
+    pub links: Vec<ConceptLinkJson>,
+}
+
+/// `cairn concept list` as data.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct ConceptListData {
+    pub concepts: Vec<ConceptSummaryJson>,
+}
+
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct ConceptSummaryJson {
+    pub namespace: String,
+    pub name: String,
+    pub note: String,
+    pub author: &'static str,
+    pub links: i64,
+}
+
 pub fn concept(
     store: &cairn_store::Store,
     c: &cairn_store::Concept,
@@ -996,6 +1443,7 @@ pub fn concept(
     budget: &mut Budget,
 ) -> anyhow::Result<Envelope> {
     let mut body = String::new();
+    let mut as_data: Vec<ConceptLinkJson> = Vec::new();
     let _ = writeln!(body, "{}/{}   [{}]", c.ns, c.name, c.author.label());
     if !c.note.is_empty() {
         let _ = writeln!(body, "  {}", c.note);
@@ -1006,10 +1454,14 @@ pub fn concept(
     let mut unanchored = 0;
     let mut shown = 0usize;
     for (i, l) in links.iter().enumerate() {
+        let row = if l.resolved {
+            store.symbol(l.symbol_id)?
+        } else {
+            None
+        };
         let label = if l.resolved {
-            store
-                .symbol(l.symbol_id)?
-                .map(|s| symbol_line(&s))
+            row.as_ref()
+                .map(symbol_line)
                 .unwrap_or_else(|| "<gone from index>".to_string())
         } else {
             "<symbol no longer in the index>".to_string()
@@ -1035,13 +1487,27 @@ pub fn concept(
         if !budget.push(&mut body, &format!("  {:<12} {label}{note}{flag}", l.rel)) {
             break;
         }
+        as_data.push(ConceptLinkJson {
+            rel: l.rel.clone(),
+            symbol: row.as_ref().map(SymbolJson::of),
+            note: l.note.clone(),
+            anchor: l.anchor.clone(),
+            needs_review: l.needs_review,
+            resolved: l.resolved,
+        });
         shown = i + 1;
     }
     if links.is_empty() {
         let _ = writeln!(body, "  (nothing linked yet)");
     }
 
-    let mut env = Envelope::new(body).rows(shown);
+    let mut env = Envelope::new(body).rows(shown).data(ConceptData {
+        namespace: c.ns.clone(),
+        name: c.name.clone(),
+        note: c.note.clone(),
+        author: c.author.label(),
+        links: as_data,
+    });
     // The header states the full link count, so a cut list contradicts it in silence.
     if shown < links.len() {
         env = env.suppressed(budget.cut_note(links.len() - shown, "links"));
@@ -1065,6 +1531,7 @@ pub fn concept_list(list: &[cairn_store::Concept], budget: &mut Budget) -> Envel
     let mut body = String::new();
     let _ = writeln!(body, "{} concepts", list.len());
     let mut shown = 0usize;
+    let mut as_data: Vec<ConceptSummaryJson> = Vec::new();
     for (i, c) in list.iter().enumerate() {
         let note = if c.note.is_empty() {
             String::new()
@@ -1081,12 +1548,21 @@ pub fn concept_list(list: &[cairn_store::Concept], budget: &mut Budget) -> Envel
         ) {
             break;
         }
+        as_data.push(ConceptSummaryJson {
+            namespace: c.ns.clone(),
+            name: c.name.clone(),
+            note: c.note.clone(),
+            author: c.author.label(),
+            links: c.link_count,
+        });
         shown = i + 1;
     }
     if list.is_empty() {
         let _ = writeln!(body, "  (none)");
     }
-    let mut env = Envelope::new(body).rows(shown);
+    let mut env = Envelope::new(body)
+        .rows(shown)
+        .data(ConceptListData { concepts: as_data });
     if shown < list.len() {
         env = env.suppressed(budget.cut_note(list.len() - shown, "concepts"));
     }
@@ -1717,6 +2193,42 @@ pub fn rpc_targets(
     )
 }
 
+/// One caller on the other side of a gRPC boundary.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct CrossCallerJson {
+    pub symbol: SymbolJson,
+    pub package: String,
+    pub service: String,
+    /// The RPC, where the answer is per-RPC rather than per-service.
+    pub rpc: Option<String>,
+}
+
+/// `cairn reaches` as data, in either direction.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct ReachesData {
+    pub symbol: SymbolJson,
+    /// `incoming` is who reaches this; `outgoing` is what this reaches.
+    pub direction: &'static str,
+    /// How the edges were derived: `rpc` is the per-RPC call graph through the generated
+    /// client, `convention` is the protobuf generator's naming convention.
+    pub basis: &'static str,
+    /// The enclosing type the answer was given for, when a binding names the handler
+    /// rather than each of its RPC methods.
+    pub via_symbol: Option<SymbolJson>,
+    /// Services the symbol takes part in, as `(package, service, role)`.
+    pub services: Vec<ServiceRoleJson>,
+    pub callers: Vec<CrossCallerJson>,
+}
+
+/// A service the symbol takes part in, and on which side.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct ServiceRoleJson {
+    pub package: String,
+    pub service: String,
+    /// `serves` or `calls`.
+    pub role: String,
+}
+
 pub fn rpc_reaches(
     sym: &SymbolRow,
     callers: &[cairn_store::RpcCaller],
@@ -1724,6 +2236,7 @@ pub fn rpc_reaches(
     budget: &mut Budget,
 ) -> Envelope {
     let mut body = String::new();
+    let mut as_data: Vec<CrossCallerJson> = Vec::new();
     let _ = writeln!(
         body,
         "[{}] {} — {} caller(s) across gRPC, by RPC        [L1, exact]",
@@ -1755,9 +2268,22 @@ pub fn rpc_reaches(
         ) {
             break;
         }
+        as_data.push(CrossCallerJson {
+            symbol: SymbolJson::of(&c.symbol),
+            package: c.pkg.clone(),
+            service: c.service.clone(),
+            rpc: Some(c.rpc.clone()),
+        });
         shown = i + 1;
     }
-    let mut env = Envelope::new(body).rows(shown);
+    let mut env = Envelope::new(body).rows(shown).data(ReachesData {
+        symbol: SymbolJson::of(sym),
+        direction: "incoming",
+        basis: "rpc",
+        via_symbol: None,
+        services: Vec::new(),
+        callers: as_data,
+    });
     if shown < callers.len() {
         env = env.suppressed(budget.cut_note(callers.len() - shown, "callers"));
     }
@@ -1805,6 +2331,7 @@ pub fn cross_language(
     let _ = writeln!(body, "  ({direction} it, in the other language)");
 
     let mut shown = 0usize;
+    let mut as_data: Vec<CrossCallerJson> = Vec::new();
     for (i, l) in links.iter().enumerate() {
         if !budget.push(
             &mut body,
@@ -1812,13 +2339,33 @@ pub fn cross_language(
         ) {
             break;
         }
+        as_data.push(CrossCallerJson {
+            symbol: SymbolJson::of(&l.symbol),
+            package: l.pkg.clone(),
+            service: l.service.clone(),
+            rpc: None,
+        });
         shown = i + 1;
     }
     if links.is_empty() {
         let _ = writeln!(body, "  (nothing on the other side of a service boundary)");
     }
 
-    let mut env = Envelope::new(body).rows(shown);
+    let mut env = Envelope::new(body).rows(shown).data(ReachesData {
+        symbol: SymbolJson::of(sym),
+        direction: if outgoing { "outgoing" } else { "incoming" },
+        basis: "convention",
+        via_symbol: via.map(SymbolJson::of),
+        services: services
+            .iter()
+            .map(|(p, n, r)| ServiceRoleJson {
+                package: p.clone(),
+                service: n.clone(),
+                role: r.label().to_string(),
+            })
+            .collect(),
+        callers: as_data,
+    });
     if shown < links.len() {
         env = env.suppressed(budget.cut_note(links.len() - shown, "links"));
     }
@@ -2378,6 +2925,24 @@ pub fn entrypoints(
 }
 
 /// Which deployed services can reach a symbol.
+/// `cairn runs` as data.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct RunsData {
+    pub symbol: SymbolJson,
+    pub services: Vec<String>,
+    /// How the answer was attributed: `direct` is a call path to this symbol, `type` is
+    /// the enclosing type (a dispatched method has no static caller), `file` is the
+    /// module the symbol sits in (a framework route handler). The weaker two say the
+    /// code is loaded there, not that a call path reaches it.
+    pub via: &'static str,
+    /// The enclosing type the answer was given for, when `via` is `type`.
+    pub via_symbol: Option<SymbolJson>,
+    /// Call hops the search was allowed.
+    pub depth: usize,
+    /// Services that start nothing and run code on demand instead.
+    pub blind: Vec<String>,
+}
+
 pub fn runs_in(
     sym: &SymbolRow,
     services: &[String],
@@ -2430,7 +2995,21 @@ pub fn runs_in(
         let _ = writeln!(body, "  (no service entrypoint reaches it)");
     }
     // No budget here: a service list is short by construction and is printed whole.
-    let mut env = Envelope::new(body).rows(services.len());
+    let mut env = Envelope::new(body).rows(services.len()).data(RunsData {
+        symbol: SymbolJson::of(sym),
+        services: services.to_vec(),
+        via: match via {
+            cairn_store::Attribution::Direct => "direct",
+            cairn_store::Attribution::ViaType(_) => "type",
+            cairn_store::Attribution::ViaFile => "file",
+        },
+        via_symbol: match via {
+            cairn_store::Attribution::ViaType(owner) => Some(SymbolJson::of(owner)),
+            _ => None,
+        },
+        depth,
+        blind: blind.to_vec(),
+    });
     if services.is_empty() {
         env = env.unknown(format!(
             "no service reaches this within {depth} call hops. That can mean dead code, \
@@ -2460,8 +3039,70 @@ pub fn runs_in(
 /// route hop by hop with the RPC that carries it. The `unknown:` section names what
 /// reachability cannot see, so a caller can tell a complete answer from a partial one
 /// without going to check — which is the whole point of answering in one call.
+/// A service that runs this code in its own process.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct InProcessJson {
+    pub service: String,
+    /// The start command that makes it the runner. `null` means the image default.
+    pub command: Option<String>,
+    /// Attributed through the file the symbol sits in rather than through a call path —
+    /// the `~` of the text answer. The module is loaded there; no call path was found.
+    pub by_file: bool,
+}
+
+/// One network hop into this symbol, as the text groups them: a route, and the RPCs it
+/// carries.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct AffectsHopJson {
+    /// Services that start the calling side. Empty means nothing starts it.
+    pub from: Vec<String>,
+    /// Services that serve the called side. Empty means none was resolved.
+    pub to: Vec<String>,
+    pub package: String,
+    pub service: String,
+    pub rpcs: Vec<String>,
+    /// How many call sites this route was observed at.
+    pub call_sites: usize,
+    /// File the calls sit in.
+    pub file: String,
+    pub from_by_file: bool,
+}
+
+/// A network call *out* of this symbol: a change here changes what the far side receives.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct OutgoingJson {
+    pub served_by: Vec<String>,
+    pub package: String,
+    pub service: String,
+}
+
+/// `cairn affects` as data.
+#[derive(serde::Serialize, schemars::JsonSchema)]
+pub struct AffectsData {
+    pub symbol: SymbolJson,
+    /// Distinct deployed services a change here touches.
+    pub services: usize,
+    pub in_process: Vec<InProcessJson>,
+    pub hops: Vec<AffectsHopJson>,
+    pub outgoing: Vec<OutgoingJson>,
+    /// Services that start nothing and run code on demand. Where one appears above it is
+    /// on a path; how it is triggered is not something reachability can see.
+    pub blind: Vec<String>,
+    /// The service chain continued past the hop limit.
+    pub truncated_hops: bool,
+}
+
 pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -> Envelope {
     let mut body = String::new();
+    let mut data = AffectsData {
+        symbol: SymbolJson::of(sym),
+        services: 0,
+        in_process: Vec::new(),
+        hops: Vec::new(),
+        outgoing: Vec::new(),
+        blind: a.blind.clone(),
+        truncated_hops: a.truncated_hops,
+    };
     let services: usize = a.in_process.len()
         + a.hops
             .iter()
@@ -2502,6 +3143,11 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
         };
         if budget.push(&mut body, &line) {
             rows += 1;
+            data.in_process.push(InProcessJson {
+                service: p.service.clone(),
+                command: p.command.clone(),
+                by_file: p.by_file,
+            });
         } else {
             cut += 1;
         }
@@ -2555,12 +3201,44 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
         }
         let group_count = groups.len();
         let mut hops_shown = 0usize;
+        // Which groups were attributed by file, keyed the way the groups are.
+        let by_file: std::collections::BTreeSet<String> = a
+            .hops
+            .iter()
+            .filter(|h| h.from_by_file)
+            .map(|h| format!("{}.{}", h.pkg, h.service))
+            .collect();
         for ((from, to, service, site), mut rpcs) in groups {
             // The count is call sites; the list is which RPCs they carry. Two sites on
             // one RPC printed its name twice, which reads as two RPCs.
             let sites = rpcs.len();
             rpcs.sort();
             rpcs.dedup();
+            let (package, svc) = service
+                .split_once('.')
+                .map(|(p, s)| (p.to_string(), s.to_string()))
+                .unwrap_or_else(|| (String::new(), service.clone()));
+            let as_data = AffectsHopJson {
+                // Back to a list: the text joins them for one line, and a consumer that
+                // had to split on ", " would be parsing a layout.
+                from: from
+                    .trim_end_matches(" ~")
+                    .split(", ")
+                    .filter(|s| !s.is_empty() && *s != "(starts nothing)")
+                    .map(|s| s.to_string())
+                    .collect(),
+                to: to
+                    .split(", ")
+                    .filter(|s| !s.is_empty() && *s != "?")
+                    .map(|s| s.to_string())
+                    .collect(),
+                package,
+                service: svc,
+                rpcs: rpcs.clone(),
+                call_sites: sites,
+                file: site.clone(),
+                from_by_file: from.ends_with(" ~") || by_file.contains(&service),
+            };
             if !budget.push(
                 &mut body,
                 &format!(
@@ -2575,6 +3253,7 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
             ) {
                 break;
             }
+            data.hops.push(as_data);
             hops_shown += 1;
         }
         rows += hops_shown;
@@ -2601,13 +3280,19 @@ pub fn affects(sym: &SymbolRow, a: &cairn_store::Affects, budget: &mut Budget) -
             ) {
                 break;
             }
+            data.outgoing.push(OutgoingJson {
+                served_by: o.served_by.clone(),
+                package: o.pkg.clone(),
+                service: o.service.clone(),
+            });
             out_shown += 1;
         }
         rows += out_shown;
         cut += a.outgoing.len() - out_shown;
     }
 
-    let mut env = Envelope::new(body).rows(rows);
+    data.services = services;
+    let mut env = Envelope::new(body).rows(rows).data(data);
     if cut > 0 {
         env = env.suppressed(budget.cut_note(cut, "routes"));
     }
@@ -2943,6 +3628,7 @@ mod tests {
         SymbolRow {
             id: 1,
             handle: "abc".into(),
+            scip: None,
             name: "email".into(),
             container: Some("Credentials#".into()),
             module: None,
@@ -2999,6 +3685,7 @@ mod tests {
         let sym = cairn_store::SymbolRow {
             id: 1,
             handle: "abc".into(),
+            scip: None,
             name: "GetReading".into(),
             container: Some("stationGateway#".into()),
             module: None,
@@ -3322,6 +4009,7 @@ mod guarantees {
         let gen = |name: &str| SymbolRow {
             id: 1,
             handle: "h".into(),
+            scip: None,
             name: name.into(),
             container: None,
             module: None,
