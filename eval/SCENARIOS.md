@@ -226,6 +226,13 @@ win. Predicted **tie**, not a cairn loss: this is the scenario where the skill's
 advice ("comments, config, string literals → grep") is most likely to be wrong, and it
 is in the set to find that out.
 
+*(Left as written. Noted 2026-11-08: that quoted advice is no longer in `skill/SKILL.md` —
+it was there at `0e2ffd0` and gone by `ebcd8ed`, which now routes any text question to
+`for find` instead. So this scenario's "grep expected" label, and scenario 8's, describe a
+guide that no longer exists. The round of 2026-11-08 found cairn winning both, which is that
+guide change being confirmed rather than a surprise. The predictions stay as recorded; the
+labels are what went stale.)*
+
 ### 8 — configuration (grep expected)
 
 > Which services publish `MCP_SERVER_PORT`, and what is the default?

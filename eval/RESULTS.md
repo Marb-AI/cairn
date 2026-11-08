@@ -3308,10 +3308,23 @@ reading of the rule.
 | 7, 8, 10 at or above 1.00 | 0.60, **0.43**, 1.09 — **wrong on 7 and 8** |
 | at least one grep answer graded *worse* | **none** |
 
-The last two rows matter more than the first. **cairn won both scenarios where the guide's own
-advice is to use grep**: a string literal in a header (`for find` returns the line with its
-enclosing function, so the second look-up never happens) and a compose variable (0.43, meeting
-acceptance). The advice in the guide is, on this corpus, wrong about those two.
+The last two rows matter more than the first.
+
+**Correction to the first version of this section, which said the guide's advice is wrong
+about scenarios 7 and 8.** It is not: the guide already routes text questions to `for find`
+("where any text is — a value, a key, a header, a port, a literal, in any file type →
+`for find`. Not grep"). The advice those two scenarios were built against —
+*"prose, comments, config, string literals, docs → grep"* — was in `skill/SKILL.md` at
+`0e2ffd0` and gone by `ebcd8ed`, and `SCENARIOS.md` still quotes it. I read the scenario's
+parenthetical as current and wrote a conclusion about a sentence the tool stopped saying.
+
+What the data actually shows is better than that: **cairn won both scenarios that are still
+labelled "grep expected", and the guide predicted it.** A string literal in a header goes to
+0.60 because `for find` returns the line with its enclosing function, so the second look-up
+never happens; a compose variable goes to 0.43 and meets acceptance. The pre-registered
+predictions of ≥1.00 inherited the old advice along with the labels. A guide change made
+earlier, on other grounds, is vindicated here — and the scenario set is the thing that is
+stale, which is the same defect as everything else this round turned up.
 
 And the falsifier I wrote down fired: **no grep answer was worse.** Scenario 3 predicts the
 grep arm misses `share.go`, "the one a reader assembling this by hand misses", and fails at any
