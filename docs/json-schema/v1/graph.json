@@ -1,0 +1,289 @@
+{
+  "$defs": {
+    "SourceLine": {
+      "description": "A line of source carried beside an answer. 1-based, as the renderer prints it.",
+      "properties": {
+        "line": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "line",
+        "text"
+      ],
+      "type": "object"
+    },
+    "Stale": {
+      "description": "The staleness section of a JSON answer: `StaleFiles` plus the sentences text prints.",
+      "properties": {
+        "dirty": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mentioned": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tracked": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "dirty",
+        "mentioned",
+        "notes"
+      ],
+      "type": "object"
+    },
+    "SymbolJson": {
+      "description": "A symbol as data: what every JSON answer says about one.\n\nOne shape for every command, so a consumer learns it once. The fields the plan\nrequires of it — handle, the SCIP symbol string, file, line, the generated flag, the\nedge source label — plus what the text line already shows, which is free here and\nwould otherwise have to be parsed back out of `body`.\n\nLines are 1-based, as the text line prints them and as every editor counts them. The\nstore keeps them 0-based; a JSON answer that quietly used the storage convention\nwould put every consumer one line out.",
+      "properties": {
+        "end_line": {
+          "description": "Last line of the definition's body, when the indexer emitted one.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "generated": {
+          "description": "Definition sits in generated code.",
+          "type": "boolean"
+        },
+        "handle": {
+          "type": "string"
+        },
+        "kind": {
+          "type": "string"
+        },
+        "lang": {
+          "type": "string"
+        },
+        "line": {
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "qualified": {
+          "description": "`Type.method` where the container is a type, else the bare name — what the text\nline shows.",
+          "type": "string"
+        },
+        "refs": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "source": {
+          "description": "How the row was reached, where it arrived through an edge: `L1, exact`,\n`L2, agent-asserted`, `L1, declared by w17`. `null` when the row is the answer's\nown subject.\n\nA string rather than a tier name because a declared edge carries the connector\nthat stated it, and a reader who cannot tell which tool said so cannot go and\ncheck.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "symbol": {
+          "description": "The full SCIP symbol string. `null` on an index built before schema v20, which\ncannot print one — not an absent symbol, an index that did not record the name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "handle",
+        "name",
+        "qualified",
+        "kind",
+        "lang",
+        "generated",
+        "refs"
+      ],
+      "type": "object"
+    },
+    "WalkData": {
+      "description": "`cairn graph` as data — and every other answer built from a walk.",
+      "properties": {
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/WalkNodeJson"
+          },
+          "type": "array"
+        },
+        "revisited": {
+          "description": "Nodes reachable by more than one path. Counted, not repeated.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "title": {
+          "description": "The header line, which names what was walked and in which direction.",
+          "type": "string"
+        },
+        "truncated": {
+          "description": "Neighbours dropped by `--fanout`, across all nodes.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "view": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "view",
+        "nodes",
+        "truncated",
+        "revisited"
+      ],
+      "type": "object"
+    },
+    "WalkNodeJson": {
+      "description": "Render a bounded walk over the call graph.\n\n`detail` decides how much of each node is printed. Anything above `Skeleton` needs\n`source`, and is the audit shape: walk the callers and show me their code.\nOne node of a walk as data.",
+      "properties": {
+        "depth": {
+          "description": "Hops from the root. 0 is the root itself.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "excerpt": {
+          "description": "Source printed for this node, when `--detail` asked for any.",
+          "items": {
+            "$ref": "#/$defs/SourceLine"
+          },
+          "type": "array"
+        },
+        "parent": {
+          "description": "Index into `nodes` of the node this was reached from. `null` for the root — which\nis what makes the flat list a tree without repeating any symbol.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "site": {
+          "description": "Where the edge was observed, for call edges: `file:line`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "symbol": {
+          "$ref": "#/$defs/SymbolJson"
+        },
+        "truncated_children": {
+          "description": "Children this node had that `--fanout` cut.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "symbol",
+        "depth",
+        "truncated_children",
+        "excerpt"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One answer, as `--format json` prints it.\n\nBorrowed from the envelope rather than owning a copy: this is built once, on the way\nout, and an answer can carry a megabyte of body.\n\nGeneric in the payload for one reason: printing uses `serde_json::Value`, because the\nenvelope is built where the command is no longer known, while the published schema\nhas to name the command's own data type. One declaration, instantiated twice, so the\nschema in `docs/json-schema/v1/` describes the object this actually prints.",
+  "properties": {
+    "body": {
+      "description": "The text answer, exactly as text mode prints it above the envelope lines. The\nthree sections are fields here, so repeating them inside the body would be the\nsame claim twice and two places for it to drift.",
+      "type": "string"
+    },
+    "command": {
+      "description": "The command that produced this, as it would be typed: `refs`, `for change`.",
+      "type": "string"
+    },
+    "data": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/WalkData"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The answer as fields. `null` until the command has a data builder."
+    },
+    "rows": {
+      "format": "uint",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "schema": {
+      "type": "string"
+    },
+    "stale": {
+      "$ref": "#/$defs/Stale"
+    },
+    "suppressed": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "unknown": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "within": {
+      "description": "The declared container this answer was scoped to, or `null` for the whole index.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "command",
+    "truncated",
+    "unknown",
+    "suppressed",
+    "stale",
+    "body"
+  ],
+  "title": "Answer",
+  "type": "object"
+}

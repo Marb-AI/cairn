@@ -15,6 +15,14 @@ const HANDLE_MAX_LEN: usize = 12;
 pub struct SymbolRow {
     pub id: i64,
     pub handle: String,
+    /// The full SCIP symbol string, for indexes built at schema v20 or later.
+    ///
+    /// The identifier that outlives the index: a handle is short because it is meant to
+    /// be typed, and it is only stable for as long as the index that minted it (D4).
+    /// Anything that stores a reference to a symbol — a connector, an editor, a comment
+    /// in a review — needs this one. `None` only for a row that was written without it,
+    /// which in practice means a test fixture.
+    pub scip: Option<String>,
     pub name: String,
     pub container: Option<String>,
     pub module: Option<String>,
@@ -58,6 +66,12 @@ pub struct Occurrence {
     pub role: i32,
     pub generated: bool,
     pub gen_via: GeneratedVia,
+    /// Id of the symbol whose body contains this occurrence, when one is known.
+    ///
+    /// The name above is for a reader; this is for a filter. `--within` scopes an answer
+    /// to the sites inside a declared container, and matching that on a name would pair
+    /// two functions that happen to share one.
+    pub enclosing_id: Option<i64>,
     /// Symbol whose body contains this occurrence, when one is known.
     ///
     /// A bare `path:line` makes the caller open the file to learn anything, and every
@@ -256,7 +270,7 @@ impl Store {
             SELECT s.id, h.s AS name, c.s AS container, m.s AS module, s.kind, s.lang,
                    s.ref_count, s.def_generated,
                    p.s AS def_path, s.def_line, s.def_col_start, s.def_col_end,
-                   f.generated, f.gen_via, s.def_end_line
+                   f.generated, f.gen_via, s.def_end_line, s.scip
               FROM hits h
               JOIN symbols s ON s.name_id = h.id
               LEFT JOIN strings c ON c.id = s.container_id
@@ -279,6 +293,7 @@ impl Store {
                 let def = match r.get::<_, Option<String>>(8)? {
                     Some(path) => Some(Occurrence {
                         enclosing: None,
+                        enclosing_id: None,
                         path,
                         line: r.get::<_, Option<i64>>(9)?.unwrap_or(0),
                         col_start: r.get::<_, Option<i64>>(10)?.unwrap_or(0),
@@ -299,16 +314,18 @@ impl Store {
                     r.get::<_, i64>(6)?,
                     def,
                     r.get::<_, Option<i64>>(14)?,
+                    r.get::<_, Option<String>>(15)?,
                 ))
             },
         )?;
 
         let mut out = Vec::new();
         for row in rows {
-            let (id, name, container, module, kind, lang, refs, def, def_end_line) = row?;
+            let (id, name, container, module, kind, lang, refs, def, def_end_line, scip) = row?;
             out.push(SymbolRow {
                 id,
                 handle: self.handle_for(id)?,
+                scip,
                 name,
                 container,
                 module,
@@ -325,7 +342,7 @@ impl Store {
     pub fn symbol(&self, symbol_id: i64) -> Result<Option<SymbolRow>> {
         let mut stmt = self.conn.prepare_cached(
             r#"
-            SELECT s.id, n.s, c.s, m.s, s.kind, s.lang, s.ref_count, s.def_end_line
+            SELECT s.id, n.s, c.s, m.s, s.kind, s.lang, s.ref_count, s.def_end_line, s.scip
               FROM symbols s
               JOIN strings n ON n.id = s.name_id
               LEFT JOIN strings c ON c.id = s.container_id
@@ -341,6 +358,7 @@ impl Store {
         Ok(Some(SymbolRow {
             id,
             handle: self.handle_for(id)?,
+            scip: r.get(8)?,
             name: r.get(1)?,
             container: r.get(2)?,
             module: r.get(3)?,
@@ -423,6 +441,7 @@ impl Store {
         Ok(match rows.next()? {
             Some(r) => Some(Occurrence {
                 enclosing: None,
+                enclosing_id: None,
                 path: r.get(0)?,
                 line: r.get::<_, Option<i64>>(1)?.unwrap_or(0),
                 col_start: r.get::<_, Option<i64>>(2)?.unwrap_or(0),
@@ -458,7 +477,13 @@ impl Store {
                        AND encl.def_end_line IS NOT NULL
                        AND encl.def_line <= o.line AND encl.def_end_line >= o.line
                      ORDER BY (encl.def_end_line - encl.def_line) ASC
-                     LIMIT 1) AS enclosing
+                     LIMIT 1) AS enclosing,
+                   (SELECT encl.id FROM symbols encl
+                     WHERE encl.def_file_id = o.file_id
+                       AND encl.def_end_line IS NOT NULL
+                       AND encl.def_line <= o.line AND encl.def_end_line >= o.line
+                     ORDER BY (encl.def_end_line - encl.def_line) ASC
+                     LIMIT 1) AS enclosing_id
               FROM occurrences o
               JOIN files f   ON f.id = o.file_id
               JOIN strings p ON p.id = f.path_id
@@ -473,6 +498,7 @@ impl Store {
             |r| {
                 let mut occ = occ_from_row(r).map_err(|_| rusqlite::Error::InvalidQuery)?;
                 occ.enclosing = r.get::<_, Option<String>>(7)?;
+                occ.enclosing_id = r.get::<_, Option<i64>>(8)?;
                 Ok(occ)
             },
         )?;
@@ -514,6 +540,7 @@ impl Store {
 fn occ_from_row(r: &rusqlite::Row) -> Result<Occurrence> {
     Ok(Occurrence {
         enclosing: None,
+        enclosing_id: None,
         path: r.get(0)?,
         line: r.get(1)?,
         col_start: r.get(2)?,
@@ -639,6 +666,7 @@ mod tests {
     fn line_numbers_are_one_based_on_output() {
         let occ = Occurrence {
             enclosing: None,
+            enclosing_id: None,
             path: "a/b.py".into(),
             line: 41,
             col_start: 0,

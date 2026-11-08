@@ -54,7 +54,7 @@ a week.
 
 ## Tests
 
-Three layers, and each exists because the one before it was not enough.
+Five layers, and each exists because the one before it was not enough.
 
 - **Unit tests** cover the pure functions: symbol parsing, command shapes, naming
   conventions.
@@ -64,9 +64,35 @@ Three layers, and each exists because the one before it was not enough.
   at: it walks the index at a fixed stride and runs every read command against each symbol
   it lands on, asserting only what must hold for *any* symbol — no panic, an exit code from
   the contract, an envelope on every answer, nothing over a time ceiling.
+- **The golden recordings** (`crates/cairn-cli/tests/golden.rs`) take the same walk and
+  record the bytes: stdout and the exit code of every read command, committed under
+  `tests/golden/`. The three layers above all assert something *about* an answer, so none
+  of them would notice a refactor that reworded a note, dropped a column or moved a line
+  while keeping every assertion true. A diff here is a change in what the tool says; read
+  it, then `CAIRN_BLESS=1 cargo test --test golden` to accept it.
+- **The published schemas** (`crates/cairn-cli/tests/schema.rs`) keep
+  `docs/json-schema/v1/` honest. They are generated from the structs that serialise
+  `--format json`, so the test regenerates them and fails when a committed file no longer
+  matches — `CAIRN_BLESS=1 cargo test --test schema` accepts the new shape — and then runs
+  every command with data and validates the real answer against its schema. The validator
+  is small and has its own negative test, because one that passes everything is worse than
+  none.
 
-The last two need an index, and a fresh clone has none, so both fall back to a fixture
-corpus in `crates/cairn-cli/tests/fixtures/` — an invented Go and Python codebase shaped
+The recordings are made from the fixture corpus, because one that differed per machine
+could not be committed — and sixteen files is not where a refactor hides. The same walk
+runs against a real index, into a directory rather than against expectations:
+
+```
+scripts/golden-local.sh ~/work/backend /tmp/golden-before
+# rebuild with the change
+scripts/golden-local.sh ~/work/backend /tmp/golden-after
+diff -ru /tmp/golden-before /tmp/golden-after
+```
+
+Not part of CI and not a test — nothing there asserts anything, and the diff is the output.
+
+Every layer below the unit tests needs an index, and a fresh clone has none, so they fall
+back to a fixture corpus in `crates/cairn-cli/tests/fixtures/` — an invented Go and Python codebase shaped
 around the things that are hard: a gRPC boundary crossed in both directions, generated code,
 handlers reached through a registry, two shapes of deployment. It exists so that CI running
 green means the cases ran, rather than that they skipped.
@@ -80,6 +106,26 @@ docker compose -f crates/cairn-cli/tests/fixtures/compose.yaml run --rm scip
 
 A private checkout with its own indexed codebase can add a second case file at
 `eval/corpus/cases.yaml`; it is not in this repository, and its absence is the normal case.
+
+### The flow provider
+
+`cairn flow` asks a per-language provider for the control flow inside a function. The Go
+one is `crates/cairn-cli/assets/cairnflow/`, compiled into the indexer image at image
+build time — the only moment there is a network — and embedded in the binary the same way
+the Dockerfile is. Building it on its own, which is what to do after changing it:
+
+```
+docker run --rm -v "$PWD/crates/cairn-cli/assets/cairnflow":/src -w /src \
+  -e GOFLAGS=-mod=mod -e GOCACHE=/tmp/gc -e GOMODCACHE=/tmp/gm -e HOME=/tmp \
+  golang:1.26 sh -c 'go build -buildvcs=false -o /tmp/cairnflow . && \
+    /tmp/cairnflow /src/../../tests/fixtures/corpus/srcgo/internal/ingest/service.go 38'
+```
+
+CI has neither Go nor Docker, so what is committed is the provider's *output* for one
+fixture handler (`tests/fixtures/flow/upload-readings.json`), and `tests/flow.rs` drives
+everything cairn does with it: the cache, the resolved call targets, the declared
+annotations, and the calls it admits it could not resolve. After changing the provider,
+re-record that file with the command above.
 
 The unit tests caught none of the eight correctness defects found in the first day of
 measurement: every one lived in the interaction between the index and a real codebase rather

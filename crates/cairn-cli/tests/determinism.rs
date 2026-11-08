@@ -64,6 +64,12 @@ fn rebuilding_produces_the_same_index_and_the_same_handles() {
     let first_build = run(&bin, &db, &["index", &scip]);
     let first_status = run(&bin, &db, &["status"]);
     let first_symbols = run(&bin, &db, &["symbol", "e", "--limit", "40"]);
+    // Asked twice of the *same* index, not across the rebuild: the seeds are ranked by a
+    // score, and equal scores were broken by whatever order a `HashMap` iterated in -
+    // randomised per process. Two identical questions got two different answers and
+    // neither looked wrong. Here because this is the file about answers not moving.
+    let first_context = run(&bin, &db, &["context", "e"]);
+    let again_context = run(&bin, &db, &["context", "e"]);
 
     let second_build = run(&bin, &db, &["index", &scip]);
     let second_status = run(&bin, &db, &["status"]);
@@ -114,6 +120,16 @@ fn rebuilding_produces_the_same_index_and_the_same_handles() {
          asking about a different symbol, and nothing in the answer would look wrong"
     );
     assert!(second_build.contains("symbols"), "the second build failed");
+
+    assert!(
+        first_context.contains('['),
+        "context returned no seeds, so the comparison below asserted nothing:\n{first_context}"
+    );
+    assert_eq!(
+        first_context, again_context,
+        "the same question put twice to the same index came back in a different order - an \
+         agent re-asking gets different seeds, and nothing in either answer looks wrong"
+    );
 }
 
 #[test]

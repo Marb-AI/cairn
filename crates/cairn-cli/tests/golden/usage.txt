@@ -1,0 +1,440 @@
+# Recorded output of one cairn command against the fixture corpus. Do not edit by hand:
+# CAIRN_BLESS=1 cargo test --test golden rewrites every file here.
+#
+# A diff in this file is a change in what the tool says. Read it before blessing it:
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine and `<epoch>`
+# for when a connector last ran; nothing else in an answer is normalised.
+
+$ cairn usage ad
+exit 0
+[ad] server used at 2 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcgo/cmd/collector/main.go. Reading it is probably cheaper than further queries.
+     2x  srcgo/cmd/collector/main.go
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage ad --include-tests
+exit 0
+[ad] server used at 2 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcgo/cmd/collector/main.go. Reading it is probably cheaper than further queries.
+     2x  srcgo/cmd/collector/main.go
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage ne
+exit 1
+[ne]  used at 0 sites in 0 files      [L0, exact]
+  (no uses outside its own definition)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage ne --include-tests
+exit 1
+[ne]  used at 0 sites in 0 files      [L0, exact]
+  (no uses outside its own definition)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage wh
+exit 0
+[wh] Station.Altitude used at 6 sites in 4 files      [L0, exact]
+     3x  srcgo/cmd/collector/main.go
+     1x  srcgo/internal/ingest/screen.go
+     1x  srcgo/internal/ingest/service.go
+     1x  srcgo/internal/station/registry.go
+suppressed: none
+unknown (2):
+  2 more site(s) in 2 test file(s) are not counted above. `cairn usage wh --include-tests` includes them
+  `Station.Altitude` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+stale: none
+
+$ cairn usage wh --include-tests
+exit 0
+[wh] Station.Altitude used at 8 sites in 6 files      [L0, exact]
+     3x  srcgo/cmd/collector/main.go
+     1x  srcgo/internal/ingest/screen.go
+     1x  srcgo/internal/ingest/service.go
+     1x  srcgo/internal/station/registry.go
+     1x  srcgo/internal/ingest/service_test.go  [test]
+     1x  srcgo/internal/station/registry_test.go  [test]
+suppressed: none
+unknown: `Station.Altitude` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+stale: none
+
+$ cairn usage 8d
+exit 1
+[8d] AlertAck.GetRaised used at 0 sites in 0 files      [L0, exact]
+  (no uses outside its own definition)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage 8d --include-tests
+exit 1
+[8d] AlertAck.GetRaised used at 0 sites in 0 files      [L0, exact]
+  (no uses outside its own definition)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage dk
+exit 0
+[dk] AlertRequest.Celsius used at 1 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcgo/internal/notify/alerter.go. Reading it is probably cheaper than further queries.
+     1x  srcgo/internal/notify/alerter.go
+suppressed: none
+unknown: `AlertRequest.Celsius` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+stale: none
+
+$ cairn usage dk --include-tests
+exit 0
+[dk] AlertRequest.Celsius used at 1 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcgo/internal/notify/alerter.go. Reading it is probably cheaper than further queries.
+     1x  srcgo/internal/notify/alerter.go
+suppressed: none
+unknown: `AlertRequest.Celsius` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+stale: none
+
+$ cairn usage ph
+exit 0
+[ph] unimplementedError used at 2 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcgo/gen/telemetry/telemetry.pb.go. Reading it is probably cheaper than further queries.
+     2x  srcgo/gen/telemetry/telemetry.pb.go
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage ph --include-tests
+exit 0
+[ph] unimplementedError used at 2 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcgo/gen/telemetry/telemetry.pb.go. Reading it is probably cheaper than further queries.
+     2x  srcgo/gen/telemetry/telemetry.pb.go
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage 2ig
+exit 1
+[2ig] 2 used at 0 sites in 0 files      [L0, exact]
+  (no uses outside its own definition)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage 2ig --include-tests
+exit 1
+[2ig] 2 used at 0 sites in 0 files      [L0, exact]
+  (no uses outside its own definition)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage 7r
+exit 0
+[7r] Service.rejected used at 2 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcgo/internal/ingest/service.go. Reading it is probably cheaper than further queries.
+     2x  srcgo/internal/ingest/service.go
+suppressed: none
+unknown: `Service.rejected` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+stale: none
+
+$ cairn usage 7r --include-tests
+exit 0
+[7r] Service.rejected used at 2 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcgo/internal/ingest/service.go. Reading it is probably cheaper than further queries.
+     2x  srcgo/internal/ingest/service.go
+suppressed: none
+unknown: `Service.rejected` is an attribute on a type. Uses are only resolved where the holder's type is known, which for values reached through an interface or `any` it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+stale: none
+
+$ cairn usage q4
+exit 1
+[q4] TestDescribeStationReportsTheRegistry used at 0 sites in 0 files      [L0, exact]
+  (no uses outside its own definition)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage q4 --include-tests
+exit 1
+[q4] TestDescribeStationReportsTheRegistry used at 0 sites in 0 files      [L0, exact]
+  (no uses outside its own definition)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage bj
+exit 0
+[bj] Mutex.Unlock used at 5 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcgo/internal/notify/alerter.go. Reading it is probably cheaper than further queries.
+     5x  srcgo/internal/notify/alerter.go
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage bj --include-tests
+exit 0
+[bj] Mutex.Unlock used at 5 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcgo/internal/notify/alerter.go. Reading it is probably cheaper than further queries.
+     5x  srcgo/internal/notify/alerter.go
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage pu
+exit 0
+[pu] ToLower used at 1 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcgo/internal/station/registry.go. Reading it is probably cheaper than further queries.
+     1x  srcgo/internal/station/registry.go
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage pu --include-tests
+exit 0
+[pu] ToLower used at 1 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcgo/internal/station/registry.go. Reading it is probably cheaper than further queries.
+     1x  srcgo/internal/station/registry.go
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage d7
+exit 0
+[d7] store used at 1 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcpy/alerting/dispatch.py. Reading it is probably cheaper than further queries.
+     1x  srcpy/alerting/dispatch.py
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage d7 --include-tests
+exit 0
+[d7] store used at 1 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcpy/alerting/dispatch.py. Reading it is probably cheaper than further queries.
+     1x  srcpy/alerting/dispatch.py
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage yha
+exit 0
+[yha] Alert used at 14 sites in 3 files      [L0, exact]
+     8x  srcpy/alerting/dispatch.py
+     5x  srcpy/alerting/models.py
+     1x  srcpy/alerting/service.py
+suppressed: none
+unknown: 2 more site(s) in 1 test file(s) are not counted above. `cairn usage yha --include-tests` includes them
+stale: none
+
+$ cairn usage yha --include-tests
+exit 0
+[yha] Alert used at 16 sites in 4 files      [L0, exact]
+     8x  srcpy/alerting/dispatch.py
+     5x  srcpy/alerting/models.py
+     1x  srcpy/alerting/service.py
+     2x  srcpy/tests/test_rules.py  [test]
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage 7y
+exit 0
+USE GREP FOR THIS ONE. `Field.name` is an attribute on a type, and attribute access resolves only where the holder's type is known - for ORM instances and dicts-as-records it usually is not, so the list below is a lower bound and not a blast radius. Run instead:  grep -rn 'name' <src> --include='*.py'
+
+[7y] Field.name used at 3 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
+     3x  srcpy/alerting/models.py
+suppressed: none
+unknown: `Field.name` is an attribute on a type. Uses are only resolved where the holder's type is known, which for ORM models, dicts-as-records and dynamically built objects it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+stale: none
+
+$ cairn usage 7y --include-tests
+exit 0
+USE GREP FOR THIS ONE. `Field.name` is an attribute on a type, and attribute access resolves only where the holder's type is known - for ORM instances and dicts-as-records it usually is not, so the list below is a lower bound and not a blast radius. Run instead:  grep -rn 'name' <src> --include='*.py'
+
+[7y] Field.name used at 3 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
+     3x  srcpy/alerting/models.py
+suppressed: none
+unknown: `Field.name` is an attribute on a type. Uses are only resolved where the holder's type is known, which for ORM models, dicts-as-records and dynamically built objects it often is not - so this list is a lower bound. Cross-check with grep before treating it as the blast radius.
+stale: none
+
+$ cairn usage sp
+exit 0
+[sp] self used at 2 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
+     2x  srcpy/alerting/models.py
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage sp --include-tests
+exit 0
+[sp] self used at 2 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
+     2x  srcpy/alerting/models.py
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage zu
+exit 1
+[zu] AlertStore.__init__ used at 0 sites in 0 files      [L0, exact]
+  (no uses outside its own definition)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage zu --include-tests
+exit 1
+[zu] AlertStore.__init__ used at 0 sites in 0 files      [L0, exact]
+  (no uses outside its own definition)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage z7
+exit 0
+[z7] dict.items used at 2 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
+     2x  srcpy/alerting/models.py
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage z7 --include-tests
+exit 0
+[z7] dict.items used at 2 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcpy/alerting/models.py. Reading it is probably cheaper than further queries.
+     2x  srcpy/alerting/models.py
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage 4mg
+exit 0
+[4mg] celsius used at 5 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcpy/alerting/rules.py. Reading it is probably cheaper than further queries.
+     5x  srcpy/alerting/rules.py
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage 4mg --include-tests
+exit 0
+[4mg] celsius used at 5 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcpy/alerting/rules.py. Reading it is probably cheaper than further queries.
+     5x  srcpy/alerting/rules.py
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage c4
+exit 0
+[c4] key used at 1 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcpy/alerting/rules.py. Reading it is probably cheaper than further queries.
+     1x  srcpy/alerting/rules.py
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage c4 --include-tests
+exit 0
+[c4] key used at 1 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcpy/alerting/rules.py. Reading it is probably cheaper than further queries.
+     1x  srcpy/alerting/rules.py
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage t4
+exit 0
+[t4] __init__ used at 2 sites in 2 files      [L0, exact]
+     1x  srcpy/alerting/service.py
+     1x  srcpy/alerting/worker.py
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage t4 --include-tests
+exit 0
+[t4] __init__ used at 2 sites in 2 files      [L0, exact]
+     1x  srcpy/alerting/service.py
+     1x  srcpy/alerting/worker.py
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage fm
+exit 0
+[fm] station_id used at 1 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcpy/alerting/worker.py. Reading it is probably cheaper than further queries.
+     1x  srcpy/alerting/worker.py
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage fm --include-tests
+exit 0
+[fm] station_id used at 1 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcpy/alerting/worker.py. Reading it is probably cheaper than further queries.
+     1x  srcpy/alerting/worker.py
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage jz
+exit 0
+[jz] SystemExit used at 1 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcpy/alerting/worker.py. Reading it is probably cheaper than further queries.
+     1x  srcpy/alerting/worker.py
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage jz --include-tests
+exit 0
+[jz] SystemExit used at 1 sites in 1 files      [L0, exact]
+ALL USES ARE IN ONE FILE: srcpy/alerting/worker.py. Reading it is probably cheaper than further queries.
+     1x  srcpy/alerting/worker.py
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage 3jq
+exit 1
+[3jq] TelemetryServiceStub.__init__ used at 0 sites in 0 files      [L0, exact]
+  (no uses outside its own definition)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage 3jq --include-tests
+exit 1
+[3jq] TelemetryServiceStub.__init__ used at 0 sites in 0 files      [L0, exact]
+  (no uses outside its own definition)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage 2p9
+exit 1
+[2p9] test_dispatch_reaches_a_registered_handler used at 0 sites in 0 files      [L0, exact]
+  (no uses outside its own definition)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn usage 2p9 --include-tests
+exit 1
+[2p9] test_dispatch_reaches_a_registered_handler used at 0 sites in 0 files      [L0, exact]
+  (no uses outside its own definition)
+suppressed: none
+unknown: none
+stale: none
+

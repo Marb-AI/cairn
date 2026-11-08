@@ -15,11 +15,13 @@ pub mod batch;
 pub mod build;
 pub mod concepts;
 pub mod config;
+pub mod connect;
 pub mod context;
 pub mod conventions;
 pub mod coverage;
 pub mod deploy;
 pub mod docs;
+pub mod flow;
 pub mod graph;
 pub mod ingest;
 pub mod llmverify;
@@ -29,6 +31,7 @@ pub mod query;
 pub mod rules;
 pub mod schema;
 pub mod survey;
+pub mod tree;
 pub mod verify;
 pub mod weak;
 
@@ -42,6 +45,7 @@ pub use deploy::{
     Attribution, DeployServiceRow, DeployStats, Entrypoint, Service, Topology, Trigger,
 };
 pub use docs::{Document, DocumentRow, Hit, Section, SectionRow};
+pub use flow::{Flow, FlowEdge, FlowKind, FlowNode, ProviderFlow};
 pub use graph::{Direction, PathHop, Walk, WalkNode};
 pub use llmverify::{Check, Standing, Verdict};
 pub use protolink::{Chain, ChainHop, CrossLink, RpcCaller, ServiceRole};
@@ -184,6 +188,11 @@ pub enum EdgeKind {
     /// registered class into the methods it puts on the live path without paying a join
     /// per node.
     Member = 4,
+    /// Stated by a connector, in a kind the core does not interpret. The kind itself is
+    /// `edges.declared_kind` -> `edge_kinds`, and the only thing read from it is how it
+    /// propagates: a dependency travels like a call, a containment groups, and `none` is
+    /// display only.
+    Declared = 5,
 }
 
 /// Where an edge came from. Answers group by this so an exact edge is never presented
@@ -196,10 +205,19 @@ pub enum EdgeSource {
     /// Weak, lexical: a candidate, not a fact (L1-W, architecture 18.4).
     Weak = 1,
     /// Recorded by an agent that read the code and concluded the link exists.
-    /// Everything at 2 and above is hand-authored and survives reindexing.
     Agent = 2,
     /// Recorded by a human.
     Human = 3,
+    /// Stated by a connector: a deterministic tool reading declarations it owns.
+    ///
+    /// Neither derived from SCIP nor asserted by a reader, and the distinction is the
+    /// reason for a fourth tier. A tool that owns the declaration — a protobuf
+    /// definition, a service contract — is not guessing and is not being believed on
+    /// trust: run it again and it says the same thing. So these rank with `Scip` and
+    /// travel wherever it does, and they are *derived* data: rebuilt on every index,
+    /// unlike `Agent` and `Human`, which survive reindexing because nothing can
+    /// recompute them.
+    Declared = 4,
 }
 
 impl EdgeSource {
@@ -209,12 +227,75 @@ impl EdgeSource {
             EdgeSource::Weak => "L1-W, unverified",
             EdgeSource::Agent => "L2, agent-asserted",
             EdgeSource::Human => "L2, human-asserted",
+            EdgeSource::Declared => "L1, declared",
+        }
+    }
+
+    /// The label a reader sees, which for a declared edge names the connector.
+    ///
+    /// "L1, declared" alone would leave a reader unable to ask the next question — which
+    /// tool said so, and where its declaration lives.
+    pub fn label_with_origin(self, origin: Option<&str>) -> String {
+        match (self, origin) {
+            (EdgeSource::Declared, Some(who)) => format!("L1, declared by {who}"),
+            _ => self.label().to_string(),
+        }
+    }
+
+    pub fn from_i64(v: i64) -> EdgeSource {
+        match v {
+            1 => EdgeSource::Weak,
+            2 => EdgeSource::Agent,
+            3 => EdgeSource::Human,
+            4 => EdgeSource::Declared,
+            _ => EdgeSource::Scip,
+        }
+    }
+
+    /// Hand-authored: a claim somebody made, which no pass can re-derive.
+    ///
+    /// This used to be spelled `source >= 2` in SQL, which was true while the enum
+    /// stopped at `Human`. `Declared` is 4 and is not authored, so the old spelling
+    /// would have counted a connector's output as somebody's assertion and marked it
+    /// for review when its anchor file changed.
+    pub fn is_authored(self) -> bool {
+        matches!(self, EdgeSource::Agent | EdgeSource::Human)
+    }
+
+    /// How an edge ranks in an answer: lower is stronger.
+    ///
+    /// Not the numeric value. Ranking by that put `Declared` (4) below an agent's
+    /// assertion, when a connector reading its own declarations is exactly as exact as
+    /// SCIP. Three tiers, and the numbers exist only to be ordered.
+    pub fn rank(self) -> i64 {
+        match self {
+            EdgeSource::Scip | EdgeSource::Declared => 0,
+            EdgeSource::Weak => 1,
+            EdgeSource::Agent | EdgeSource::Human => 2,
         }
     }
 }
 
+/// The authored sources, for the SQL that has to name them.
+///
+/// One definition of the set, next to `EdgeSource::is_authored`, because the two have to
+/// agree and the SQL cannot call the function. Every site that used to say `source >= 2`
+/// says this instead.
+pub const AUTHORED_SOURCES: &str = "(2, 3)";
+
+/// `CASE` expression ordering edges by `EdgeSource::rank`, for `ORDER BY`.
+///
+/// Spelled out in SQL because the ordering has to happen in the query that applies the
+/// `LIMIT` — ranking after the fact would rank whatever survived an arbitrary cut.
+pub const SOURCE_RANK_SQL: &str =
+    "CASE e.source WHEN 1 THEN 1 WHEN 2 THEN 2 WHEN 3 THEN 2 ELSE 0 END";
+
 pub struct Store {
     pub conn: Connection,
+    /// Where this store lives on disk, for the things that belong *beside* it rather
+    /// than inside it: a connector's cached facts, which have to survive the reindex
+    /// that drops every table. `:memory:` for a test store.
+    path: std::path::PathBuf,
     /// False when the authored-knowledge sidecar could not be opened and a memory one
     /// stood in. Everything still works; nothing written survives the process. Carried
     /// so a caller can say so before printing "recorded".
@@ -243,6 +324,7 @@ impl Store {
         let knowledge_is_durable = schema::attach_knowledge(&conn, &knowledge_path(path))?;
         let store = Store {
             conn,
+            path: path.to_path_buf(),
             knowledge_is_durable,
             rules: rules::Rules::default(),
         };
@@ -285,9 +367,27 @@ impl Store {
         schema::attach_knowledge(&conn, std::path::Path::new(":memory:"))?;
         Ok(Store {
             conn,
+            path: std::path::PathBuf::from(":memory:"),
             knowledge_is_durable: false,
             rules: rules::Rules::default(),
         })
+    }
+
+    /// Where this store lives. See the field.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Intern a string, returning its id.
+    ///
+    /// The ingest has its own cached interner for the hot path; this is the cold one, for
+    /// the handful of strings a connector contributes.
+    pub fn intern(&self, s: &str) -> Result<i64> {
+        self.conn
+            .execute("INSERT OR IGNORE INTO strings(s) VALUES (?1)", [s])?;
+        Ok(self
+            .conn
+            .query_row("SELECT id FROM strings WHERE s = ?1", [s], |r| r.get(0))?)
     }
 
     /// Drops and recreates the schema. Cheap because the store is a projection.
@@ -310,6 +410,7 @@ impl Store {
         let knowledge_is_durable = schema::attach_knowledge(&conn, &knowledge_path(path))?;
         Ok(Store {
             conn,
+            path: path.to_path_buf(),
             knowledge_is_durable,
             rules: rules::Rules::default(),
         })

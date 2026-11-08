@@ -16,6 +16,17 @@ use std::process::Command;
 ///
 /// Returns `None` when the SCIP files are absent, which is the caller's cue to skip.
 pub fn build_fixture_index(root: &Path, bin: &Path, label: &str) -> Option<PathBuf> {
+    let dir = std::env::temp_dir().join(format!("cairn-fixture-{label}"));
+    let _ = std::fs::remove_dir_all(&dir);
+    build_fixture_index_in(&dir, root, bin)
+}
+
+/// The same index, in a directory the caller chose and prepared.
+///
+/// Separate because a connector's manifest lives *beside* the index, so a test about
+/// connectors has to write one before the index is built — and it must not write it into
+/// the fixture corpus, where it would change what every other test sees.
+pub fn build_fixture_index_in(dir: &Path, root: &Path, bin: &Path) -> Option<PathBuf> {
     let fixtures = root.join("crates/cairn-cli/tests/fixtures");
     let (go, py) = (
         fixtures.join("index/go.scip"),
@@ -25,10 +36,7 @@ pub fn build_fixture_index(root: &Path, bin: &Path, label: &str) -> Option<PathB
         return None;
     }
 
-    let dir = std::env::temp_dir().join(format!("cairn-fixture-{label}"));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).ok()?;
-
+    std::fs::create_dir_all(dir).ok()?;
     let db = dir.join("index.sqlite");
     let out = Command::new(bin)
         .arg("--db")

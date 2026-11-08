@@ -1,0 +1,35 @@
+# A connector manifest, as a repository would write it.
+#
+# A template: `__SCRIPT__` is the absolute path of w17-fixture.sh and `__MODE__` is which
+# of its behaviours this run wants, both substituted by tests/connectors.rs. A committed
+# manifest with an absolute path in it would only work on the machine that wrote it.
+#
+# The real thing has no placeholders and looks like this:
+#
+#   connector: w17
+#   protocol: 1
+#   command: ["w17ctl", "cairn", "facts", "--jsonl"]
+#   inputs: ["**/*.proto"]
+#   timeout_s: 120
+#   tier: declared
+#   node_kinds: [domain, contract, rpc, entity, event]
+#   edge_kinds:
+#     implemented_by: { propagates: dependency }
+#     part_of:        { propagates: containment }
+connector: w17
+protocol: 1
+command: ["sh", "__SCRIPT__", "__MODE__"]
+# A change under one of these makes the facts stale, and is the cache key.
+inputs: ["**/*.proto"]
+timeout_s: __TIMEOUT__
+tier: declared
+node_kinds: [domain, contract, rpc, entity, event]
+edge_kinds:
+  # A change to the handler reaches the rpc that declares it: the same claim a call edge
+  # makes, so it travels the same way.
+  implemented_by: { propagates: dependency }
+  # Grouping only. An rpc being part of a domain does not make a change to one rpc reach
+  # its siblings.
+  part_of: { propagates: containment }
+  # What a handler does to an entity. A change to the entity reaches the handler.
+  writes: { propagates: dependency }

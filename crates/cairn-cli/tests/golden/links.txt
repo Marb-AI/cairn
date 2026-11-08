@@ -1,0 +1,199 @@
+# Recorded output of one cairn command against the fixture corpus. Do not edit by hand:
+# CAIRN_BLESS=1 cargo test --test golden rewrites every file here.
+#
+# A diff in this file is a change in what the tool says. Read it before blessing it:
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine and `<epoch>`
+# for when a connector last ran; nothing else in an answer is normalised.
+
+$ cairn links ad
+exit 1
+asserted links for [ad] server
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links ne
+exit 1
+asserted links for [ne] 
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links wh
+exit 1
+asserted links for [wh] Station.Altitude
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links 8d
+exit 1
+asserted links for [8d] AlertAck.GetRaised
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links dk
+exit 1
+asserted links for [dk] AlertRequest.Celsius
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links ph
+exit 1
+asserted links for [ph] unimplementedError
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links 2ig
+exit 1
+asserted links for [2ig] 2
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links 7r
+exit 1
+asserted links for [7r] Service.rejected
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links q4
+exit 1
+asserted links for [q4] TestDescribeStationReportsTheRegistry
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links bj
+exit 1
+asserted links for [bj] Mutex.Unlock
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links pu
+exit 1
+asserted links for [pu] ToLower
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links d7
+exit 1
+asserted links for [d7] store
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links yha
+exit 1
+asserted links for [yha] Alert
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links 7y
+exit 1
+asserted links for [7y] Field.name
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links sp
+exit 1
+asserted links for [sp] self
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links zu
+exit 1
+asserted links for [zu] AlertStore.__init__
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links z7
+exit 1
+asserted links for [z7] dict.items
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links 4mg
+exit 1
+asserted links for [4mg] celsius
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links c4
+exit 1
+asserted links for [c4] key
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links t4
+exit 1
+asserted links for [t4] __init__
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links fm
+exit 1
+asserted links for [fm] station_id
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links jz
+exit 1
+asserted links for [jz] SystemExit
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links 3jq
+exit 1
+asserted links for [3jq] TelemetryServiceStub.__init__
+  (none)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn links 2p9
+exit 1
+asserted links for [2p9] test_dispatch_reaches_a_registered_handler
+  (none)
+suppressed: none
+unknown: none
+stale: none
+

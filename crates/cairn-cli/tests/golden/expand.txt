@@ -1,0 +1,629 @@
+# Recorded output of one cairn command against the fixture corpus. Do not edit by hand:
+# CAIRN_BLESS=1 cargo test --test golden rewrites every file here.
+#
+# A diff in this file is a change in what the tool says. Read it before blessing it:
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine and `<epoch>`
+# for when a connector last ran; nothing else in an answer is normalised.
+
+$ cairn expand ad
+exit 0
+[ad] server                                   type   go  srcgo/cmd/collector/main.go:26
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand ad --detail doc --repo <repo>
+exit 0
+[ad] server                                   type   go  srcgo/cmd/collector/main.go:26
+    26 type server struct {
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand ad --detail body --repo <repo>
+exit 0
+[ad] server                                   type   go  srcgo/cmd/collector/main.go:26
+    26 type server struct {
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand ne
+exit 0
+[ne]                                          local  go  <no definition indexed>
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand ne --detail doc --repo <repo>
+exit 1
+[ne]                                          local  go  <no definition indexed>
+suppressed: none
+unknown: no definition indexed, nothing to show
+stale: none
+
+$ cairn expand ne --detail body --repo <repo>
+exit 1
+[ne]                                          local  go  <no definition indexed>
+suppressed: none
+unknown: no definition indexed, nothing to show
+stale: none
+
+$ cairn expand wh
+exit 0
+[wh] Station.Altitude                         value  go  srcgo/internal/station/registry.go:18
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand wh --detail doc --repo <repo>
+exit 0
+[wh] Station.Altitude                         value  go  srcgo/internal/station/registry.go:18
+    18 	Altitude int64
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand wh --detail body --repo <repo>
+exit 0
+[wh] Station.Altitude                         value  go  srcgo/internal/station/registry.go:18
+    18 	Altitude int64
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand 8d
+exit 0
+[8d] AlertAck.GetRaised                       fn     go  srcgo/gen/telemetry/telemetry.pb.go:132-137
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand 8d --detail doc --repo <repo>
+exit 0
+[8d] AlertAck.GetRaised                       fn     go  srcgo/gen/telemetry/telemetry.pb.go:132-137
+   132 func (x *AlertAck) GetRaised() bool {
+   133 	if x == nil {
+   134 		return false
+   135 	}
+   136 	return x.Raised
+   137 }
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand 8d --detail body --repo <repo>
+exit 0
+[8d] AlertAck.GetRaised                       fn     go  srcgo/gen/telemetry/telemetry.pb.go:132-137
+   132 func (x *AlertAck) GetRaised() bool {
+   133 	if x == nil {
+   134 		return false
+   135 	}
+   136 	return x.Raised
+   137 }
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand dk
+exit 0
+[dk] AlertRequest.Celsius                     value  go  srcgo/gen/telemetry/telemetry.pb.go:38
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand dk --detail doc --repo <repo>
+exit 0
+[dk] AlertRequest.Celsius                     value  go  srcgo/gen/telemetry/telemetry.pb.go:38
+    38 	Celsius   float64
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand dk --detail body --repo <repo>
+exit 0
+[dk] AlertRequest.Celsius                     value  go  srcgo/gen/telemetry/telemetry.pb.go:38
+    38 	Celsius   float64
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand ph
+exit 0
+[ph] unimplementedError                       type   go  srcgo/gen/telemetry/telemetry.pb.go:233
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand ph --detail doc --repo <repo>
+exit 0
+[ph] unimplementedError                       type   go  srcgo/gen/telemetry/telemetry.pb.go:233
+   233 type unimplementedError struct{}
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand ph --detail body --repo <repo>
+exit 0
+[ph] unimplementedError                       type   go  srcgo/gen/telemetry/telemetry.pb.go:233
+   233 type unimplementedError struct{}
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand 2ig
+exit 0
+[2ig] 2                                        local  go  <no definition indexed>
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand 2ig --detail doc --repo <repo>
+exit 1
+[2ig] 2                                        local  go  <no definition indexed>
+suppressed: none
+unknown: no definition indexed, nothing to show
+stale: none
+
+$ cairn expand 2ig --detail body --repo <repo>
+exit 1
+[2ig] 2                                        local  go  <no definition indexed>
+suppressed: none
+unknown: no definition indexed, nothing to show
+stale: none
+
+$ cairn expand 7r
+exit 0
+[7r] Service.rejected                         value  go  srcgo/internal/ingest/service.go:29
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand 7r --detail doc --repo <repo>
+exit 0
+[7r] Service.rejected                         value  go  srcgo/internal/ingest/service.go:29
+    29 	rejected int64
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand 7r --detail body --repo <repo>
+exit 0
+[7r] Service.rejected                         value  go  srcgo/internal/ingest/service.go:29
+    29 	rejected int64
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand q4
+exit 0
+[q4] TestDescribeStationReportsTheRegistry    fn     go  srcgo/internal/ingest/service_test.go:83-92
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand q4 --detail doc --repo <repo>
+exit 0
+[q4] TestDescribeStationReportsTheRegistry    fn     go  srcgo/internal/ingest/service_test.go:83-92
+    83 func TestDescribeStationReportsTheRegistry(t *testing.T) {
+    84 	svc, _ := newFixture(t)
+    85 	info, err := svc.DescribeStation(context.Background(), &telemetry.StationQuery{StationId: "alp-01"})
+    86 	if err != nil {
+    87 		t.Fatalf("describe: %v", err)
+    88 	}
+    89 	if info.Altitude != 1200 {
+    90 		t.Errorf("got altitude %d", info.Altitude)
+    91 	}
+    92 }
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand q4 --detail body --repo <repo>
+exit 0
+[q4] TestDescribeStationReportsTheRegistry    fn     go  srcgo/internal/ingest/service_test.go:83-92
+    83 func TestDescribeStationReportsTheRegistry(t *testing.T) {
+    84 	svc, _ := newFixture(t)
+    85 	info, err := svc.DescribeStation(context.Background(), &telemetry.StationQuery{StationId: "alp-01"})
+    86 	if err != nil {
+    87 		t.Fatalf("describe: %v", err)
+    88 	}
+    89 	if info.Altitude != 1200 {
+    90 		t.Errorf("got altitude %d", info.Altitude)
+    91 	}
+    92 }
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand bj
+exit 0
+[bj] Mutex.Unlock                             fn     go  <no definition indexed>
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand bj --detail doc --repo <repo>
+exit 1
+[bj] Mutex.Unlock                             fn     go  <no definition indexed>
+suppressed: none
+unknown: no definition indexed, nothing to show
+stale: none
+
+$ cairn expand bj --detail body --repo <repo>
+exit 1
+[bj] Mutex.Unlock                             fn     go  <no definition indexed>
+suppressed: none
+unknown: no definition indexed, nothing to show
+stale: none
+
+$ cairn expand pu
+exit 0
+[pu] ToLower                                  fn     go  <no definition indexed>
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand pu --detail doc --repo <repo>
+exit 1
+[pu] ToLower                                  fn     go  <no definition indexed>
+suppressed: none
+unknown: no definition indexed, nothing to show
+stale: none
+
+$ cairn expand pu --detail body --repo <repo>
+exit 1
+[pu] ToLower                                  fn     go  <no definition indexed>
+suppressed: none
+unknown: no definition indexed, nothing to show
+stale: none
+
+$ cairn expand d7
+exit 0
+[d7] store                                    param  py  srcpy/alerting/dispatch.py:41
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand d7 --detail doc --repo <repo>
+exit 0
+[d7] store                                    param  py  srcpy/alerting/dispatch.py:41
+    41 def handle_severe_cold(alert: Alert, store: AlertStore) -> str:
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand d7 --detail body --repo <repo>
+exit 0
+[d7] store                                    param  py  srcpy/alerting/dispatch.py:41
+    41 def handle_severe_cold(alert: Alert, store: AlertStore) -> str:
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand yha
+exit 0
+[yha] Alert                                    type   py  srcpy/alerting/models.py:50-72
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand yha --detail doc --repo <repo>
+exit 0
+[yha] Alert                                    type   py  srcpy/alerting/models.py:50-72
+    50 class Alert(Record):
+    51     """One open or closed alert for one station."""
+    52 
+    53     table = "alerts"
+    54 
+    55     station_id = Field("")
+    56     reason = Field("")
+    57     celsius = Field(0.0)
+    58     raised_at = Field(0.0)
+    59     cleared_at = Field(0.0)
+    60     severity = Field("info")
+    61 
+    62     def is_open(self) -> bool:
+    63         return self.raised_at > 0 and self.cleared_at == 0
+    64 
+    65     def clear(self) -> None:
+    66         self.cleared_at = time.time()
+    67 
+    68     def duration_seconds(self) -> float:
+    69         if self.raised_at == 0:
+    70             return 0.0
+    71         end = self.cleared_at or time.time()
+    72         return max(0.0, end - self.raised_at)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand yha --detail body --repo <repo>
+exit 0
+[yha] Alert                                    type   py  srcpy/alerting/models.py:50-72
+    50 class Alert(Record):
+    51     """One open or closed alert for one station."""
+    52 
+    53     table = "alerts"
+    54 
+    55     station_id = Field("")
+    56     reason = Field("")
+    57     celsius = Field(0.0)
+    58     raised_at = Field(0.0)
+    59     cleared_at = Field(0.0)
+    60     severity = Field("info")
+    61 
+    62     def is_open(self) -> bool:
+    63         return self.raised_at > 0 and self.cleared_at == 0
+    64 
+    65     def clear(self) -> None:
+    66         self.cleared_at = time.time()
+    67 
+    68     def duration_seconds(self) -> float:
+    69         if self.raised_at == 0:
+    70             return 0.0
+    71         end = self.cleared_at or time.time()
+    72         return max(0.0, end - self.raised_at)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand 7y
+exit 0
+[7y] Field.name                               value  py  srcpy/alerting/models.py:20
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand 7y --detail doc --repo <repo>
+exit 0
+[7y] Field.name                               value  py  srcpy/alerting/models.py:20
+    20         self.name = ""
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand 7y --detail body --repo <repo>
+exit 0
+[7y] Field.name                               value  py  srcpy/alerting/models.py:20
+    20         self.name = ""
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand sp
+exit 0
+[sp] self                                     param  py  srcpy/alerting/models.py:46
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand sp --detail doc --repo <repo>
+exit 0
+[sp] self                                     param  py  srcpy/alerting/models.py:46
+    46     def __repr__(self) -> str:
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand sp --detail body --repo <repo>
+exit 0
+[sp] self                                     param  py  srcpy/alerting/models.py:46
+    46     def __repr__(self) -> str:
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand zu
+exit 0
+[zu] AlertStore.__init__                      fn     py  srcpy/alerting/models.py:96-98
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand zu --detail doc --repo <repo>
+exit 0
+[zu] AlertStore.__init__                      fn     py  srcpy/alerting/models.py:96-98
+    96     def __init__(self) -> None:
+    97         self._alerts: dict[str, Alert] = {}
+    98         self._state: dict[str, StationState] = {}
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand zu --detail body --repo <repo>
+exit 0
+[zu] AlertStore.__init__                      fn     py  srcpy/alerting/models.py:96-98
+    96     def __init__(self) -> None:
+    97         self._alerts: dict[str, Alert] = {}
+    98         self._state: dict[str, StationState] = {}
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand z7
+exit 0
+[z7] dict.items                               fn     py  <no definition indexed>
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand z7 --detail doc --repo <repo>
+exit 1
+[z7] dict.items                               fn     py  <no definition indexed>
+suppressed: none
+unknown: no definition indexed, nothing to show
+stale: none
+
+$ cairn expand z7 --detail body --repo <repo>
+exit 1
+[z7] dict.items                               fn     py  <no definition indexed>
+suppressed: none
+unknown: no definition indexed, nothing to show
+stale: none
+
+$ cairn expand 4mg
+exit 0
+[4mg] celsius                                  param  py  srcpy/alerting/rules.py:30
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand 4mg --detail doc --repo <repo>
+exit 0
+[4mg] celsius                                  param  py  srcpy/alerting/rules.py:30
+    30 def classify(celsius: float, humidity: float) -> Judgement:
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand 4mg --detail body --repo <repo>
+exit 0
+[4mg] celsius                                  param  py  srcpy/alerting/rules.py:30
+    30 def classify(celsius: float, humidity: float) -> Judgement:
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand c4
+exit 0
+[c4] key                                      param  py  <no definition indexed>
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand c4 --detail doc --repo <repo>
+exit 1
+[c4] key                                      param  py  <no definition indexed>
+suppressed: none
+unknown: no definition indexed, nothing to show
+stale: none
+
+$ cairn expand c4 --detail body --repo <repo>
+exit 1
+[c4] key                                      param  py  <no definition indexed>
+suppressed: none
+unknown: no definition indexed, nothing to show
+stale: none
+
+$ cairn expand t4
+exit 0
+[t4] __init__                                 ?      py  srcpy/schema/telemetry/__init__.py:1
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand t4 --detail doc --repo <repo>
+exit 0
+[t4] __init__                                 ?      py  srcpy/schema/telemetry/__init__.py:1
+     1 """Code generated by protoc-gen-python_betterproto2. DO NOT EDIT.
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand t4 --detail body --repo <repo>
+exit 0
+[t4] __init__                                 ?      py  srcpy/schema/telemetry/__init__.py:1
+     1 """Code generated by protoc-gen-python_betterproto2. DO NOT EDIT.
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand fm
+exit 0
+[fm] station_id                               param  py  srcpy/alerting/worker.py:33
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand fm --detail doc --repo <repo>
+exit 0
+[fm] station_id                               param  py  srcpy/alerting/worker.py:33
+    33     async def feed(self, station_id: str, celsius: float) -> str:
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand fm --detail body --repo <repo>
+exit 0
+[fm] station_id                               param  py  srcpy/alerting/worker.py:33
+    33     async def feed(self, station_id: str, celsius: float) -> str:
+suppressed: none
+unknown: the indexer gave no body extent for this symbol; showing its definition line only
+stale: none
+
+$ cairn expand jz
+exit 0
+[jz] SystemExit                               type   py  <no definition indexed>
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand jz --detail doc --repo <repo>
+exit 1
+[jz] SystemExit                               type   py  <no definition indexed>
+suppressed: none
+unknown: no definition indexed, nothing to show
+stale: none
+
+$ cairn expand jz --detail body --repo <repo>
+exit 1
+[jz] SystemExit                               type   py  <no definition indexed>
+suppressed: none
+unknown: no definition indexed, nothing to show
+stale: none
+
+$ cairn expand 3jq
+exit 0
+[3jq] TelemetryServiceStub.__init__            fn     py  srcpy/schema/telemetry/__init__.py:73-74
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand 3jq --detail doc --repo <repo>
+exit 0
+[3jq] TelemetryServiceStub.__init__            fn     py  srcpy/schema/telemetry/__init__.py:73-74
+    73     def __init__(self, channel: object) -> None:
+    74         self._channel = channel
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand 3jq --detail body --repo <repo>
+exit 0
+[3jq] TelemetryServiceStub.__init__            fn     py  srcpy/schema/telemetry/__init__.py:73-74
+    73     def __init__(self, channel: object) -> None:
+    74         self._channel = channel
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand 2p9
+exit 0
+[2p9] test_dispatch_reaches_a_registered_hand~ fn     py  srcpy/tests/test_rules.py:56-59
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand 2p9 --detail doc --repo <repo>
+exit 0
+[2p9] test_dispatch_reaches_a_registered_hand~ fn     py  srcpy/tests/test_rules.py:56-59
+    56 def test_dispatch_reaches_a_registered_handler() -> None:
+    57     store = AlertStore()
+    58     alert = store.open_alert("alp-01", "severe cold", -30.0)
+    59     assert "alp-01" in dispatch(alert, store)
+suppressed: none
+unknown: none
+stale: none
+
+$ cairn expand 2p9 --detail body --repo <repo>
+exit 0
+[2p9] test_dispatch_reaches_a_registered_hand~ fn     py  srcpy/tests/test_rules.py:56-59
+    56 def test_dispatch_reaches_a_registered_handler() -> None:
+    57     store = AlertStore()
+    58     alert = store.open_alert("alp-01", "severe cold", -30.0)
+    59     assert "alp-01" in dispatch(alert, store)
+suppressed: none
+unknown: none
+stale: none
+

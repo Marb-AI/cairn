@@ -17,6 +17,7 @@ use std::time::Instant;
 /// Exit codes are part of the contract: an agent must be able to tell "nothing is
 /// there" from "I cannot see" (architecture 6.1.1).
 mod docker;
+mod flow;
 mod index;
 mod purpose;
 mod skill;
@@ -44,8 +45,30 @@ struct Cli {
     #[arg(long, global = true)]
     budget: Option<usize>,
 
+    // One paragraph, deliberately. A second one turns this into clap's *long* help, and
+    // clap then prints every command's help in the expanded layout - which rewrote six
+    // hundred lines of docs/cli-reference.md for one flag. The reasoning lives here
+    // instead: text stays the primary format because braces and repeated keys cost
+    // several times the tokens of an aligned table, and cheaper context is the point.
+    // JSON carries the same answer with the envelope as fields, for a wrapper, an editor
+    // or a check in CI.
+    /// Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both.
+    #[arg(long, global = true, value_enum, default_value_t = Format::Text)]
+    format: Format,
+
     #[command(subcommand)]
     cmd: Cmd,
+}
+
+/// Which format an answer is printed in. See `Cli::format`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum Format {
+    // Plain comments, not doc comments: per-value help is only shown in clap's *long*
+    // layout, and giving it any forces every command's help into that layout. `text` is
+    // aligned text with the envelope as its last three lines; `json` is one
+    // `cairn.answer/1` object with the envelope as fields.
+    Text,
+    Json,
 }
 
 #[derive(Subcommand)]
@@ -232,6 +255,9 @@ enum Cmd {
         handle: String,
         #[arg(long)]
         include_generated: bool,
+        /// Only sites inside this declared container, e.g. `w17:domain/orders`.
+        #[arg(long)]
+        within: Option<String>,
         #[arg(long, default_value_t = 40)]
         limit: usize,
         /// How much source to show at each site: none | line | block | <n> | auto.
@@ -267,6 +293,9 @@ enum Cmd {
         /// Repo root, required when --detail prints source.
         #[arg(long)]
         repo: Option<PathBuf>,
+        /// Only nodes inside this declared container, e.g. `w17:domain/orders`.
+        #[arg(long)]
+        within: Option<String>,
     },
     /// The conventions cairn reads the world with, and where they came from.
     ///
@@ -305,6 +334,9 @@ enum Cmd {
         depth: usize,
         #[arg(long, default_value_t = 200)]
         fanout: usize,
+        /// Only routes whose code is inside this declared container.
+        #[arg(long)]
+        within: Option<String>,
     },
     /// Which deployed services can run this code - the filesystem cannot say.
     Runs {
@@ -327,6 +359,17 @@ enum Cmd {
         max_depth: usize,
         #[arg(long, default_value = "skeleton")]
         detail: String,
+        #[arg(long)]
+        repo: Option<PathBuf>,
+    },
+    /// Control flow inside one function: branches, early returns, calls, defers.
+    ///
+    /// The call graph is between functions, and reviewing one handler needs the tree
+    /// inside it. Computed on demand by a per-language provider that runs in the indexer
+    /// image, and cached on the content of the file - so asking twice costs one parse.
+    Flow {
+        handle: String,
+        /// Repo root. Worked out from the index's own location when omitted.
         #[arg(long)]
         repo: Option<PathBuf>,
     },
@@ -560,21 +603,17 @@ fn report(argv: &[String], code: u8, elapsed: std::time::Duration) {
     );
 }
 
-/// Print an answer, and remember what it carried.
+/// What the index itself cannot answer for, as envelope entries.
 ///
-/// Every envelope leaves through here. Printing and recording being one step is the
-/// point: the session log is read to ask why an agent ran the same query four times, and
-/// that question is only answerable if the row count and the "I left something out" flag
-/// in the log are the ones that were in front of it when it decided to ask again.
-/// The two envelope lines `status` was missing.
+/// `status` is the command the agent guide says to run first, and it printed only
+/// `stale:` — so it was the one answer where a reader who had learned to check `unknown:`
+/// found nothing there. Its sibling report `verify` prints all three. Found by the stress
+/// harness comparing the two.
 ///
-/// Every other answer ends with `unknown:` / `suppressed:` / `stale:`, and the agent guide
-/// tells the reader that is where the honesty lives. `status` printed only `stale:` — and
-/// it is the command the guide says to run first, so it was the one answer where a reader
-/// who had learned to check `unknown:` found nothing there. Its sibling report `verify`
-/// prints all three. Found by the stress harness comparing the two.
-fn envelope_tail(store: &Store) {
-    println!("suppressed: none");
+/// Returned rather than printed, so the same facts can be lines or fields. One source,
+/// two formats: a JSON `status` whose `unknown` disagreed with the text one would be the
+/// silent-gap failure in a new dress.
+fn index_unknown(store: &Store) -> Vec<String> {
     let partial: Vec<String> = store
         .coverage(None)
         .map(|c| {
@@ -590,15 +629,14 @@ fn envelope_tail(store: &Store) {
         })
         .unwrap_or_default();
     if partial.is_empty() {
-        println!("unknown: none");
-    } else {
-        println!(
-            "unknown: {} mechanism(s) did not complete ({}), so answers resting on them \
-             are incomplete and will not say so",
-            partial.len(),
-            partial.join(", ")
-        );
+        return Vec::new();
     }
+    vec![format!(
+        "{} mechanism(s) did not complete ({}), so answers resting on them \
+         are incomplete and will not say so",
+        partial.len(),
+        partial.join(", ")
+    )]
 }
 
 /// Languages this index covers only in part, remembered for the process.
@@ -611,8 +649,25 @@ fn envelope_tail(store: &Store) {
 /// thing the answer could not see.
 static PARTIAL: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 
+/// What the connectors behind this index could not determine, remembered for the process.
+///
+/// The same reasoning as `PARTIAL`, for the same reason: a gap only `cairn index` printed
+/// is a gap the reader of an answer never sees. A connector that could not read a compose
+/// file leaves `runs` and `affects` answering from nothing, and neither of them can infer
+/// that by itself.
+static CONNECTOR_GAPS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
+/// Connectors being refreshed right now, as the watcher reported them.
+///
+/// The staleness a dirty file cannot express: a `.proto` change makes a connector's facts
+/// out of date without making any indexed file dirty, so without this an answer resting
+/// on declared facts would report a clean tree while describing the previous version of
+/// a contract.
+static REFRESHING: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
 /// Read once, after the store is open, so the note costs one query per process.
 fn note_partial_index(store: &Store) {
+    let _ = CONNECTOR_GAPS.set(store.connector_unknown().unwrap_or_default());
     let langs = store.failed_projects().map(|f| {
         let mut v: Vec<String> = f
             .into_iter()
@@ -625,6 +680,98 @@ fn note_partial_index(store: &Store) {
     let _ = PARTIAL.set(langs.unwrap_or_default());
 }
 
+/// The format asked for, and the command that was asked, read once per process.
+///
+/// Statics rather than a parameter threaded through forty call sites: both are decided
+/// before the first answer exists and neither can change while one is being built. The
+/// same shape `PARTIAL` already uses, and for the same reason.
+static FORMAT: std::sync::OnceLock<Format> = std::sync::OnceLock::new();
+static COMMAND: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// The command as it would be typed, for the `command` field of a JSON answer.
+///
+/// Taken from the parsed command rather than from `argv`: a reader of the JSON needs to
+/// know which question this answers, and `argv` carries flags, a `--db` path and
+/// whatever shell quoting survived. `for change` and `concept show` are two words
+/// because that is what the caller typed.
+fn command_name(cmd: &Cmd) -> String {
+    match cmd {
+        Cmd::Index { .. } => "index",
+        Cmd::Skill => "skill",
+        Cmd::For { purpose, .. } => match purpose {
+            Purpose::Change => "for change",
+            Purpose::Understand => "for understand",
+            Purpose::Find => "for find",
+        },
+        Cmd::Context { .. } => "context",
+        Cmd::Unreached { .. } => "unreached",
+        Cmd::Outline { .. } => "outline",
+        Cmd::Usage { .. } => "usage",
+        Cmd::Symbol { .. } => "symbol",
+        Cmd::Refs { .. } => "refs",
+        Cmd::Graph { .. } => "graph",
+        Cmd::Rules => "rules",
+        Cmd::Config { .. } => "config",
+        Cmd::Topology => "topology",
+        Cmd::Entrypoints { .. } => "entrypoints",
+        Cmd::Affects { .. } => "affects",
+        Cmd::Runs { .. } => "runs",
+        Cmd::Reaches { .. } => "reaches",
+        Cmd::Path { .. } => "path",
+        Cmd::Expand { .. } => "expand",
+        Cmd::Flow { .. } => "flow",
+        Cmd::Weak { .. } => "weak",
+        Cmd::Weaklinks { .. } => "weaklinks",
+        Cmd::Verify { .. } => "verify",
+        Cmd::Link { .. } => "link",
+        Cmd::Links { .. } => "links",
+        Cmd::Concept(sub) => match sub {
+            ConceptCmd::Add { .. } => "concept add",
+            ConceptCmd::Link { .. } => "concept link",
+            ConceptCmd::Show { .. } => "concept show",
+            ConceptCmd::List { .. } => "concept list",
+            ConceptCmd::Drop { .. } => "concept drop",
+        },
+        Cmd::Daemon { .. } => "daemon",
+        Cmd::Live { .. } => "live",
+        Cmd::Literal { .. } => "literal",
+        Cmd::Docs { .. } => "docs",
+        Cmd::Status => "status",
+        Cmd::Llm { cmd } => match cmd {
+            LlmCmd::Verify { .. } => "llm verify",
+        },
+    }
+    .to_string()
+}
+
+fn format() -> Format {
+    *FORMAT.get().unwrap_or(&Format::Text)
+}
+
+fn command() -> &'static str {
+    COMMAND.get().map(|s| s.as_str()).unwrap_or("")
+}
+
+/// Print something that carries no envelope today, without inventing one.
+///
+/// `rules` and `config` print a rule pack and a settings list: they are not answers about
+/// a codebase, so they have never ended in `suppressed:`/`unknown:`/`stale:` and adding
+/// those lines now would change text output for no gain (I2). In JSON they still have to
+/// come back as an answer object rather than as a bare page of text, because `--format
+/// json` that sometimes yields JSON is worse than no flag at all.
+fn emit_plain(body: String) {
+    match format() {
+        Format::Text => print!("{body}"),
+        Format::Json => println!("{}", cairn_fmt::Envelope::new(body).json(command())),
+    }
+}
+
+/// Print an answer, and remember what it carried.
+///
+/// Every envelope leaves through here. Printing and recording being one step is the
+/// point: the session log is read to ask why an agent ran the same query four times, and
+/// that question is only answerable if the row count and the "I left something out" flag
+/// in the log are the ones that were in front of it when it decided to ask again.
 fn emit(mut env: cairn_fmt::Envelope) {
     if let Some(partial) = PARTIAL.get().filter(|p| !p.is_empty()) {
         env.unknown.push(format!(
@@ -634,8 +781,27 @@ fn emit(mut env: cairn_fmt::Envelope) {
             partial.join("; ")
         ));
     }
+    for gap in CONNECTOR_GAPS.get().into_iter().flatten() {
+        env.unknown.push(gap.clone());
+    }
+    if let Some(names) = REFRESHING.get().filter(|n| !n.is_empty()) {
+        env.stale.push(format!(
+            "connector {} {} inputs that changed since {} facts were built, so anything \
+             declared here is the previous run's. A refresh is in flight; nothing waits \
+             for it",
+            names.join(", "),
+            if names.len() == 1 { "has" } else { "have" },
+            if names.len() == 1 { "its" } else { "their" }
+        ));
+    }
     track::observe(env.rows, env.truncated());
-    print!("{}", env.render());
+    // One envelope, two renderings. The session log is written from the envelope rather
+    // than from either rendering, so what was recorded cannot depend on the format the
+    // caller asked for.
+    match format() {
+        Format::Text => print!("{}", env.render()),
+        Format::Json => println!("{}", env.json(command())),
+    }
 }
 
 /// Repo-relative paths mentioned by an answer, for staleness marking.
@@ -1055,16 +1221,27 @@ fn run() -> Result<u8> {
     let cli = Cli::parse();
     let db = cli.db.unwrap_or_else(default_db);
     let cli_budget = cli.budget;
+    let _ = FORMAT.set(cli.format);
+    let _ = COMMAND.set(command_name(&cli.cmd));
     let mut budget = Budget::from_opt(cli.budget);
     // Asked once per invocation, best-effort: a missing daemon is a normal state and
     // must never fail a query, only change what the answer can claim about freshness.
-    let dirty: Option<Vec<String>> =
-        cairn_daemon::client::dirty_if_running(&cairn_daemon::socket_path(&db)).map(|d| {
-            d.modified
-                .into_iter()
-                .chain(d.removed)
-                .collect::<Vec<String>>()
-        });
+    let live = cairn_daemon::client::dirty_if_running(&cairn_daemon::socket_path(&db));
+    // Connectors whose inputs have changed since their facts were built. Remembered for
+    // the process and put on every answer rather than waited for (D7): the facts in the
+    // index are the previous run's, and saying whose they are costs nothing while
+    // blocking on a rerun would cost the caller the round trip.
+    let _ = REFRESHING.set(
+        live.as_ref()
+            .map(|d| d.stale_connectors.clone())
+            .unwrap_or_default(),
+    );
+    let dirty: Option<Vec<String>> = live.map(|d| {
+        d.modified
+            .into_iter()
+            .chain(d.removed)
+            .collect::<Vec<String>>()
+    });
     // Nobody should have to know the daemon exists. If this repository has an index and
     // nothing is watching it, start one and carry on — the command it was asked to run
     // does not wait, so the only cost is that this one answer cannot report freshness.
@@ -1222,13 +1399,98 @@ fn run() -> Result<u8> {
                 }
             }
 
-            // Cross-language links are derived once the whole index is in place: the
-            // two sides of a service boundary usually arrive from different SCIP files.
-            let links = store.link_services()?;
-            println!(
-                "services: {} gRPC services, {} serve links, {} call links",
-                links.services, links.serves, links.calls
-            );
+            // Connectors, in manifest order, and then the derivations that build on what
+            // they contributed.
+            //
+            // The order is the fix this phase exists for. Protobuf service links and the
+            // deployment layer used to be two blocks of this function with the weak-link
+            // derivation wedged between them, which happened to work only because
+            // nothing derived depended on the deployment facts yet. With external
+            // connectors contributing edges, anything derived has to run after every
+            // connector or it derives from half an index.
+            {
+                use cairn_store::connect::Connector;
+                // The built-in one first, then every manifest under
+                // `.cairn/connectors/`, in name order. First because its facts — service
+                // links, the deployment layer — are what an external connector's `scip:`
+                // references resolve against.
+                let mut connectors: Vec<Box<dyn Connector>> =
+                    vec![Box::new(cairn_store::connect::DefaultConnector::new())];
+                let manifest_dir = db
+                    .parent()
+                    .map(|d| d.join(cairn_store::connect::manifest::DIR))
+                    .unwrap_or_default();
+                let (manifests, manifest_problems) =
+                    cairn_store::connect::Manifest::load_dir(&manifest_dir);
+                for m in manifests {
+                    println!(
+                        "connector {}: {} input glob(s), {} node kind(s), {} edge kind(s)",
+                        m.name,
+                        m.inputs.len(),
+                        m.node_kinds.len(),
+                        m.edge_kinds.len()
+                    );
+                    connectors.push(Box::new(cairn_store::connect::ExternalConnector::new(m)));
+                }
+                // A manifest that would not load is a connector that contributes
+                // nothing, and that has to be said on every answer rather than once on
+                // stderr during an index nobody was watching.
+                if !manifest_problems.is_empty() {
+                    let report = cairn_store::connect::ConnectorReport {
+                        unknown: manifest_problems.clone(),
+                        ..Default::default()
+                    };
+                    for p in &manifest_problems {
+                        eprintln!("cairn: {p}");
+                    }
+                    let manifest = cairn_store::connect::Manifest {
+                        name: "manifests".to_string(),
+                        version: None,
+                        inputs: Vec::new(),
+                        tier: cairn_store::connect::Tier::Declared,
+                        node_kinds: Vec::new(),
+                        edge_kinds: Default::default(),
+                        digest: Vec::new(),
+                        command: Vec::new(),
+                        timeout_s: 0,
+                    };
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs() as i64)
+                        .unwrap_or(0);
+                    store.record_connector_run(&manifest, &report, now)?;
+                }
+                let ran_at = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                for c in &connectors {
+                    let mut ctx = cairn_store::connect::ConnectorCtx {
+                        store: &mut store,
+                        repo: repo.as_deref(),
+                    };
+                    // A connector that fails does not fail the index: the rest of the
+                    // answer is still worth having, and what is missing is recorded as a
+                    // gap rather than left to be inferred from an absence.
+                    let report = match c.run(&mut ctx) {
+                        Ok(report) => report,
+                        Err(e) => {
+                            eprintln!("cairn: connector {} failed: {e:#}", c.name());
+                            cairn_store::connect::ConnectorReport {
+                                unknown: vec![format!(
+                                    "failed during indexing ({e:#}), so the facts it \
+                                     contributes are missing from every answer here"
+                                )],
+                                ..Default::default()
+                            }
+                        }
+                    };
+                    for line in &report.log {
+                        println!("{line}");
+                    }
+                    store.record_connector_run(c.manifest(), &report, ran_at)?;
+                }
+            }
             // Derive the weak layer here rather than leaving it to a command nobody runs.
             //
             // It was a separate `cairn weak`, and on this repository it had never been
@@ -1247,38 +1509,6 @@ fn run() -> Result<u8> {
                     // Not fatal: the index is useful without it, and the commands that
                     // depend on it now say so rather than reporting a clean bill.
                     Err(e) => eprintln!("cairn: weak-link layer not built: {e:#}"),
-                }
-            }
-            if let Some(root) = repo.as_deref() {
-                let topo = cairn_store::deploy::parse_compose(
-                    root,
-                    &[
-                        "compose.yaml",
-                        "compose.yml",
-                        "docker-compose.yml",
-                        "compose.local.yaml",
-                        "compose.override.yaml",
-                    ],
-                )?;
-                if !topo.services.is_empty() {
-                    let d = store.link_deployment(root, &topo)?;
-                    println!(
-                        "deploy:   {} services from {}, {} with a resolved entrypoint{}",
-                        d.services,
-                        topo.sources.join(" + "),
-                        d.with_entrypoint,
-                        if d.on_demand > 0 {
-                            format!(", {} on-demand entrypoint(s) from cron", d.on_demand)
-                        } else {
-                            String::new()
-                        }
-                    );
-                    // Naming them rather than counting: an unresolved entrypoint makes
-                    // live code look unreachable, which is the failure mode 8.4 warns
-                    // about.
-                    if !d.unresolved.is_empty() {
-                        println!("          unresolved: {}", d.unresolved.join(", "));
-                    }
                 }
             }
             let c = store.counts()?;
@@ -1564,6 +1794,7 @@ fn run() -> Result<u8> {
         Cmd::Refs {
             handle,
             include_generated,
+            within,
             limit,
             context,
             repo,
@@ -1585,8 +1816,25 @@ fn run() -> Result<u8> {
             } else {
                 limit
             };
-            let (refs, suppressed, total) =
+            let (mut refs, suppressed, total) =
                 store.references(symbol_id, include_generated, effective_limit)?;
+            // `--within`: only the sites inside a declared container. Filtered here
+            // rather than in the query because containment is a declared relation and
+            // the query is about occurrences - and because what was cut has to be
+            // reported, which a `WHERE` clause cannot do.
+            let scope = within_scope(&store, within.as_deref(), cli_budget)?;
+            let outside = match &scope {
+                None => 0,
+                Some((_, inside)) => {
+                    let before = refs.len();
+                    refs.retain(|r| {
+                        r.enclosing_id
+                            .map(|id| inside.contains(&id))
+                            .unwrap_or(false)
+                    });
+                    before - refs.len()
+                }
+            };
             let found = !refs.is_empty();
             let paths: Vec<String> = refs.iter().map(|r| r.path.clone()).collect();
             let ctx = if context == "auto" {
@@ -1612,18 +1860,20 @@ fn run() -> Result<u8> {
                     .and_then(|d| d.parent())
                     .map(|root| Source::new(root.to_path_buf())),
             };
-            emit(
-                cairn_fmt::references_with_context(
-                    &sym,
-                    &refs,
-                    suppressed,
-                    total,
-                    source.as_mut(),
-                    ctx,
-                    &mut budget,
-                )
-                .mark_stale(dirty.as_deref(), &paths),
-            );
+            let mut env = cairn_fmt::references_with_context(
+                &sym,
+                &refs,
+                suppressed,
+                total,
+                source.as_mut(),
+                ctx,
+                &mut budget,
+            )
+            .mark_stale(dirty.as_deref(), &paths);
+            if let Some((label, _)) = &scope {
+                env = env.within(label.clone(), outside);
+            }
+            emit(env);
             Ok(if found { exit::FOUND } else { exit::NOT_FOUND })
         }
 
@@ -1636,6 +1886,7 @@ fn run() -> Result<u8> {
             detail,
             repo,
             exclude_tests,
+            within,
         } => {
             let store = open(&db)?;
             let Some(symbol_id) = subject(&store, &handle, cli_budget)? else {
@@ -1669,7 +1920,15 @@ fn run() -> Result<u8> {
                 Aspect::Impls => (EdgeKind::Implements, Direction::In, "implementations of"),
                 Aspect::Tests => unreachable!("handled above"),
             };
-            let w = store.walk(symbol_id, kind, dir, depth, fanout, exclude_tests)?;
+            let mut w = store.walk(symbol_id, kind, dir, depth, fanout, exclude_tests)?;
+            // `--within`: the same walk, inside a declared container. The tree survives
+            // the filter - a node whose parent was dropped is re-pointed at its nearest
+            // surviving ancestor - so what prints is still a tree of real edges.
+            let scope = within_scope(&store, within.as_deref(), cli_budget)?;
+            let outside = match &scope {
+                None => 0,
+                Some((_, inside)) => w.retain_ids(inside),
+            };
             let root = w
                 .nodes
                 .first()
@@ -1680,6 +1939,9 @@ fn run() -> Result<u8> {
             let paths = paths_of(w.nodes.iter().map(|n| n.symbol.def.as_ref()));
             let mut env = cairn_fmt::walk(&w, &title, view, detail, source.as_mut(), &mut budget)
                 .mark_stale(dirty.as_deref(), &paths);
+            if let Some((label, _)) = &scope {
+                env = env.within(label.clone(), outside);
+            }
             // References with no enclosing body are module-level, not missing. Say so
             // rather than letting the count look like a gap.
             if matches!(aspect, Aspect::Callers) {
@@ -1711,18 +1973,21 @@ fn run() -> Result<u8> {
                     let where_from = cairn_store::Config::source()
                         .map(|p| p.display().to_string())
                         .unwrap_or_else(|| "defaults (nothing has been set yet)".to_string());
-                    println!("# from: {where_from}");
+                    let mut out = format!("# from: {where_from}\n");
                     let width = cairn_store::config::SETTINGS
                         .iter()
                         .map(|(k, _)| k.len())
                         .max()
                         .unwrap_or(0);
                     for (key, description) in cairn_store::config::SETTINGS {
-                        println!(
+                        use std::fmt::Write as _;
+                        let _ = writeln!(
+                            out,
                             "{key:<width$}  {:<8}  {description}",
                             cfg.get(key).unwrap_or_default()
                         );
                     }
+                    emit_plain(out);
                     Ok(exit::FOUND)
                 }
                 Some(a) => {
@@ -1743,7 +2008,6 @@ fn run() -> Result<u8> {
                 Some(p) if p.exists() => format!("{}", p.display()),
                 _ => "built-in defaults (no rules.yaml beside the index)".to_string(),
             };
-            println!("# effective rule pack, from: {from}");
             match cairn_store::Rules::load(path.as_deref()) {
                 Ok(_) => {}
                 Err(e) => {
@@ -1751,11 +2015,11 @@ fn run() -> Result<u8> {
                     return Ok(exit::ERROR);
                 }
             }
-            if let Some(p) = path.as_deref().filter(|p| p.exists()) {
-                print!("{}", std::fs::read_to_string(p)?);
-            } else {
-                print!("{}", cairn_store::Rules::builtin_text());
-            }
+            let pack = match path.as_deref().filter(|p| p.exists()) {
+                Some(p) => std::fs::read_to_string(p)?,
+                None => cairn_store::Rules::builtin_text().to_string(),
+            };
+            emit_plain(format!("# effective rule pack, from: {from}\n{pack}"));
             Ok(exit::FOUND)
         }
 
@@ -2002,18 +2266,41 @@ fn run() -> Result<u8> {
             handle,
             depth,
             fanout,
+            within,
         } => {
             let store = open(&db)?;
             let Some(symbol_id) = subject(&store, &handle, cli_budget)? else {
                 return Ok(exit::ERROR);
             };
             let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
-            let a = store.affects(symbol_id, depth, fanout)?;
+            let mut a = store.affects(symbol_id, depth, fanout)?;
+            // `--within`: only the routes whose code sits inside a declared container.
+            // A hop is kept when either end of the call it describes is inside, because
+            // a route *into* the container is as much part of its blast radius as one
+            // that starts there.
+            let scope = within_scope(&store, within.as_deref(), cli_budget)?;
+            let outside = match &scope {
+                None => 0,
+                Some((_, inside)) => {
+                    let before = a.hops.len() + a.outgoing.len();
+                    a.hops.retain(|h| {
+                        inside.contains(&h.call_site.id) || inside.contains(&h.handler.id)
+                    });
+                    a.outgoing.retain(|o| inside.contains(&o.via.id));
+                    // The in-process side is about the symbol itself, which is the
+                    // subject rather than a row inside the container, so it is left
+                    // alone: scoping it would answer a different question.
+                    before - (a.hops.len() + a.outgoing.len())
+                }
+            };
             let found = !a.in_process.is_empty() || !a.hops.is_empty();
             let gap = deployment_gap(&store);
             let mut env = cairn_fmt::affects(&sym, &a, &mut budget);
             if let Some(note) = &gap {
                 env = env.unknown(note.clone());
+            }
+            if let Some((label, _)) = &scope {
+                env = env.within(label.clone(), outside);
             }
             emit(env);
             Ok(match (found, gap.is_some()) {
@@ -2200,9 +2487,17 @@ fn run() -> Result<u8> {
                 None => {
                     // "Not within this bound" is a different statement from "never",
                     // and the difference matters to whoever asked.
+                    // Data on the negative too: a consumer asking "is there a path"
+                    // gets an empty chain, which is an answer, rather than `null`,
+                    // which is indistinguishable from a command that does not publish
+                    // any.
                     let mut env = cairn_fmt::Envelope::new(format!(
                         "no call path from [{from}] to [{to}] within {max_depth} hops\n"
                     ))
+                    .data(cairn_fmt::PathData {
+                        hops: 0,
+                        chain: Vec::new(),
+                    })
                     .unknown(
                         "only static calls were followed; a dynamic dispatch on the way \
                          would not appear here",
@@ -2249,6 +2544,46 @@ fn run() -> Result<u8> {
             }
         }
 
+        Cmd::Flow { handle, repo } => {
+            let store = open(&db)?;
+            let Some(symbol_id) = subject(&store, &handle, cli_budget)? else {
+                return Ok(exit::ERROR);
+            };
+            let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
+            // The repository the index was found in, when the caller did not say: the
+            // same fallback `refs --context` learned to make after two measured rounds
+            // were spent supplying a value the binary had already computed.
+            let root = repo.or_else(|| repo_for(&db));
+            match flow::flow_of(&store, &sym, root.as_deref())? {
+                Ok(f) => {
+                    let stale_paths = vec![f.file.clone()];
+                    let nodes = f.nodes.len();
+                    emit(
+                        cairn_fmt::flow(&f, &mut budget).mark_stale(dirty.as_deref(), &stale_paths),
+                    );
+                    Ok(if nodes > 0 {
+                        exit::FOUND
+                    } else {
+                        exit::NOT_FOUND
+                    })
+                }
+                // Not an error: the question was well formed and the answer is that this
+                // cannot be described here. An exit code of 2 would tell an agent it
+                // asked wrong, and it did not.
+                Err(why) => {
+                    emit(
+                        cairn_fmt::Envelope::new(format!(
+                            "no flow for [{}] {}\n",
+                            sym.handle,
+                            sym.qualified()
+                        ))
+                        .unknown(why),
+                    );
+                    Ok(exit::NOT_FOUND)
+                }
+            }
+        }
+
         Cmd::Expand {
             handle,
             detail,
@@ -2260,14 +2595,22 @@ fn run() -> Result<u8> {
             };
             let sym = store.symbol(symbol_id)?.context("handle has no symbol")?;
             let mut body = format!("{}\n", cairn_fmt::symbol_line(&sym));
+            // The lines actually printed, collected as they are printed so the data and
+            // the page cannot describe two different extents.
+            let mut shown_source: Vec<cairn_fmt::SourceLine> = Vec::new();
+            let data = |detail: &str, source: Vec<cairn_fmt::SourceLine>| cairn_fmt::ExpandData {
+                symbol: cairn_fmt::SymbolJson::of(&sym),
+                detail: detail.to_string(),
+                source,
+            };
             let mut env;
             match detail.as_str() {
                 "skeleton" => {
-                    env = cairn_fmt::Envelope::new(body);
+                    env = cairn_fmt::Envelope::new(body).data(data("skeleton", Vec::new()));
                 }
                 "body" | "doc" => {
                     let Some(def) = &sym.def else {
-                        env = cairn_fmt::Envelope::new(body);
+                        env = cairn_fmt::Envelope::new(body).data(data(&detail, Vec::new()));
                         env = env.unknown("no definition indexed, nothing to show");
                         emit(env);
                         return Ok(exit::NOT_FOUND);
@@ -2288,8 +2631,12 @@ fn run() -> Result<u8> {
                         if !budget.push(&mut body, &format!("{:>6} {line}", i + 1)) {
                             break;
                         }
+                        shown_source.push(cairn_fmt::SourceLine {
+                            line: i + 1,
+                            text: line.to_string(),
+                        });
                     }
-                    env = cairn_fmt::Envelope::new(body);
+                    env = cairn_fmt::Envelope::new(body).data(data(&detail, shown_source));
                     if sym.def_end_line.is_none() {
                         env = env.unknown(
                             "the indexer gave no body extent for this symbol; showing its \
@@ -2466,6 +2813,57 @@ fn run() -> Result<u8> {
             // The reload closure, rather than a dependency: the daemon watches files and
             // has no business opening a database, so it asks for the snapshot instead.
             let db_for_reload = db.clone();
+            // The connectors this index was built with, so a change to one of their
+            // inputs reruns that one and nothing else. The globs are compiled here
+            // rather than passed through: the matcher lives beside the manifest parser,
+            // and the daemon has no business depending on it.
+            let manifest_dir = db
+                .parent()
+                .map(|d| d.join(cairn_store::connect::manifest::DIR))
+                .unwrap_or_default();
+            let (manifests, manifest_problems) =
+                cairn_store::connect::Manifest::load_dir(&manifest_dir);
+            for p in &manifest_problems {
+                eprintln!("cairn daemon: {p}");
+            }
+            let watches: Vec<cairn_daemon::ConnectorWatch> = manifests
+                .iter()
+                .map(|m| {
+                    let globs = m.inputs.clone();
+                    cairn_daemon::ConnectorWatch {
+                        name: m.name.clone(),
+                        matches: Box::new(move |rel: &str| {
+                            cairn_store::connect::manifest::matches_any(rel, &globs)
+                        }),
+                    }
+                })
+                .collect();
+            let by_name: HashMap<String, cairn_store::connect::Manifest> =
+                manifests.into_iter().map(|m| (m.name.clone(), m)).collect();
+            let db_for_refresh = db.clone();
+            let repo_for_refresh = repo.clone();
+            let refresh: cairn_daemon::RefreshConnector = Box::new(move |name: &str| {
+                let manifest = by_name
+                    .get(name)
+                    .with_context(|| format!("no manifest for connector {name}"))?;
+                let mut store = cairn_store::Store::open(&db_for_refresh)?;
+                let connector = cairn_store::connect::ExternalConnector::new(manifest.clone());
+                let mut ctx = cairn_store::connect::ConnectorCtx {
+                    store: &mut store,
+                    repo: Some(&repo_for_refresh),
+                };
+                use cairn_store::connect::Connector;
+                let report = connector.run(&mut ctx)?;
+                let ran_at = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                store.record_connector_run(manifest, &report, ran_at)?;
+                if report.failed {
+                    anyhow::bail!("the run failed; the previous facts are still in place");
+                }
+                Ok(())
+            });
             cairn_daemon::Daemon::new(&repo, &socket, indexed, &roots, container)
                 .watch_index(
                     &db,
@@ -2476,6 +2874,7 @@ fn run() -> Result<u8> {
                             .ok()
                     }),
                 )
+                .watch_connectors(watches, refresh)
                 .run()?;
             // The container is deliberately left running. It costs a sleeping process and
             // a mount, and tearing it down on every daemon exit raced the next daemon
@@ -2508,17 +2907,22 @@ fn run() -> Result<u8> {
 
         Cmd::Status => {
             if !db.exists() {
+                // Deliberately not an envelope: there is no index to open, so there is no
+                // answer to wrap. `--format json` is about answers, and a caller that got
+                // one here would have to parse it to find out there is nothing to parse.
                 println!("no index at {}", db.display());
                 println!("degraded: nothing indexed yet - run `cairn index` in this repository");
                 return Ok(exit::DEGRADED);
             }
             let store = open(&db)?;
             let c = store.counts()?;
-            println!("index      {}", db.display());
-            println!("files      {}", c.files);
-            println!("symbols    {}", c.symbols);
-            println!("occurrence {}", c.occurrences);
-            println!("generated  {} files", c.generated_files);
+            use std::fmt::Write as _;
+            let mut body = String::new();
+            let _ = writeln!(body, "index      {}", db.display());
+            let _ = writeln!(body, "files      {}", c.files);
+            let _ = writeln!(body, "symbols    {}", c.symbols);
+            let _ = writeln!(body, "occurrence {}", c.occurrences);
+            let _ = writeln!(body, "generated  {} files", c.generated_files);
 
             // Cross-language linking either found something or it did not, and a zero used
             // to be invisible: `reaches` would report no callers, which reads as "nothing
@@ -2527,49 +2931,110 @@ fn run() -> Result<u8> {
             // for more than one reason.
             let root = db.parent().and_then(|d| d.parent());
             let head = root.and_then(cairn_store::llmverify::head_commit);
-            print!("{}", cairn_fmt::coverage(&store.coverage(head.as_deref())?));
+            let areas = store.coverage(head.as_deref())?;
+            body.push_str(&cairn_fmt::coverage(&areas));
+
+            // Which connectors are behind this index. Named rather than counted: with
+            // external connectors, "a fact came from somewhere" is not an answer anybody
+            // can act on, and the first question about a surprising edge is which tool
+            // stated it.
+            //
+            // No timestamp in the text. The facts are rebuilt by the index run that
+            // recorded them, so "when" is the index's own age, which `stale:` already
+            // reports; the exact second is in the JSON, where a consumer can use it.
+            let connectors = store.connector_runs()?;
+            // The built-in one is not listed here, and the JSON carries it anyway. Its
+            // output is already two rows of the coverage block above - `entrypoints` and
+            // `cross-api` are exactly what it produces - so a line naming it would report
+            // the same work twice, and it is the one connector whose version is the
+            // binary's own. What is worth a line is a connector a reader might not know
+            // is running.
+            for c in connectors.iter().filter(|c| c.name != "default") {
+                let _ = writeln!(
+                    body,
+                    "connector  {:<12} {:<8} {} fact(s){}{}",
+                    c.name,
+                    c.version.as_deref().unwrap_or("-"),
+                    c.facts,
+                    // Said in the status line, not only in the envelope: this is the
+                    // command whose whole job is to report how much the index can be
+                    // trusted, and facts from a run that failed are the previous run's.
+                    if c.failed { ", LAST RUN FAILED" } else { "" },
+                    if c.unknown.is_empty() {
+                        String::new()
+                    } else {
+                        format!(", {} gap(s) reported", c.unknown.len())
+                    }
+                );
+            }
+
+            // The parts, built once, and arranged twice below. `status` is the one answer
+            // whose text does not print the envelope last - the stale lines sit in the
+            // middle, above `reindex due:` - and that order is what callers read today, so
+            // it stays (I1). What JSON needs is the same parts as fields, not a different
+            // answer.
+            let mut stale: Vec<String> = Vec::new();
+            // Lines that follow the stale ones in text, and belong to the body in JSON.
+            let mut trailer = String::new();
+            let mut dirty_files: Vec<String> = Vec::new();
+            let mut daemon_data: Option<cairn_fmt::DaemonJson> = None;
 
             let socket = cairn_daemon::socket_path(&db);
-            match cairn_daemon::Client::connect(&socket) {
+            let tracked = match cairn_daemon::Client::connect(&socket) {
                 Some(mut client) => {
                     let st = client.status()?;
                     let d = client.dirty()?;
-                    println!(
+                    let _ = writeln!(
+                        body,
                         "daemon     watching {} ({} files, up {}s)",
                         st.repo, st.files_tracked, st.uptime_secs
                     );
                     if !d.complete {
-                        println!("stale: initial scan still running - the set below is partial");
+                        stale.push(
+                            "initial scan still running - the set below is partial".to_string(),
+                        );
                     }
                     if d.is_empty() && d.complete {
-                        println!("stale: none");
+                        stale.push("none".to_string());
                     } else {
-                        println!(
-                            "stale: {} modified, {} created, {} removed (generation {})",
-                            d.modified.len(),
-                            d.created.len(),
-                            d.removed.len(),
-                            d.generation
-                        );
                         // Created ones included, and first. They were counted and never
                         // named, which is the wrong way round: a modified file is one the
                         // index knows and answers about slightly out of date, while a
                         // created one is a file **nothing** in the index has ever seen —
                         // the case where an answer is not stale but absent, and the reader
                         // has no way to guess which file it was.
-                        for p in d
+                        let named: Vec<&String> = d
                             .created
                             .iter()
                             .chain(&d.modified)
                             .chain(&d.removed)
                             .take(8)
-                        {
-                            println!("       {p}");
+                            .collect();
+                        let mut note = format!(
+                            "{} modified, {} created, {} removed (generation {})",
+                            d.modified.len(),
+                            d.created.len(),
+                            d.removed.len(),
+                            d.generation
+                        );
+                        for p in &named {
+                            let _ = write!(note, "\n       {p}");
                         }
+                        stale.push(note);
+                        dirty_files = d
+                            .created
+                            .iter()
+                            .chain(&d.modified)
+                            .chain(&d.removed)
+                            .cloned()
+                            .collect();
                     }
                     if let Some(why) = &d.reindex_due {
-                        println!("reindex due: {why}");
-                        println!("             run `cairn index <scip...> --repo <dir>`");
+                        let _ = writeln!(trailer, "reindex due: {why}");
+                        let _ = writeln!(
+                            trailer,
+                            "             run `cairn index <scip...> --repo <dir>`"
+                        );
                     }
                     // Drifted files are reported, not signalled by the exit code. Every
                     // other command already works this way: an answer touching a changed
@@ -2577,17 +3042,28 @@ fn run() -> Result<u8> {
                     // be read and most of what it says is still true. `status` returning
                     // 3 for the same condition made it the one command that called a
                     // readable index unreadable.
-                    envelope_tail(&store);
-                    Ok(exit::FOUND)
+                    daemon_data = Some(cairn_fmt::DaemonJson {
+                        repo: st.repo.clone(),
+                        files_tracked: st.files_tracked,
+                        uptime_secs: st.uptime_secs,
+                        complete: d.complete,
+                        modified: d.modified.clone(),
+                        created: d.created.clone(),
+                        removed: d.removed.clone(),
+                        generation: d.generation,
+                        reindex_due: d.reindex_due.clone(),
+                    });
+                    true
                 }
                 None => {
                     // An unknown dirty set and an empty one look the same in an answer.
                     // Conflating them is the silent staleness this design forbids.
-                    println!("daemon     not running");
-                    println!(
-                        "stale: NOT TRACKED - the file watcher is still starting, so edits \
-                         made since the index was built are not visible yet. `cairn verify \
+                    let _ = writeln!(body, "daemon     not running");
+                    stale.push(
+                        "NOT TRACKED - the file watcher is still starting, so edits made \
+                         since the index was built are not visible yet. `cairn verify \
                          --repo <dir>` is the one-off check"
+                            .to_string(),
                     );
                     // Not degraded, and this is the case that made the distinction matter.
                     // `status` is itself one of the commands that spawns the watcher, so
@@ -2596,10 +3072,68 @@ fn run() -> Result<u8> {
                     // creates and then grades itself on. Measured in the session logs: two
                     // agents got exit 3 here, and the guide tells them 3 means they are in
                     // the wrong directory. Both ignored it and queried on, correctly.
-                    envelope_tail(&store);
-                    Ok(exit::FOUND)
+                    false
+                }
+            };
+
+            let mut unknown = index_unknown(&store);
+            // The connectors' own gaps belong here too. `status` is the command the guide
+            // says to run first, so a connector that failed must be visible in it — and
+            // `status` does not go through `emit`, which is where every other answer
+            // picks these up.
+            unknown.extend(CONNECTOR_GAPS.get().into_iter().flatten().cloned());
+            match format() {
+                Format::Text => {
+                    print!("{body}");
+                    for s in &stale {
+                        println!("stale: {s}");
+                    }
+                    print!("{trailer}");
+                    println!("suppressed: none");
+                    // The same shape `Envelope::render` uses: one line for one, a
+                    // counted block for several. A reader of `status` has learned where
+                    // the honesty lives and should not have to learn a second layout.
+                    match unknown.len() {
+                        0 => println!("unknown: none"),
+                        1 => println!("unknown: {}", unknown[0]),
+                        n => {
+                            println!("unknown ({n}):");
+                            for u in &unknown {
+                                println!("  {u}");
+                            }
+                        }
+                    }
+                }
+                Format::Json => {
+                    let mut env = cairn_fmt::Envelope::new(format!("{body}{trailer}")).data(
+                        cairn_fmt::StatusData {
+                            index: db.display().to_string(),
+                            files: c.files,
+                            symbols: c.symbols,
+                            occurrences: c.occurrences,
+                            generated_files: c.generated_files,
+                            coverage: areas
+                                .iter()
+                                .map(|a| cairn_fmt::AreaJson {
+                                    name: a.name.clone(),
+                                    state: a.state.label().to_string(),
+                                    detail: a.detail.clone(),
+                                })
+                                .collect(),
+                            daemon: daemon_data,
+                            connectors,
+                        },
+                    );
+                    // `stale: none` is a text convention for an empty section; as a field
+                    // it would be a note claiming there are no notes.
+                    env.stale = stale.iter().filter(|s| *s != "none").cloned().collect();
+                    env.unknown = unknown;
+                    env.stale_files.tracked = Some(tracked);
+                    env.stale_files.dirty = dirty_files;
+                    println!("{}", env.json(command()));
                 }
             }
+            Ok(exit::FOUND)
         }
     }
 }
@@ -3123,9 +3657,43 @@ fn resolve_for_purpose(
     Ok(Subject::Answered(exit::ERROR))
 }
 
+/// The container `--within` names, and everything inside it.
+///
+/// Containment is a declared relation and is never traversed for impact — an rpc being
+/// part of a domain does not make a change to one rpc reach its siblings. What it is for
+/// is scoping: "this walk, but only inside that contract". Resolved by connector id
+/// (`w17:domain/orders`) or by handle, because a declared node has both.
+fn within_scope(
+    store: &Store,
+    within: Option<&str>,
+    cli_budget: Option<usize>,
+) -> Result<Option<(String, std::collections::HashSet<i64>)>> {
+    let Some(given) = within else {
+        return Ok(None);
+    };
+    let Some(id) = subject(store, given, cli_budget)? else {
+        return Ok(None);
+    };
+    let label = store
+        .declared_node_of(id)?
+        .map(|n| n.node_id)
+        .unwrap_or_else(|| given.to_string());
+    let inside: std::collections::HashSet<i64> = store.contained_by(id)?.into_iter().collect();
+    Ok(Some((label, inside)))
+}
+
 fn subject(store: &Store, given: &str, cli_budget: Option<usize>) -> Result<Option<i64>> {
     if let Some(id) = store.resolve_handle(given)? {
         return Ok(Some(id));
+    }
+    // A declared node, named by the id its connector gave it: `cairn affects
+    // w17:domain/orders`. Tried before the name search because a colon cannot appear in
+    // a handle or in a symbol's display name, so this is unambiguous - and because the
+    // id is what a connector's own output prints, which is where a caller gets it from.
+    if given.contains(':') {
+        if let Some(node) = store.declared_node(given)? {
+            return Ok(Some(node.symbol_id));
+        }
     }
     let named = store.symbols_named(given)?;
     match named.len() {

@@ -22,7 +22,28 @@ use rusqlite::Connection;
 /// reads as "nothing failed" — a confident negative from a database that was never asked.
 /// Invalidating it costs one `cairn index` and buys back the one guarantee that matters
 /// here: an answer knows the shape of its own gaps.
-pub const SCHEMA_VERSION: i64 = 19;
+///
+/// v20 adds `symbols.scip`, the full SCIP symbol string. An older index has the hash and
+/// nothing to print from it, so every machine-readable answer would have to omit the one
+/// identifier that outlives the index — and omitting it silently is how a consumer ends
+/// up keying on handles, which are only stable while the index is.
+///
+/// v21 adds `edges.origin`, which names the connector behind a declared edge. An index
+/// without it cannot say *who* declared a fact, and an unattributed fact is one a reader
+/// cannot go and check.
+///
+/// v22 adds `connectors`: which connectors built this index, what they produced, and what
+/// they could not see. Without it `cairn status` cannot say who contributed a fact and no
+/// answer can carry a connector's gaps.
+///
+/// v24 adds `flows`: the control flow inside a function, cached per provider and per file
+/// content. An index without it recomputes every `cairn flow` from scratch, which means
+/// spawning a provider for a question that was already answered.
+///
+/// v23 adds `edge_kinds`, `declared_nodes`, `edges.declared_kind` and `connectors.failed`: the facts an external
+/// connector contributes, and the one thing the core reads about them — how a kind
+/// propagates. An index without them cannot hold a declared node at all.
+pub const SCHEMA_VERSION: i64 = 24;
 
 pub const SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS meta (
@@ -56,6 +77,14 @@ CREATE TABLE IF NOT EXISTS files (
 CREATE TABLE IF NOT EXISTS symbols (
     id           INTEGER PRIMARY KEY,
     hash         BLOB    NOT NULL UNIQUE,  -- blake3-128 of the full SCIP symbol string
+    -- The symbol string itself. The hash above is enough to *resolve* one, which is why
+    -- this was not stored for nineteen schema versions - but it cannot be printed from a
+    -- hash, and a machine-readable answer has to carry an identifier that outlives the
+    -- index it came from. A handle is short and stable only while the index is (D4); the
+    -- SCIP string is what a connector, an editor or another tool can hold onto and hand
+    -- back later. Not interned: these are unique per symbol, so a `strings` row plus its
+    -- UNIQUE index would store every one of them twice.
+    scip         TEXT,
     name_id      INTEGER NOT NULL REFERENCES strings(id),
     module_id    INTEGER          REFERENCES strings(id),
     container_id INTEGER          REFERENCES strings(id),
@@ -87,6 +116,67 @@ CREATE TABLE IF NOT EXISTS symbols (
     doc           TEXT
 );
 
+-- Connectors this index was built with: what each produced, when, and what it could not
+-- determine. On the rebuildable side on purpose - a connector's facts are derived data,
+-- rebuilt on every index, so a stale row describing a run that no longer happened would
+-- be worse than no row.
+CREATE TABLE IF NOT EXISTS connectors (
+    name    TEXT PRIMARY KEY,
+    version TEXT,
+    ran_at  INTEGER,                      -- unix seconds
+    facts   INTEGER NOT NULL DEFAULT 0,
+    -- The last run failed, so whatever facts are in place are the previous run's. The
+    -- reason is in `unknown`; this is what `status` reads to say so in one word.
+    failed  INTEGER NOT NULL DEFAULT 0,
+    -- Newline-separated. Merged into the `unknown` section of every answer, because a
+    -- gap only `cairn index` printed is a gap the reader of an answer never sees.
+    unknown TEXT
+);
+
+-- Control flow inside one function, as a provider produced it.
+--
+-- Cached on the *content* of the file, not a timestamp, and on the provider's version so
+-- a better provider invalidates its own output. There is no dependency component to the
+-- key: the flow inside a function is a syntax fact about one file, which is the case
+-- architecture 5.2 exempts from `deps_api_hash`.
+CREATE TABLE IF NOT EXISTS flows (
+    symbol_id INTEGER PRIMARY KEY REFERENCES symbols(id),
+    blob      BLOB NOT NULL,     -- content hash of the file the function is in
+    provider  TEXT NOT NULL,
+    json      TEXT NOT NULL      -- the provider's answer, verbatim
+);
+
+-- Edge kinds a connector declared, and how each propagates. Referenced from
+-- `edges.declared_kind` for `kind = 5` (Declared).
+--
+-- A table rather than a column of text: two connectors may use the same word for
+-- different relations, and an answer has to be able to say which one it means.
+-- `propagates` is the only thing the core reads: 0 dependency, 1 containment, 2 none.
+CREATE TABLE IF NOT EXISTS edge_kinds (
+    id         INTEGER PRIMARY KEY,
+    connector  TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    propagates INTEGER NOT NULL,
+    UNIQUE(connector, name)
+);
+
+-- Nodes a connector declared: a domain, a contract, an entity. Not code, and addressable
+-- by the id the connector gave them (`w17:domain/orders`).
+--
+-- The node itself is a row in `symbols`, which is what makes it traversable by every walk
+-- and addressable by a handle; this table is its identity and its kind. Concepts were the
+-- other candidate and are the wrong home: they are authored knowledge on the knowledge
+-- side, they survive a reindex, and nothing walks them - a declared node has to be in the
+-- graph and has to disappear when the connector stops stating it.
+CREATE TABLE IF NOT EXISTS declared_nodes (
+    symbol_id INTEGER PRIMARY KEY REFERENCES symbols(id),
+    connector TEXT NOT NULL,
+    -- One of the connector's manifest `node_kinds`. Free text here on purpose: the core
+    -- never interprets it.
+    kind      TEXT NOT NULL,
+    node_id   TEXT NOT NULL UNIQUE
+);
+
 -- Derived relations. One table for every edge kind so that exact (L1), weak (L1-W),
 -- deployment (L0-D) and statistical (L3) edges share a shape and are separated in
 -- answers by `source` and `confidence`, never silently mixed (architecture 3, 5.4).
@@ -106,7 +196,13 @@ CREATE TABLE IF NOT EXISTS edges (
     note       TEXT,
     -- Set when the anchor file changed after a manual edge was recorded, so the edge
     -- may no longer hold. Never auto-cleared: only a fresh judgement clears it.
-    needs_review INTEGER NOT NULL DEFAULT 0
+    needs_review INTEGER NOT NULL DEFAULT 0,
+    -- Which connector stated this edge, for `source = 4` (Declared); null otherwise.
+    -- "L1, declared" without a name leaves a reader unable to ask the next question,
+    -- and two connectors contributing edges of the same kind would be indistinguishable.
+    origin     TEXT,
+    -- Which declared kind this is, for `kind = 5`; null for every built-in kind.
+    declared_kind INTEGER REFERENCES edge_kinds(id)
 );
 
 CREATE TABLE IF NOT EXISTS occurrences (
@@ -287,6 +383,9 @@ CREATE INDEX IF NOT EXISTS edge_in        ON edges(dst_symbol, kind);
 CREATE INDEX IF NOT EXISTS file_is_test   ON files(is_test);
 CREATE INDEX IF NOT EXISTS slink_by_symbol  ON service_links(symbol_id, role);
 CREATE INDEX IF NOT EXISTS slink_by_service ON service_links(service_id, role);
+-- Declared nodes are looked up by the id a caller types (`w17:domain/orders`) and dropped
+-- per connector, so both are indexed.
+CREATE INDEX IF NOT EXISTS declared_by_connector ON declared_nodes(connector);
 "#;
 
 /// Authored knowledge: concepts and hand-written links.
@@ -480,7 +579,7 @@ pub fn finalize(conn: &Connection) -> Result<()> {
 ///
 /// Shortest unique prefix: try two characters, lengthen on collision. Done in SQL so it
 /// is one pass rather than 71k round trips.
-fn assign_handles(conn: &Connection) -> Result<()> {
+pub(crate) fn assign_handles(conn: &Connection) -> Result<()> {
     // Encoding in Rust rather than SQL: base32 over a byte string is awkward in SQL and
     // the collision walk needs a running set of what is taken, which is natural here.
     let mut rows: Vec<(i64, Vec<u8>)> = Vec::new();

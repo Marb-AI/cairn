@@ -1,0 +1,76 @@
+# Recorded output of one cairn command against the fixture corpus. Do not edit by hand:
+# CAIRN_BLESS=1 cargo test --test golden rewrites every file here.
+#
+# A diff in this file is a change in what the tool says. Read it before blessing it:
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine and `<epoch>`
+# for when a connector last ran; nothing else in an answer is normalised.
+
+$ cairn unreached srcgo/internal/station
+exit 0
+4 symbols under srcgo/internal/station with no production caller       [L1, exact]
+  tests only (2)         [76] Registry.Retire                          fn     go  srcgo/internal/station/registry.go:94-106
+  tests only (1)         [5x] normaliseID                              fn     go  srcgo/internal/station/registry.go:116-118
+  tests only (1)         [gc] Registry.Active                          fn     go  srcgo/internal/station/registry.go:80-91
+  no callers             [ey] Station.HasTag                           fn     go  srcgo/internal/station/registry.go:29-36
+suppressed: none
+unknown: reachability is static: a symbol invoked by name at runtime looks unreached. Check `cairn weaklinks <handle>` before deleting anything
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn unreached srcpy/alerting
+exit 0
+17 symbols under srcpy/alerting with no production caller       [L1, exact]
+  tests only (2)         [gh] worst                                    fn     py  srcpy/alerting/rules.py:78-82
+  tests only (1)         [3d] registered_reasons                       fn     py  srcpy/alerting/dispatch.py:36-37
+  tests only (1)         [x5i] Judgement.escalates                      fn     py  srcpy/alerting/rules.py:26-27
+  no calls, 4 ref(s)     [p3] register                                 fn     py  srcpy/alerting/dispatch.py:20-27
+  no calls, 1 ref(s)     [ad9] main                                     fn     py  srcpy/alerting/worker.py:49-57
+  no callers             [p6] handle_severe_cold                       fn     py  srcpy/alerting/dispatch.py:41-45
+  no callers             [5uq] handle_severe_heat                       fn     py  srcpy/alerting/dispatch.py:49-53
+  no callers             [kp] handle_frost                             fn     py  srcpy/alerting/dispatch.py:57-58
+  no callers             [6b] handle_freezing_fog                      fn     py  srcpy/alerting/dispatch.py:62-63
+  no callers             [83] pages_a_human                            fn     py  srcpy/alerting/dispatch.py:86-88
+  no callers             [3w] Field.__set_name__                       fn     py  srcpy/alerting/models.py:22-23
+  no callers             [t3] Field.__get__                            fn     py  srcpy/alerting/models.py:25-28
+  no callers             [2mp] Field.__set__                            fn     py  srcpy/alerting/models.py:30-31
+  no callers             [fj] Record.__repr__                          fn     py  srcpy/alerting/models.py:46-47
+  no callers             [ng] dew_point                                fn     py  srcpy/alerting/rules.py:50-57
+  no callers             [3z3] summarise_open                           fn     py  srcpy/alerting/rules.py:85-94
+  no callers             [gr3] Worker.feed                              fn     py  srcpy/alerting/worker.py:33-37
+suppressed: none
+unknown: reachability is static: a symbol invoked by name at runtime looks unreached. Check `cairn weaklinks <handle>` before deleting anything
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn unreached srcgo
+exit 0
+9 symbols under srcgo with no production caller       [L1, exact]
+  tests only (2)         [76] Registry.Retire                          fn     go  srcgo/internal/station/registry.go:94-106
+  tests only (1)         [5x] normaliseID                              fn     go  srcgo/internal/station/registry.go:116-118
+  tests only (1)         [gc] Registry.Active                          fn     go  srcgo/internal/station/registry.go:80-91
+  no callers             [e6] server.RegisterHandler                   fn     go  srcgo/cmd/collector/main.go:30-35
+  no callers             [nn] main                                     fn     go  srcgo/cmd/collector/main.go:58-63
+  no callers             [xj] loopbackConn.Invoke                      fn     go  srcgo/cmd/collector/main.go:21-23
+  no callers             [r6] Alerter.Clear                            fn     go  srcgo/internal/notify/alerter.go:54-63
+  no callers             [he] Alerter.Stats                            fn     go  srcgo/internal/notify/alerter.go:73-77
+  no callers             [ey] Station.HasTag                           fn     go  srcgo/internal/station/registry.go:29-36
+suppressed: none
+unknown: reachability is static: a symbol invoked by name at runtime looks unreached. Check `cairn weaklinks <handle>` before deleting anything
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn unreached srcgo/cmd/collector
+exit 0
+3 symbols under srcgo/cmd/collector with no production caller       [L1, exact]
+  no callers             [e6] server.RegisterHandler                   fn     go  srcgo/cmd/collector/main.go:30-35
+  no callers             [nn] main                                     fn     go  srcgo/cmd/collector/main.go:58-63
+  no callers             [xj] loopbackConn.Invoke                      fn     go  srcgo/cmd/collector/main.go:21-23
+suppressed: none
+unknown: reachability is static: a symbol invoked by name at runtime looks unreached. Check `cairn weaklinks <handle>` before deleting anything
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+
+$ cairn unreached srcgo/gen/telemetry
+exit 1
+0 symbols under srcgo/gen/telemetry with no production caller       [L1, exact]
+  (everything here has a production caller)
+suppressed: none
+unknown: reachability is static: a symbol invoked by name at runtime looks unreached. Check `cairn weaklinks <handle>` before deleting anything
+stale: not tracked yet - the file watcher is still starting, so edits made since the index was built are not visible in this answer
+

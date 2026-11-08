@@ -23,6 +23,96 @@ distinction exists to prevent.
 `unknown:` what the mechanism cannot see, `stale:` what has changed since indexing. A
 section reading `none` is a claim; a missing section is a bug.
 
+## Machine-readable output
+
+`--format json` prints the same answer as one `cairn.answer/1` object, with the envelope
+as fields rather than as lines. Text is the default and stays the primary format for an
+agent: braces and repeated keys cost several times the tokens of an aligned table, and
+cheaper context is the point. JSON is for a program — a wrapper, an editor, a check in CI.
+
+```
+{
+  "schema": "cairn.answer/1",
+  "command": "refs",
+  "rows": 10,
+  "truncated": false,
+  "unknown": [],
+  "suppressed": [],
+  "stale": { "tracked": false, "dirty": [], "mentioned": ["srcgo/..."], "notes": ["..."] },
+  "body": "...the same text as above the envelope lines...",
+  "data": null
+}
+```
+
+What holds across both formats:
+
+* **Exit codes are identical.** The code is the contract; it cannot depend on how the
+  answer was printed.
+* **The envelope is always present.** An empty `unknown` means none; a missing one would
+  be the same silent error a missing `unknown:` line is. `stale.tracked` is the
+  distinction a bare empty list cannot make: `false` means nothing was watching the tree,
+  not that nothing had changed.
+* **`body` is the text answer** without the three envelope lines, since those are fields
+  here. `--budget` cuts a JSON answer exactly as it cuts a text one, and what it cut is
+  in `suppressed`.
+* **`data`** is the answer as fields. It is `null` for commands that still have only a
+  text renderer; the envelope around it is there either way.
+
+### The data of each command
+
+`symbol`, `refs`, `graph`, `path`, `affects`, `runs`, `reaches`, `expand`, `status`,
+`verify`, `concept show`, `concept list`, `links` and `flow` fill `data`. Every symbol in it
+carries the same shape:
+
+```
+{
+  "handle": "nph",
+  "symbol": "scip-go gomod telemetry.example/srcgo . `…/station`/Registry#Add().",
+  "name": "Add", "qualified": "Registry.Add", "kind": "fn", "lang": "go",
+  "file": "srcgo/internal/station/registry.go", "line": 52, "end_line": 66,
+  "generated": false, "refs": 9, "source": null
+}
+```
+
+`symbol` is the full SCIP symbol string — the identifier that outlives the index. A
+handle is short because it is meant to be typed, and it is only stable while the index
+that minted it is; anything *storing* a reference to a symbol should store the SCIP
+string. It is `null` on an index built before schema v20, which did not record it.
+`source` is the edge source label (`L1, exact`, `L2, agent-asserted`) where the row was
+reached through an edge, and `null` where the row is the answer's own subject. Lines are
+1-based, as the text prints them.
+
+The full shape of each command's answer is published as JSON Schema under
+[`docs/json-schema/v1/`](json-schema/v1/), generated from the same structs that serialise
+it, and a test both regenerates them and validates real output against them.
+
+## Facts from a connector
+
+A connector contributes what cairn cannot derive: a service contract, a domain, an
+entity. Its nodes are addressable by the id it gave them — `cairn affects
+w17:domain/orders` — and its dependency edges travel exactly as calls do, labelled
+`L1, declared by <connector>`. `--within <node>` scopes an answer to one declared
+container, and says in `suppressed:` what the scope cut.
+
+Nothing under `.cairn/connectors/` means nothing changes. Writing one:
+[`docs/connectors.md`](connectors.md).
+
+## Inside one function
+
+`cairn flow <handle>` prints the control flow *inside* a function: where it branches,
+where it returns early, what it calls on the way, what it defers. The call graph answers
+everything else; this is the one question it cannot.
+
+Each node carries its span, and a call carries the handle it resolved to - so following a
+handler needs no second lookup. A call cairn could not resolve is named rather than
+dropped. Where a connector has declared something about the callee, the node says so:
+`writes w17:entity/Reading (declared by w17)`, which is not in the source at all.
+
+Computed on demand by a provider per language, running in the same image as the indexers,
+and cached on the content of the file: asking twice costs one parse. Go today; a Python
+symbol answers `unknown: flow is not available for python`, which is a reply rather than
+an empty page.
+
 ## cairn
 
 ```
@@ -33,6 +123,7 @@ Usage: cairn [OPTIONS] <COMMAND>
 Commands:
   index        Index the repository you are standing in
   skill        Install the agent guide into this repository's .claude/skills/
+  for          Say what you are doing; cairn picks how to answer it
   context      Entry point by concept: turn "the OAuth stuff" into symbols to start from
   unreached    Symbols under a path that production code never calls
   outline      What a module or directory contains, and how used each thing is
@@ -48,6 +139,7 @@ Commands:
   runs         Which deployed services can run this code - the filesystem cannot say
   reaches      Who reaches this across a gRPC boundary - the query no name search can answer
   path         Shortest call path between two symbols: how does one reach the other
+  flow         Control flow inside one function: branches, early returns, calls, defers
   expand       Show a symbol in more detail
   weak         Build the weak-link layer: string literals that name a symbol
   weaklinks    Sites whose string literals name this symbol - candidate dynamic references
@@ -66,6 +158,7 @@ Commands:
 Options:
       --db <DB>          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
       --budget <BUDGET>  Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+      --format <FORMAT>  Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
   -h, --help             Print help
   -V, --version          Print version
 ```
@@ -96,6 +189,12 @@ Options:
       --without-skill
           Do not install the agent guide into .claude/skills/
 
+      --format <FORMAT>
+          Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both
+          
+          [default: text]
+          [possible values: text, json]
+
   -h, --help
           Print help (see a summary with '-h')
 ```
@@ -116,6 +215,59 @@ Options:
       --budget <BUDGET>
           Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
 
+      --format <FORMAT>
+          Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both
+          
+          [default: text]
+          [possible values: text, json]
+
+  -h, --help
+          Print help (see a summary with '-h')
+```
+
+## cairn for
+
+```
+Say what you are doing; cairn picks how to answer it.
+
+The command surface below this one is named after mechanisms - `refs`, `graph`, `path`, `usage` - and measurement showed that is the wrong shape for the moment an agent asks. It knows its purpose reliably and picks the mechanism badly: one run spent eight calls across four commands on a question no symbol command answers, and on another the mechanism that fits (`path`) needs both ends of a chain when the whole question is what the far end is.
+
+So: purpose first. Every block of the answer names the command that produced it, which is the way down to the mechanism when this shape is not what you needed.
+
+Usage: cairn for [OPTIONS] <PURPOSE> <SUBJECT>
+
+Arguments:
+  <PURPOSE>
+          Possible values:
+          - change:     I am going to modify this symbol. What breaks, and how far does it reach?
+          - understand: I am following this through. What does it call, and where does the chain land?
+          - find:       Where is this text - a value, a key, a header, a name - and whose line is it?
+
+  <SUBJECT>
+          A handle, a symbol name, or - for `find` - any text
+
+Options:
+      --db <DB>
+          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
+
+      --limit <LIMIT>
+          [default: 60]
+
+      --budget <BUDGET>
+          Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+
+      --repo <REPO>
+          Repository root. Defaults to the working directory
+
+      --all
+          `find`: list every hit, including the ones in test and generated files that a large answer otherwise reports as a count
+
+      --format <FORMAT>
+          Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both
+          
+          [default: text]
+          [possible values: text, json]
+
   -h, --help
           Print help (see a summary with '-h')
 ```
@@ -134,6 +286,7 @@ Options:
       --db <DB>          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
       --limit <LIMIT>    [default: 12]
       --budget <BUDGET>  Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+      --format <FORMAT>  Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
   -h, --help             Print help
 ```
 
@@ -151,6 +304,7 @@ Options:
       --db <DB>          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
       --limit <LIMIT>    [default: 60]
       --budget <BUDGET>  Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+      --format <FORMAT>  Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
   -h, --help             Print help
 ```
 
@@ -168,6 +322,7 @@ Options:
       --db <DB>          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
       --limit <LIMIT>    [default: 80]
       --budget <BUDGET>  Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+      --format <FORMAT>  Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
   -h, --help             Print help
 ```
 
@@ -186,6 +341,7 @@ Options:
       --include-tests    
       --budget <BUDGET>  Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
       --limit <LIMIT>    [default: 40]
+      --format <FORMAT>  Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
   -h, --help             Print help
 ```
 
@@ -203,6 +359,8 @@ Options:
       --db <DB>          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
       --limit <LIMIT>    [default: 15]
       --budget <BUDGET>  Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+      --repo <REPO>      Repository root, for corroborating a miss against the working tree. Derived from the index location when it can be confirmed, so it is rarely needed
+      --format <FORMAT>  Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
   -h, --help             Print help
 ```
 
@@ -220,6 +378,8 @@ Options:
       --db <DB>            Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
       --include-generated  
       --budget <BUDGET>    Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+      --within <WITHIN>    Only sites inside this declared container, e.g. `w17:domain/orders`
+      --format <FORMAT>    Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
       --limit <LIMIT>      [default: 40]
       --context <CONTEXT>  How much source to show at each site: none | line | block | <n> | auto. `auto` divides --budget by the number of sites, so few sites get a block and many get a line. Needs --repo. Far cheaper than opening the files [default: none]
       --repo <REPO>        
@@ -263,6 +423,12 @@ Options:
           
           [default: 8]
 
+      --format <FORMAT>
+          Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both
+          
+          [default: text]
+          [possible values: text, json]
+
       --view <VIEW>
           Layout: `tree` shows how each node was reached, `list` is flat and cheaper
           
@@ -278,6 +444,9 @@ Options:
 
       --repo <REPO>
           Repo root, required when --detail prints source
+
+      --within <WITHIN>
+          Only nodes inside this declared container, e.g. `w17:domain/orders`
 
   -h, --help
           Print help (see a summary with '-h')
@@ -298,6 +467,12 @@ Options:
 
       --budget <BUDGET>
           Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+
+      --format <FORMAT>
+          Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both
+          
+          [default: text]
+          [possible values: text, json]
 
   -h, --help
           Print help (see a summary with '-h')
@@ -323,6 +498,12 @@ Options:
       --budget <BUDGET>
           Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
 
+      --format <FORMAT>
+          Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both
+          
+          [default: text]
+          [possible values: text, json]
+
   -h, --help
           Print help (see a summary with '-h')
 ```
@@ -337,6 +518,7 @@ Usage: cairn topology [OPTIONS]
 Options:
       --db <DB>          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
       --budget <BUDGET>  Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+      --format <FORMAT>  Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
   -h, --help             Print help
 ```
 
@@ -358,6 +540,12 @@ Options:
 
       --budget <BUDGET>
           Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+
+      --format <FORMAT>
+          Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both
+          
+          [default: text]
+          [possible values: text, json]
 
   -h, --help
           Print help (see a summary with '-h')
@@ -389,6 +577,15 @@ Options:
       --fanout <FANOUT>
           [default: 200]
 
+      --format <FORMAT>
+          Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both
+          
+          [default: text]
+          [possible values: text, json]
+
+      --within <WITHIN>
+          Only routes whose code is inside this declared container
+
   -h, --help
           Print help (see a summary with '-h')
 ```
@@ -407,6 +604,7 @@ Options:
       --db <DB>          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
       --depth <DEPTH>    [default: 12]
       --budget <BUDGET>  Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+      --format <FORMAT>  Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
   -h, --help             Print help
 ```
 
@@ -424,6 +622,7 @@ Options:
       --db <DB>          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
       --outgoing         Show what this symbol reaches instead of what reaches it
       --budget <BUDGET>  Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+      --format <FORMAT>  Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
   -h, --help             Print help
 ```
 
@@ -443,8 +642,42 @@ Options:
       --max-depth <MAX_DEPTH>  [default: 8]
       --budget <BUDGET>        Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
       --detail <DETAIL>        [default: skeleton]
+      --format <FORMAT>        Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
       --repo <REPO>            
   -h, --help                   Print help
+```
+
+## cairn flow
+
+```
+Control flow inside one function: branches, early returns, calls, defers.
+
+The call graph is between functions, and reviewing one handler needs the tree inside it. Computed on demand by a per-language provider that runs in the indexer image, and cached on the content of the file - so asking twice costs one parse.
+
+Usage: cairn flow [OPTIONS] <HANDLE>
+
+Arguments:
+  <HANDLE>
+          
+
+Options:
+      --db <DB>
+          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
+
+      --repo <REPO>
+          Repo root. Worked out from the index's own location when omitted
+
+      --budget <BUDGET>
+          Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+
+      --format <FORMAT>
+          Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both
+          
+          [default: text]
+          [possible values: text, json]
+
+  -h, --help
+          Print help (see a summary with '-h')
 ```
 
 ## cairn expand
@@ -462,6 +695,7 @@ Options:
       --detail <DETAIL>  `skeleton` = identity only, `doc` = leading comment, `body` = source text [default: skeleton]
       --budget <BUDGET>  Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
       --repo <REPO>      Repo root, needed for `--detail body|doc`
+      --format <FORMAT>  Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
   -h, --help             Print help
 ```
 
@@ -476,6 +710,7 @@ Options:
       --db <DB>          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
       --repo <REPO>      Repo root; file paths in the index are relative to it
       --budget <BUDGET>  Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+      --format <FORMAT>  Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
   -h, --help             Print help
 ```
 
@@ -493,6 +728,7 @@ Options:
       --db <DB>          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
       --limit <LIMIT>    [default: 30]
       --budget <BUDGET>  Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+      --format <FORMAT>  Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
   -h, --help             Print help
 ```
 
@@ -508,6 +744,7 @@ Options:
       --repo <REPO>      Repo root. Without it staleness cannot be checked and the report says so
       --budget <BUDGET>  Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
       --flag-stale       Mark hand-authored links whose anchor file has changed
+      --format <FORMAT>  Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
   -h, --help             Print help
 ```
 
@@ -527,6 +764,7 @@ Options:
       --note <NOTE>      Why this link exists. Required: an unexplained assertion is unreviewable
       --budget <BUDGET>  Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
       --by <BY>          Who is asserting it [default: agent]
+      --format <FORMAT>  Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
   -h, --help             Print help
 ```
 
@@ -543,6 +781,7 @@ Arguments:
 Options:
       --db <DB>          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
       --budget <BUDGET>  Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+      --format <FORMAT>  Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
   -h, --help             Print help
 ```
 
@@ -564,6 +803,7 @@ Commands:
 Options:
       --db <DB>          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
       --budget <BUDGET>  Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+      --format <FORMAT>  Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
   -h, --help             Print help
 ```
 
@@ -579,6 +819,7 @@ Options:
       --repo <REPO>      
       --budget <BUDGET>  Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
       --stop             Stop a running daemon instead of starting one
+      --format <FORMAT>  Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
   -h, --help             Print help
 ```
 
@@ -595,6 +836,7 @@ Arguments:
 Options:
       --db <DB>          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
       --budget <BUDGET>  Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+      --format <FORMAT>  Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
   -h, --help             Print help
 ```
 
@@ -628,6 +870,12 @@ Options:
       --repo <REPO>
           Repo root. Worked out from the index's own location when omitted, which is right whenever the index sits at the conventional `<repo>/.cairn/`
 
+      --format <FORMAT>
+          Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both
+          
+          [default: text]
+          [possible values: text, json]
+
       --limit <LIMIT>
           [default: 30]
 
@@ -660,6 +908,12 @@ Options:
       --budget <BUDGET>
           Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
 
+      --format <FORMAT>
+          Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both
+          
+          [default: text]
+          [possible values: text, json]
+
   -h, --help
           Print help (see a summary with '-h')
 ```
@@ -674,6 +928,7 @@ Usage: cairn status [OPTIONS]
 Options:
       --db <DB>          Index database. Defaults to $CAIRN_DB, else the nearest .cairn/index.sqlite at or above the working directory
       --budget <BUDGET>  Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+      --format <FORMAT>  Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both [default: text] [possible values: text, json]
   -h, --help             Print help
 ```
 
@@ -698,6 +953,12 @@ Options:
 
       --budget <BUDGET>
           Ceiling on the size of the answer, in tokens. The tool fills it with the highest-ranked rows and reports what it left out, so you do not have to guess a --limit and then ask again
+
+      --format <FORMAT>
+          Print the answer as text for a reader or as JSON for a program. Exit codes are the same in both
+          
+          [default: text]
+          [possible values: text, json]
 
   -h, --help
           Print help (see a summary with '-h')

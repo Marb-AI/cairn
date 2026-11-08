@@ -860,8 +860,14 @@ impl Store {
             }
         }
 
+        // Calls, membership, and a connector's dependency edges. Declared facts travel
+        // wherever SCIP's do: a service that reaches a handler only through a declared
+        // contract runs it just as surely as one that reaches it through a call.
         let mut stmt = self.conn.prepare_cached(
-            "SELECT dst_symbol FROM edges WHERE src_symbol = ?1 AND kind IN (0, 4)",
+            "SELECT e.dst_symbol FROM edges e
+              LEFT JOIN edge_kinds k ON k.id = e.declared_kind
+             WHERE e.src_symbol = ?1
+               AND (e.kind IN (0, 4) OR (e.kind = 5 AND k.propagates = 0))",
         )?;
         let mut out = Vec::new();
         for (name, seeds) in entries {
@@ -938,9 +944,14 @@ impl Store {
         }
 
         let mut out = Vec::new();
-        let mut stmt = self
-            .conn
-            .prepare_cached("SELECT dst_symbol FROM edges WHERE src_symbol = ?1 AND kind = 0")?;
+        // Calls, and a connector's dependency edges with them: Declared participates
+        // wherever Scip does.
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT e.dst_symbol FROM edges e
+              LEFT JOIN edge_kinds k ON k.id = e.declared_kind
+             WHERE e.src_symbol = ?1
+               AND (e.kind = 0 OR (e.kind = 5 AND k.propagates = 0))",
+        )?;
         // Registering a handler class puts all of its methods on the live path, but there
         // is no call edge from a class to the methods it owns, so the walk arrived at the
         // class and stopped. Measured (task K): a mechanically chosen catalog

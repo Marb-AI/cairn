@@ -1,0 +1,298 @@
+{
+  "$defs": {
+    "AreaJson": {
+      "description": "One mechanism's coverage: what it produced, and how far it has been checked.",
+      "properties": {
+        "detail": {
+          "description": "What it produced, in its own words.",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "state": {
+          "description": "`indexed`, `verified`, `stale` — the rung this mechanism has reached.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "state",
+        "detail"
+      ],
+      "type": "object"
+    },
+    "ConnectorRun": {
+      "description": "One connector's last run, as `cairn status` reports it.",
+      "properties": {
+        "facts": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "failed": {
+          "description": "The last run failed, so these facts are the previous run's.",
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "ran_at": {
+          "description": "Unix seconds. `null` for a connector that is declared but has not run.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "unknown": {
+          "description": "What it could not determine. Carried on every answer, not only here.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "facts",
+        "unknown",
+        "failed"
+      ],
+      "type": "object"
+    },
+    "DaemonJson": {
+      "description": "The watcher behind an answer, when there is one.",
+      "properties": {
+        "complete": {
+          "description": "False while the initial scan is still running: the dirty set below is partial.",
+          "type": "boolean"
+        },
+        "created": {
+          "description": "Files nothing in the index has ever seen. Not stale — absent.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "files_tracked": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "modified": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "reindex_due": {
+          "description": "Why a reindex is due, when it is.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "removed": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "uptime_secs": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "repo",
+        "files_tracked",
+        "uptime_secs",
+        "complete",
+        "modified",
+        "created",
+        "removed",
+        "generation"
+      ],
+      "type": "object"
+    },
+    "Stale": {
+      "description": "The staleness section of a JSON answer: `StaleFiles` plus the sentences text prints.",
+      "properties": {
+        "dirty": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "mentioned": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tracked": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "dirty",
+        "mentioned",
+        "notes"
+      ],
+      "type": "object"
+    },
+    "StatusData": {
+      "description": "`cairn status` as data.\n\nThe one answer whose text prints its envelope in the middle rather than at the end,\nso the CLI arranges the parts twice; this is the shape the JSON arrangement publishes.",
+      "properties": {
+        "connectors": {
+          "description": "The connectors this index was built with, and what each contributed.",
+          "items": {
+            "$ref": "#/$defs/ConnectorRun"
+          },
+          "type": "array"
+        },
+        "coverage": {
+          "description": "What each mechanism produced, in the order `coverage` prints them.",
+          "items": {
+            "$ref": "#/$defs/AreaJson"
+          },
+          "type": "array"
+        },
+        "daemon": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DaemonJson"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`null` when no daemon is watching this index."
+        },
+        "files": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "generated_files": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "index": {
+          "type": "string"
+        },
+        "occurrences": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "symbols": {
+          "format": "int64",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "index",
+        "files",
+        "symbols",
+        "occurrences",
+        "generated_files",
+        "coverage",
+        "connectors"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "One answer, as `--format json` prints it.\n\nBorrowed from the envelope rather than owning a copy: this is built once, on the way\nout, and an answer can carry a megabyte of body.\n\nGeneric in the payload for one reason: printing uses `serde_json::Value`, because the\nenvelope is built where the command is no longer known, while the published schema\nhas to name the command's own data type. One declaration, instantiated twice, so the\nschema in `docs/json-schema/v1/` describes the object this actually prints.",
+  "properties": {
+    "body": {
+      "description": "The text answer, exactly as text mode prints it above the envelope lines. The\nthree sections are fields here, so repeating them inside the body would be the\nsame claim twice and two places for it to drift.",
+      "type": "string"
+    },
+    "command": {
+      "description": "The command that produced this, as it would be typed: `refs`, `for change`.",
+      "type": "string"
+    },
+    "data": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/StatusData"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The answer as fields. `null` until the command has a data builder."
+    },
+    "rows": {
+      "format": "uint",
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "schema": {
+      "type": "string"
+    },
+    "stale": {
+      "$ref": "#/$defs/Stale"
+    },
+    "suppressed": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "truncated": {
+      "type": "boolean"
+    },
+    "unknown": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "within": {
+      "description": "The declared container this answer was scoped to, or `null` for the whole index.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "schema",
+    "command",
+    "truncated",
+    "unknown",
+    "suppressed",
+    "stale",
+    "body"
+  ],
+  "title": "Answer",
+  "type": "object"
+}

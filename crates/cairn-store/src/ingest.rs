@@ -129,8 +129,8 @@ pub fn ingest_scip(
         // RETURNING gives us the row id without a second round trip; the DO UPDATE
         // is a no-op that exists only so the clause still fires on conflict.
         let mut insert_symbol = tx.prepare(
-            "INSERT INTO symbols(hash, name_id, module_id, container_id, pkg_id, kind, lang)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO symbols(hash, scip, name_id, module_id, container_id, pkg_id, kind, lang)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(hash) DO UPDATE SET hash = excluded.hash
              RETURNING id",
         )?;
@@ -389,6 +389,7 @@ fn intern_symbol(
     let id: i64 = insert.query_row(
         params![
             &hash[..],
+            symbol,
             name_id,
             module_id,
             container_id,

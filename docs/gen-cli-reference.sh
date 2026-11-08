@@ -37,6 +37,96 @@ distinction exists to prevent.
 `unknown:` what the mechanism cannot see, `stale:` what has changed since indexing. A
 section reading `none` is a claim; a missing section is a bug.
 
+## Machine-readable output
+
+`--format json` prints the same answer as one `cairn.answer/1` object, with the envelope
+as fields rather than as lines. Text is the default and stays the primary format for an
+agent: braces and repeated keys cost several times the tokens of an aligned table, and
+cheaper context is the point. JSON is for a program — a wrapper, an editor, a check in CI.
+
+```
+{
+  "schema": "cairn.answer/1",
+  "command": "refs",
+  "rows": 10,
+  "truncated": false,
+  "unknown": [],
+  "suppressed": [],
+  "stale": { "tracked": false, "dirty": [], "mentioned": ["srcgo/..."], "notes": ["..."] },
+  "body": "...the same text as above the envelope lines...",
+  "data": null
+}
+```
+
+What holds across both formats:
+
+* **Exit codes are identical.** The code is the contract; it cannot depend on how the
+  answer was printed.
+* **The envelope is always present.** An empty `unknown` means none; a missing one would
+  be the same silent error a missing `unknown:` line is. `stale.tracked` is the
+  distinction a bare empty list cannot make: `false` means nothing was watching the tree,
+  not that nothing had changed.
+* **`body` is the text answer** without the three envelope lines, since those are fields
+  here. `--budget` cuts a JSON answer exactly as it cuts a text one, and what it cut is
+  in `suppressed`.
+* **`data`** is the answer as fields. It is `null` for commands that still have only a
+  text renderer; the envelope around it is there either way.
+
+### The data of each command
+
+`symbol`, `refs`, `graph`, `path`, `affects`, `runs`, `reaches`, `expand`, `status`,
+`verify`, `concept show`, `concept list`, `links` and `flow` fill `data`. Every symbol in it
+carries the same shape:
+
+```
+{
+  "handle": "nph",
+  "symbol": "scip-go gomod telemetry.example/srcgo . `…/station`/Registry#Add().",
+  "name": "Add", "qualified": "Registry.Add", "kind": "fn", "lang": "go",
+  "file": "srcgo/internal/station/registry.go", "line": 52, "end_line": 66,
+  "generated": false, "refs": 9, "source": null
+}
+```
+
+`symbol` is the full SCIP symbol string — the identifier that outlives the index. A
+handle is short because it is meant to be typed, and it is only stable while the index
+that minted it is; anything *storing* a reference to a symbol should store the SCIP
+string. It is `null` on an index built before schema v20, which did not record it.
+`source` is the edge source label (`L1, exact`, `L2, agent-asserted`) where the row was
+reached through an edge, and `null` where the row is the answer's own subject. Lines are
+1-based, as the text prints them.
+
+The full shape of each command's answer is published as JSON Schema under
+[`docs/json-schema/v1/`](json-schema/v1/), generated from the same structs that serialise
+it, and a test both regenerates them and validates real output against them.
+
+## Facts from a connector
+
+A connector contributes what cairn cannot derive: a service contract, a domain, an
+entity. Its nodes are addressable by the id it gave them — `cairn affects
+w17:domain/orders` — and its dependency edges travel exactly as calls do, labelled
+`L1, declared by <connector>`. `--within <node>` scopes an answer to one declared
+container, and says in `suppressed:` what the scope cut.
+
+Nothing under `.cairn/connectors/` means nothing changes. Writing one:
+[`docs/connectors.md`](connectors.md).
+
+## Inside one function
+
+`cairn flow <handle>` prints the control flow *inside* a function: where it branches,
+where it returns early, what it calls on the way, what it defers. The call graph answers
+everything else; this is the one question it cannot.
+
+Each node carries its span, and a call carries the handle it resolved to - so following a
+handler needs no second lookup. A call cairn could not resolve is named rather than
+dropped. Where a connector has declared something about the callee, the node says so:
+`writes w17:entity/Reading (declared by w17)`, which is not in the source at all.
+
+Computed on demand by a provider per language, running in the same image as the indexers,
+and cached on the content of the file: asking twice costs one parse. Go today; a Python
+symbol answers `unknown: flow is not available for python`, which is a reply rather than
+an empty page.
+
 HEADER
 
 printf '## cairn\n\n```\n'

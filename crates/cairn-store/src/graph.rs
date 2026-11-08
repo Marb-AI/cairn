@@ -9,9 +9,20 @@ use anyhow::Result;
 use rusqlite::params;
 use std::collections::HashSet;
 
-/// One step out from a symbol: where it lands, how the edge was derived, and the call
-/// site when there is one.
-pub type Neighbour = (i64, EdgeSource, Option<String>);
+/// One step out from a symbol: where it lands, how the edge was derived, who declared
+/// it, and the call site when there is one.
+///
+/// A struct rather than the tuple it used to be: `origin` made it a four-tuple, and
+/// `(i64, EdgeSource, Option<String>, Option<String>)` at three call sites is a puzzle
+/// every time it is read.
+pub struct Neighbour {
+    pub symbol_id: i64,
+    pub source: EdgeSource,
+    /// Which connector stated the edge, for a declared one; `None` otherwise.
+    pub origin: Option<String>,
+    /// Where the edge was observed, as `file:line`.
+    pub site: Option<String>,
+}
 
 /// Which way an edge is followed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +43,8 @@ pub struct WalkNode {
     /// Where the edge was observed, for call edges.
     pub site: Option<String>,
     pub source: EdgeSource,
+    /// Which connector stated the edge, for a declared one; `None` otherwise.
+    pub origin: Option<String>,
     /// Children that existed but were cut by `fanout`.
     pub truncated_children: usize,
 }
@@ -43,6 +56,52 @@ pub struct Walk {
     pub revisited: usize,
     /// Total children dropped by the fanout limit, across all nodes.
     pub truncated: usize,
+}
+
+impl Walk {
+    /// Keep only the nodes in `keep` (and the root), and report how many went.
+    ///
+    /// The tree has to survive the filter: a node whose parent was dropped is re-pointed
+    /// at its nearest surviving ancestor, and depth is recomputed from that, so what is
+    /// printed is still a tree of real edges rather than an indented list with holes in
+    /// it. Used by `--within`, where the question is "this walk, inside that container".
+    pub fn retain_ids(&mut self, keep: &HashSet<i64>) -> usize {
+        let mut surviving: Vec<usize> = Vec::new();
+        // Index in the old list -> index in the new one, for the nodes that stay.
+        let mut moved: Vec<Option<usize>> = vec![None; self.nodes.len()];
+        for (i, node) in self.nodes.iter().enumerate() {
+            // The root is the subject of the answer, not a result in it.
+            if i == 0 || keep.contains(&node.symbol.id) {
+                moved[i] = Some(surviving.len());
+                surviving.push(i);
+            }
+        }
+        let dropped = self.nodes.len() - surviving.len();
+        let old = std::mem::take(&mut self.nodes);
+        let mut kept: Vec<WalkNode> = Vec::new();
+        for (new_index, old_index) in surviving.iter().enumerate() {
+            let mut node = old[*old_index].clone();
+            // Walk up until an ancestor survived. `None` only for the root.
+            let mut parent = node.parent;
+            let mut mapped = None;
+            while let Some(p) = parent {
+                if let Some(at) = moved[p] {
+                    mapped = Some(at);
+                    break;
+                }
+                parent = old[p].parent;
+            }
+            node.parent = mapped;
+            node.depth = match mapped {
+                Some(at) => kept[at].depth + 1,
+                None if new_index == 0 => 0,
+                None => 1,
+            };
+            kept.push(node);
+        }
+        self.nodes = kept;
+        dropped
+    }
 }
 
 impl Store {
@@ -69,6 +128,7 @@ impl Store {
             parent: None,
             site: None,
             source: EdgeSource::Scip,
+            origin: None,
             truncated_children: 0,
         });
 
@@ -81,20 +141,21 @@ impl Store {
                 let parent_id = walk.nodes[idx].symbol.id;
                 let (rows, total) = self.neighbours(parent_id, kind, dir, fanout, exclude_tests)?;
                 let mut added = 0;
-                for (sym_id, source, site) in rows {
-                    if !seen.insert(sym_id) {
+                for n in rows {
+                    if !seen.insert(n.symbol_id) {
                         walk.revisited += 1;
                         continue;
                     }
-                    let Some(sym) = self.symbol(sym_id)? else {
+                    let Some(sym) = self.symbol(n.symbol_id)? else {
                         continue;
                     };
                     walk.nodes.push(WalkNode {
                         symbol: sym,
                         depth: level,
                         parent: Some(idx),
-                        site,
-                        source,
+                        site: n.site,
+                        source: n.source,
+                        origin: n.origin,
                         truncated_children: 0,
                     });
                     next.push(walk.nodes.len() - 1);
@@ -140,12 +201,12 @@ impl Store {
             let mut next = Vec::new();
             for parent_id in frontier {
                 let (rows, _) = self.neighbours(parent_id, kind, dir, fanout, exclude_tests)?;
-                for (sym_id, _, _) in rows {
-                    if !seen.insert(sym_id) {
+                for n in rows {
+                    if !seen.insert(n.symbol_id) {
                         continue;
                     }
-                    reached.push(sym_id);
-                    next.push(sym_id);
+                    reached.push(n.symbol_id);
+                    next.push(n.symbol_id);
                 }
             }
             if next.is_empty() {
@@ -210,19 +271,36 @@ impl Store {
         } else {
             ""
         };
+        let rank = crate::SOURCE_RANK_SQL;
+        // Declared dependency edges travel with calls, and only with calls. A connector
+        // that says an rpc is implemented by a handler is stating the same kind of thing
+        // a call edge states - a change to the target reaches the source - so a walk
+        // that followed one and not the other would answer "nothing calls this" about a
+        // handler the whole system reaches through a contract. `impls` and `member` are
+        // about types and membership, where a declared dependency has no business, and
+        // containment never propagates at all.
+        let declared = if kind == EdgeKind::Calls {
+            format!(
+                " OR (e.kind = {} AND e.declared_kind IN
+                        (SELECT id FROM edge_kinds WHERE propagates = 0))",
+                EdgeKind::Declared as i64
+            )
+        } else {
+            String::new()
+        };
         let sql = format!(
             r#"
-            SELECT e.{to_col}, e.source, p.s, MAX(e.line)
+            SELECT e.{to_col}, e.source, p.s, MAX(e.line), e.origin
               FROM edges e
               LEFT JOIN files   f ON f.id = e.file_id
               LEFT JOIN strings p ON p.id = f.path_id
               JOIN symbols other ON other.id = e.{to_col}
               LEFT JOIN files otherf ON otherf.id = other.def_file_id
-             WHERE e.{from_col} = ?1 AND e.kind = ?2
+             WHERE e.{from_col} = ?1 AND (e.kind = ?2{declared})
                AND (?4 = 0 OR coalesce(otherf.is_test, 0) = 0)
                {noise_filter}
              GROUP BY e.{to_col}
-             ORDER BY e.source ASC, e.confidence DESC
+             ORDER BY {rank} ASC, e.confidence DESC
              LIMIT ?3
             "#
         );
@@ -236,14 +314,12 @@ impl Store {
                     (Some(p), Some(l)) => Some(format!("{p}:{}", l + 1)),
                     _ => None,
                 };
-                Ok((
-                    r.get::<_, i64>(0)?,
-                    match r.get::<_, i64>(1)? {
-                        1 => EdgeSource::Weak,
-                        _ => EdgeSource::Scip,
-                    },
+                Ok(Neighbour {
+                    symbol_id: r.get::<_, i64>(0)?,
+                    source: EdgeSource::from_i64(r.get::<_, i64>(1)?),
+                    origin: r.get::<_, Option<String>>(4)?,
                     site,
-                ))
+                })
             },
         )?;
         let mut out = Vec::new();
@@ -257,7 +333,7 @@ impl Store {
             "SELECT count(DISTINCT e.{to_col}) FROM edges e
                JOIN symbols other ON other.id = e.{to_col}
                LEFT JOIN files otherf ON otherf.id = other.def_file_id
-              WHERE e.{from_col} = ?1 AND e.kind = ?2
+              WHERE e.{from_col} = ?1 AND (e.kind = ?2{declared})
                 AND (?3 = 0 OR coalesce(otherf.is_test, 0) = 0)
                 {noise_filter}"
         );

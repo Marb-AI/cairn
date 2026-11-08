@@ -1,0 +1,38 @@
+# Recorded output of one cairn command against the fixture corpus. Do not edit by hand:
+# CAIRN_BLESS=1 cargo test --test golden rewrites every file here.
+#
+# A diff in this file is a change in what the tool says. Read it before blessing it:
+# `<db>`, `<dbdir>` and `<repo>` stand in for paths that differ per machine and `<epoch>`
+# for when a connector last ran; nothing else in an answer is normalised.
+
+$ cairn verify
+exit 0
+index coverage
+  files                          16
+  symbols                       490
+  references                   1197   1093 with a caller
+suppressed: none
+unknown (6):
+  110 symbols are referenced but defined nowhere in the index (third-party or unresolved); `expand` cannot show their source
+  234 definitions have no body extent from the indexer; `--detail body` shows only their definition line
+  104 references sit outside any function body (imports, module-level use) and therefore have no caller in the call graph
+  2 symbols are defined in more than one file; ranking shows one
+  2 weak links are candidates, not facts; confirm before relying on one
+  staleness was not checked: pass --repo to compare the index against the working tree
+stale: none
+
+$ cairn verify --repo <repo>
+exit 0
+index coverage
+  files                          16
+  symbols                       490
+  references                   1197   1093 with a caller
+suppressed: none
+unknown (5):
+  110 symbols are referenced but defined nowhere in the index (third-party or unresolved); `expand` cannot show their source
+  234 definitions have no body extent from the indexer; `--detail body` shows only their definition line
+  104 references sit outside any function body (imports, module-level use) and therefore have no caller in the call graph
+  2 symbols are defined in more than one file; ranking shows one
+  2 weak links are candidates, not facts; confirm before relying on one
+stale: none
+
