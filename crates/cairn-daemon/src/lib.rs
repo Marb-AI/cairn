@@ -29,6 +29,7 @@ pub mod watch;
 pub use client::Client;
 pub use schedule::{Decision, Scheduler, Trigger};
 pub use server::Daemon;
+pub use watch::{ConnectorWatch, RefreshConnector};
 
 /// One request. An enum rather than a free-form command so that an old client talking
 /// to a new daemon fails loudly instead of being misunderstood.
@@ -78,6 +79,14 @@ pub struct DirtySet {
     /// Set when the scheduler has decided a reindex is warranted. Reported rather than
     /// acted on: deciding is free, running spawns heavy external indexers.
     pub reindex_due: Option<String>,
+    /// Connectors whose inputs have changed since their facts were built: the facts in
+    /// the index are the previous run's, and a refresh is in flight or about to be.
+    ///
+    /// Reported rather than waited for (D7). A query that blocked until a connector had
+    /// caught up would be a query that sometimes takes a hundred times as long, and the
+    /// honest alternative is the previous answer with the reason attached.
+    #[serde(default)]
+    pub stale_connectors: Vec<String>,
 }
 
 impl DirtySet {

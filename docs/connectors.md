@@ -132,6 +132,20 @@ blake3(the manifest as written, the connector's --version output, the content of
 `--version` is the whole command with `--version` appended. A connector that does not
 understand the flag is not broken; it just contributes nothing to the key.
 
+## While you are working
+
+A running daemon maps every changed path through the `inputs` globs and reruns the
+connectors that match — only those. A query made during a rerun does not wait for it
+(D7): it answers from the previous run's facts and says so.
+
+```
+stale: connector w17 has inputs that changed since its facts were built, so anything
+       declared here is the previous run's. A refresh is in flight; nothing waits for it
+```
+
+A refresh that fails leaves the connector marked stale, because the facts in the index
+are still the previous run's and nothing has replaced them.
+
 ## What it looks like once it works
 
 ```

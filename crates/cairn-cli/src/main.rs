@@ -645,6 +645,14 @@ static PARTIAL: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 /// that by itself.
 static CONNECTOR_GAPS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
 
+/// Connectors being refreshed right now, as the watcher reported them.
+///
+/// The staleness a dirty file cannot express: a `.proto` change makes a connector's facts
+/// out of date without making any indexed file dirty, so without this an answer resting
+/// on declared facts would report a clean tree while describing the previous version of
+/// a contract.
+static REFRESHING: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+
 /// Read once, after the store is open, so the note costs one query per process.
 fn note_partial_index(store: &Store) {
     let _ = CONNECTOR_GAPS.set(store.connector_unknown().unwrap_or_default());
@@ -762,6 +770,16 @@ fn emit(mut env: cairn_fmt::Envelope) {
     }
     for gap in CONNECTOR_GAPS.get().into_iter().flatten() {
         env.unknown.push(gap.clone());
+    }
+    if let Some(names) = REFRESHING.get().filter(|n| !n.is_empty()) {
+        env.stale.push(format!(
+            "connector {} {} inputs that changed since {} facts were built, so anything \
+             declared here is the previous run's. A refresh is in flight; nothing waits \
+             for it",
+            names.join(", "),
+            if names.len() == 1 { "has" } else { "have" },
+            if names.len() == 1 { "its" } else { "their" }
+        ));
     }
     track::observe(env.rows, env.truncated());
     // One envelope, two renderings. The session log is written from the envelope rather
@@ -1195,13 +1213,22 @@ fn run() -> Result<u8> {
     let mut budget = Budget::from_opt(cli.budget);
     // Asked once per invocation, best-effort: a missing daemon is a normal state and
     // must never fail a query, only change what the answer can claim about freshness.
-    let dirty: Option<Vec<String>> =
-        cairn_daemon::client::dirty_if_running(&cairn_daemon::socket_path(&db)).map(|d| {
-            d.modified
-                .into_iter()
-                .chain(d.removed)
-                .collect::<Vec<String>>()
-        });
+    let live = cairn_daemon::client::dirty_if_running(&cairn_daemon::socket_path(&db));
+    // Connectors whose inputs have changed since their facts were built. Remembered for
+    // the process and put on every answer rather than waited for (D7): the facts in the
+    // index are the previous run's, and saying whose they are costs nothing while
+    // blocking on a rerun would cost the caller the round trip.
+    let _ = REFRESHING.set(
+        live.as_ref()
+            .map(|d| d.stale_connectors.clone())
+            .unwrap_or_default(),
+    );
+    let dirty: Option<Vec<String>> = live.map(|d| {
+        d.modified
+            .into_iter()
+            .chain(d.removed)
+            .collect::<Vec<String>>()
+    });
     // Nobody should have to know the daemon exists. If this repository has an index and
     // nothing is watching it, start one and carry on — the command it was asked to run
     // does not wait, so the only cost is that this one answer cannot report freshness.
@@ -2733,6 +2760,57 @@ fn run() -> Result<u8> {
             // The reload closure, rather than a dependency: the daemon watches files and
             // has no business opening a database, so it asks for the snapshot instead.
             let db_for_reload = db.clone();
+            // The connectors this index was built with, so a change to one of their
+            // inputs reruns that one and nothing else. The globs are compiled here
+            // rather than passed through: the matcher lives beside the manifest parser,
+            // and the daemon has no business depending on it.
+            let manifest_dir = db
+                .parent()
+                .map(|d| d.join(cairn_store::connect::manifest::DIR))
+                .unwrap_or_default();
+            let (manifests, manifest_problems) =
+                cairn_store::connect::Manifest::load_dir(&manifest_dir);
+            for p in &manifest_problems {
+                eprintln!("cairn daemon: {p}");
+            }
+            let watches: Vec<cairn_daemon::ConnectorWatch> = manifests
+                .iter()
+                .map(|m| {
+                    let globs = m.inputs.clone();
+                    cairn_daemon::ConnectorWatch {
+                        name: m.name.clone(),
+                        matches: Box::new(move |rel: &str| {
+                            cairn_store::connect::manifest::matches_any(rel, &globs)
+                        }),
+                    }
+                })
+                .collect();
+            let by_name: HashMap<String, cairn_store::connect::Manifest> =
+                manifests.into_iter().map(|m| (m.name.clone(), m)).collect();
+            let db_for_refresh = db.clone();
+            let repo_for_refresh = repo.clone();
+            let refresh: cairn_daemon::RefreshConnector = Box::new(move |name: &str| {
+                let manifest = by_name
+                    .get(name)
+                    .with_context(|| format!("no manifest for connector {name}"))?;
+                let mut store = cairn_store::Store::open(&db_for_refresh)?;
+                let connector = cairn_store::connect::ExternalConnector::new(manifest.clone());
+                let mut ctx = cairn_store::connect::ConnectorCtx {
+                    store: &mut store,
+                    repo: Some(&repo_for_refresh),
+                };
+                use cairn_store::connect::Connector;
+                let report = connector.run(&mut ctx)?;
+                let ran_at = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                store.record_connector_run(manifest, &report, ran_at)?;
+                if report.failed {
+                    anyhow::bail!("the run failed; the previous facts are still in place");
+                }
+                Ok(())
+            });
             cairn_daemon::Daemon::new(&repo, &socket, indexed, &roots, container)
                 .watch_index(
                     &db,
@@ -2743,6 +2821,7 @@ fn run() -> Result<u8> {
                             .ok()
                     }),
                 )
+                .watch_connectors(watches, refresh)
                 .run()?;
             // The container is deliberately left running. It costs a sleeping process and
             // a mount, and tearing it down on every daemon exit raced the next daemon

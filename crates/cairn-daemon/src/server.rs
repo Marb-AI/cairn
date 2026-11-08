@@ -106,6 +106,20 @@ impl Daemon {
         self
     }
 
+    /// The connectors behind this index, and how to re-run one of them.
+    ///
+    /// Separate from `new` for the same reason as `watch_index`: a daemon with no
+    /// connectors is the normal case, and one whose manifests could not be read is still
+    /// worth running as a watcher.
+    pub fn watch_connectors(
+        self,
+        connectors: Vec<crate::watch::ConnectorWatch>,
+        refresh: crate::watch::RefreshConnector,
+    ) -> Daemon {
+        self.tracker.set_connectors(connectors, refresh);
+        self
+    }
+
     /// Serve until shutdown. Blocks.
     pub fn run(self) -> Result<()> {
         // Before anything expensive. A watcher pointed at `/` walks every mount on the

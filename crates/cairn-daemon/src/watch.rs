@@ -50,6 +50,12 @@ const DEBOUNCE: Duration = Duration::from_millis(120);
 
 pub struct DirtyTracker {
     inner: Arc<Mutex<State>>,
+    /// How to re-run a connector. Outside `State` so a refresh can run without holding
+    /// the lock every query needs.
+    refresh: Arc<Mutex<Option<RefreshConnector>>>,
+    /// Connectors with a refresh in flight, so a burst of saves does not start five runs
+    /// of the same connector.
+    refreshing: Arc<Mutex<std::collections::BTreeSet<String>>>,
 }
 
 /// Re-reads path -> content hash from the store. Supplied by the caller because the
@@ -57,6 +63,24 @@ pub struct DirtyTracker {
 /// concern and pulling a database driver into it to answer one question would invert the
 /// layering for the sake of one call.
 pub type ReloadIndexed = Box<dyn Fn() -> Option<HashMap<String, [u8; 16]>> + Send>;
+
+/// One connector the watcher knows about: its name, and whether a path is one of its
+/// inputs.
+///
+/// A predicate rather than the globs, for the same reason `ReloadIndexed` is a closure:
+/// the glob matcher lives beside the manifest parser in `cairn-store`, and the daemon has
+/// no business depending on that to answer one question. The caller compiles the
+/// manifest's `inputs` into this.
+pub struct ConnectorWatch {
+    pub name: String,
+    pub matches: Box<dyn Fn(&str) -> bool + Send + Sync>,
+}
+
+/// Re-run one connector and apply its facts, returning what to say if it failed.
+///
+/// Supplied by the caller for the same layering reason. The daemon decides *when* and
+/// *which*; running one means opening the store, which is not the watcher's business.
+pub type RefreshConnector = Box<dyn Fn(&str) -> Result<()> + Send + Sync>;
 
 struct State {
     repo: PathBuf,
@@ -75,6 +99,13 @@ struct State {
     roots: Vec<String>,
     /// Extensions the index actually holds documents for, taken from the index itself.
     indexable: std::collections::HashSet<String>,
+    /// Connectors whose inputs this watcher can recognise.
+    connectors: Vec<ConnectorWatch>,
+    /// Connectors whose inputs have changed since their facts were built, and which are
+    /// therefore being refreshed or waiting to be. Reported on every answer: a query must
+    /// never wait for one (D7), so it answers from the previous facts and says whose they
+    /// are.
+    stale_connectors: std::collections::BTreeSet<String>,
 }
 
 impl DirtyTracker {
@@ -103,7 +134,11 @@ impl DirtyTracker {
                 index_stamp: None,
                 reload: None,
                 roots: Vec::new(),
+                connectors: Vec::new(),
+                stale_connectors: Default::default(),
             })),
+            refresh: Arc::new(Mutex::new(None)),
+            refreshing: Arc::new(Mutex::new(Default::default())),
         }
     }
 
@@ -116,6 +151,82 @@ impl DirtyTracker {
     /// called the tree clean while `status` advertised seventeen files of debt.
     pub fn set_roots(&self, roots: Vec<String>) {
         self.inner.lock().unwrap().roots = roots;
+    }
+
+    /// The connectors behind this index, and how to re-run one.
+    ///
+    /// Without this, a change to a `.proto` file left a connector's facts describing the
+    /// previous version of it while every answer reported the tree as clean - the
+    /// connector's inputs are not code, so nothing in the dirty set was ever about them.
+    pub fn set_connectors(&self, connectors: Vec<ConnectorWatch>, refresh: RefreshConnector) {
+        self.inner.lock().unwrap().connectors = connectors;
+        *self.refresh.lock().unwrap() = Some(refresh);
+    }
+
+    /// Which connectors claim this path as an input.
+    fn connectors_for(&self, rel: &str) -> Vec<String> {
+        let st = self.inner.lock().unwrap();
+        st.connectors
+            .iter()
+            .filter(|c| (c.matches)(rel))
+            .map(|c| c.name.clone())
+            .collect()
+    }
+
+    /// Mark the connectors a changed path belongs to, and start refreshing them.
+    ///
+    /// Only the ones that match: a `.proto` change is nothing to a connector that reads
+    /// compose files, and re-running every connector on every save would make the daemon
+    /// the most expensive thing in the repository.
+    fn connectors_changed(self: &Arc<Self>, rel: &str) {
+        let names = self.connectors_for(rel);
+        if names.is_empty() {
+            return;
+        }
+        {
+            let mut st = self.inner.lock().unwrap();
+            for name in &names {
+                st.stale_connectors.insert(name.clone());
+            }
+            // The generation moves because what an answer would say has changed, even
+            // though no file in the dirty set did.
+            st.dirty.generation += 1;
+        }
+        for name in names {
+            // One run per connector at a time. A burst of saves - a codegen pass, a
+            // branch switch - would otherwise start a run per event, and they would
+            // fight over the same rows.
+            {
+                let mut in_flight = self.refreshing.lock().unwrap();
+                if !in_flight.insert(name.clone()) {
+                    continue;
+                }
+            }
+            let this = Arc::clone(self);
+            // A thread, because a query must never wait for a connector (D7). While this
+            // runs, `stale_connectors` is what every answer reports.
+            std::thread::spawn(move || {
+                let outcome = {
+                    let refresh = this.refresh.lock().unwrap();
+                    match refresh.as_ref() {
+                        Some(f) => f(&name),
+                        None => Ok(()),
+                    }
+                };
+                match outcome {
+                    Ok(()) => {
+                        let mut st = this.inner.lock().unwrap();
+                        st.stale_connectors.remove(&name);
+                        st.dirty.generation += 1;
+                        eprintln!("cairn daemon: connector {name} refreshed");
+                    }
+                    // Left stale on purpose: the facts in the index are the previous
+                    // run's, and every answer has to go on saying so until a run works.
+                    Err(e) => eprintln!("cairn daemon: connector {name} refresh failed: {e:#}"),
+                }
+                this.refreshing.lock().unwrap().remove(&name);
+            });
+        }
     }
 
     /// Tell the tracker where the index lives and how to re-read it.
@@ -203,6 +314,7 @@ impl DirtyTracker {
             Decision::Idle => None,
         };
         st.dirty.reindex_due = due;
+        st.dirty.stale_connectors = st.stale_connectors.iter().cloned().collect();
         st.dirty.clone()
     }
 
@@ -313,7 +425,7 @@ impl DirtyTracker {
     }
 
     /// Watch until the returned handle is dropped. Blocks, so callers give it a thread.
-    pub fn watch_forever(&self, stop: mpsc::Receiver<()>) -> Result<()> {
+    pub fn watch_forever(self: &Arc<Self>, stop: mpsc::Receiver<()>) -> Result<()> {
         let repo = self.inner.lock().unwrap().repo.clone();
         let (tx, rx) = mpsc::channel::<notify::Result<notify::Event>>();
         let mut watcher = notify::recommended_watcher(tx)?;
@@ -362,6 +474,11 @@ impl DirtyTracker {
                     }
                     seen.push(rel.clone());
                     self.recheck(&rel);
+                    // A connector's inputs are usually not code, so nothing above would
+                    // have noticed them: `.proto` is not in the index's extensions and
+                    // `recheck` correctly says nothing about it. This is the only place
+                    // that learns a declared fact may be out of date.
+                    self.connectors_changed(&rel);
                 }
             }
         }
