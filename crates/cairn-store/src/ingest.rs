@@ -314,6 +314,12 @@ pub fn ingest_scip(
         .filter(|l| *l != Lang::Unknown)
     {
         store.set_meta(&format!("root.{}", lang.tag()), &stats.path_prefix)?;
+        // And the full set, which `root.<lang>` cannot hold: one key, one value, so the
+        // last project of a language overwrote every earlier one. On a workspace of two
+        // TypeScript apps the index covered both and said it covered one, and there was
+        // no way to tell a file the index *missed* from a file the workspace excluded -
+        // both are simply absent, and only the set of roots separates them.
+        store.add_project_root(lang.tag(), &stats.path_prefix)?;
     }
 
     // The occurrence rows go in before `occ_unique` exists — the index is built afterwards

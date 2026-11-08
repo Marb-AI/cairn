@@ -3748,9 +3748,18 @@ pub fn found(
             // `.go`, so on the frontend every hit in the one app that fails to index was
             // shown untagged - identical to a hit in a file the index knows - and the
             // reader had no way to learn that no symbol command can see that code.
+            // Three states, not two. "Missed" tells the reader to go and look; "outside
+            // the indexed projects" tells them there is nothing to look at, which is the
+            // ordinary case for a retired app a workspace excludes on purpose. Saying the
+            // first about the second was measured in a run: it sends a reader after code
+            // that was never meant to be there.
             let code = Lang::is_code_path(&h.path);
             if code && !h.context.indexed {
-                tags.push("not in the index - a code file the last index run missed");
+                tags.push(match h.context.inside_indexed_project {
+                    Some(true) => "not in the index - a code file the last index run missed",
+                    Some(false) => "not in the index - outside the indexed projects",
+                    None => "not in the index",
+                });
             }
             let tag = if tags.is_empty() {
                 String::new()
@@ -4088,6 +4097,7 @@ mod guarantees {
                 generated,
                 is_test,
                 indexed: true,
+                inside_indexed_project: None,
             },
             around: Vec::new(),
         }
@@ -4105,6 +4115,7 @@ mod guarantees {
                 generated: false,
                 is_test: false,
                 indexed: true,
+                inside_indexed_project: None,
             },
             around: around.iter().map(|(i, l)| (*i, l.to_string())).collect(),
         }

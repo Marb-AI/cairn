@@ -29,6 +29,35 @@ pub struct LineContext {
     /// still a hit; it just arrives without any of the above, and saying so is the
     /// difference between "no context" and "no context *because* nothing indexes SQL".
     pub indexed: bool,
+    /// For a code file that is *not* indexed: was it inside a project the index was built
+    /// from, or outside every one of them?
+    ///
+    /// `Some(true)` is a gap — the index covers that directory and this file is missing
+    /// from it, so go and look. `Some(false)` is not a gap: the file is outside what was
+    /// indexed, usually because the repository's own workspace excludes it, and there is
+    /// nothing to find. `None` means the index does not record its roots and the question
+    /// cannot be answered, which is a third thing and must not be reported as either.
+    ///
+    /// Measured: a run was told a deliberately excluded app's file was one "the last index
+    /// run missed". Those are opposite instructions to a reader, and the line exists to
+    /// carry exactly that difference.
+    pub inside_indexed_project: Option<bool>,
+}
+
+/// Is `path` inside one of `roots`?
+///
+/// `None` when there are no roots to compare against — see `inside_indexed_project`.
+/// A root of `apps/rixby` contains `apps/rixby/api/x.ts` and does not contain
+/// `apps/rixby-old/x.ts`, hence the separator rather than a bare `starts_with`.
+pub fn inside_any_root(roots: &[String], path: &str) -> Option<bool> {
+    if roots.is_empty() {
+        return None;
+    }
+    Some(
+        roots.iter().any(|r| {
+            path == r.as_str() || path.starts_with(&format!("{}/", r.trim_end_matches('/')))
+        }),
+    )
 }
 
 impl Store {
@@ -132,5 +161,43 @@ impl Store {
             out.push(r?);
         }
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_sibling_directory_is_not_inside_a_root() {
+        // `apps/marb_old` next to the root `apps/marb` is the shape that matters: a bare
+        // `starts_with` calls the retired app part of the indexed one, and the tag then
+        // says the opposite of the truth about every hit in it.
+        let roots = vec!["apps/marb".to_string()];
+        assert_eq!(
+            inside_any_root(&roots, "apps/marb/components/Chat.tsx"),
+            Some(true)
+        );
+        assert_eq!(
+            inside_any_root(&roots, "apps/marb_old/components/Chat.tsx"),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn no_recorded_roots_is_not_an_answer_either_way() {
+        // An index built before the set was recorded cannot say whether a missing file was
+        // missed or excluded, and must not pick one.
+        assert_eq!(inside_any_root(&[], "apps/marb/x.ts"), None);
+    }
+
+    #[test]
+    fn every_root_counts_not_just_the_first() {
+        let roots = vec!["apps/marb".to_string(), "apps/rixby".to_string()];
+        assert_eq!(
+            inside_any_root(&roots, "apps/rixby/hooks/use.ts"),
+            Some(true)
+        );
+        assert_eq!(inside_any_root(&roots, "packages/ui/index.ts"), Some(false));
     }
 }
