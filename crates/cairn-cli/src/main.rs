@@ -2865,11 +2865,34 @@ fn run() -> Result<u8> {
                 match cairn_daemon::Client::connect(&socket) {
                     Some(mut c) => {
                         c.shutdown()?;
-                        println!("daemon stopped");
-                        return Ok(exit::FOUND);
+                        // Sending the command is not the same as it having happened, and
+                        // this printed the second as proof of the first. Wait for the
+                        // socket to stop answering, and say which of the two is true.
+                        let deadline =
+                            std::time::Instant::now() + std::time::Duration::from_secs(3);
+                        while std::time::Instant::now() < deadline {
+                            if cairn_daemon::Client::connect(&socket).is_none() {
+                                println!("daemon stopped");
+                                return Ok(exit::FOUND);
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(50));
+                        }
+                        println!(
+                            "shutdown sent, but {} is still answering after 3s",
+                            socket.display()
+                        );
+                        return Ok(exit::NOT_FOUND);
                     }
                     None => {
-                        println!("no daemon running on {}", socket.display());
+                        // Nothing answers. That is almost always no daemon — but it is also
+                        // what an orphan looks like, which is why the sentence no longer
+                        // claims more than it checked.
+                        println!(
+                            "nothing is listening on {}. If a watcher is still running \
+                             without its socket, it cannot be reached and has to be killed \
+                             by pid.",
+                            socket.display()
+                        );
                         return Ok(exit::NOT_FOUND);
                     }
                 }
