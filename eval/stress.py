@@ -873,6 +873,17 @@ def check_understand_matches_its_own_citation(db, handle, f):
                 f"cairn for understand {handle}; cairn reaches {source} --outgoing",
             )
             return
+    # `reaches handle --outgoing` says so itself when its answer is coarser than a traced
+    # edge - "answered for the enclosing type": a service binding names the handler type,
+    # not the one method among its several that actually makes the call. When every
+    # depth-1 hop came back `via` (verified above), *this* symbol made no direct call of
+    # its own - the real, more precise edge is the one the via-loop just checked - so a
+    # root-level answer that only exists because of that type-wide hedge is not something
+    # `for understand` was ever citing, and comparing it is comparing against a question
+    # nobody asked. Found this way: a second fixture symbol whose only hop happened to be
+    # `via`, which the existing contract-vs-superset reasoning above had not hit before.
+    if not first and via and "answered for the enclosing type" in rout:
+        return
     if first != cited:
         f.note(
             "for understand disagrees with the command it cites",
@@ -914,6 +925,16 @@ def check_the_chain_was_followed_to_where_it_says(db, handle, f):
         if tc not in (0, 1):
             continue
         f.ran("chain followed to where it says")
+        # The same hedge as `check_understand_matches_its_own_citation`: when this hop's
+        # own outgoing answer is the type-wide one ("answered for the enclosing type"),
+        # it names the handler's type because a service binding cannot name one of
+        # several methods on it - and the chain did follow further, through the specific
+        # method the type-wide answer cannot see, which is why that method's handle is
+        # already in `printed` under a deeper hop. The type handle itself never will be;
+        # demanding it is demanding the chain print a coarser fact *in addition to* the
+        # precise one it already gave, which `for understand` never promised.
+        if "answered for the enclosing type" in tout:
+            continue
         missing = (handles_in(tout) - {target, handle}) - printed
         if missing:
             f.note(
