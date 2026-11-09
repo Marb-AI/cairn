@@ -40,17 +40,26 @@ Go, and nothing in either file names the other.
 
 > ### Status: pre-alpha, closer to a proof of concept than a product
 >
-> **Python and Go only.** Measured against exactly one codebase. Nothing is stable — the
-> commands, the exit codes, the index format and the rule pack can all change, and an
-> index built by one version will not be read by the next.
+> **Go, Python, TypeScript and Rust.** Nothing is stable — the commands, the exit codes,
+> the index format and the rule pack can all change, and an index built by one version
+> will not be read by the next.
 >
-> Other languages are deliberately not next. The plan is to use this on real work first
-> and find out what is actually wrong with it. Adding a language is meant to be a rule
-> pack rather than a patch; whether that holds is one of the things this period has to
-> answer.
+> The first three were each measured against a real codebase before being called done:
+> Go and Python on this project's own backend, TypeScript on its frontend. Rust has not
+> had that treatment yet. What it has is one round of verification against a real
+> open-source project (ripgrep — a real multi-crate workspace, real dependencies from
+> crates.io), which found and fixed three defects a hand-written fixture could not have.
+> That is correctness checked once, not the "use it daily and find out what breaks" pass
+> the others got.
 >
-> Use it if those two languages are your stack and you want to help find the edges. Do not
-> build on it yet.
+> Adding a language was meant to be a rule pack rather than a patch; Rust answered that
+> only partly. The language table, the root-detection rule and the way a dispatched
+> method is kept out of dead-code detection all held unchanged — but `rust-analyzer scip`
+> emits no SCIP relationships at all, unlike every indexer here before it, so recovering
+> that one fact needed real code, not configuration.
+>
+> Use it if your stack is one of these and you want to help find the edges. Proceed
+> carefully, Rust most of all — it has had the least real use of the four.
 
 ## Install
 
