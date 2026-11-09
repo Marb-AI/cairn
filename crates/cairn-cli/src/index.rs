@@ -279,16 +279,48 @@ fn json_workspaces(text: &str) -> Vec<String> {
 /// statement that a directory under it does not build, same lesson as there.
 fn cargo_workspace_members(dir: &Path) -> Option<Vec<PathBuf>> {
     let text = std::fs::read_to_string(dir.join("Cargo.toml")).ok()?;
-    if !text.lines().any(|l| l.trim() == "[workspace]") {
-        return None;
-    }
-    let mut patterns = toml_string_array(&text, "members");
+    let section = workspace_section(&text)?;
+    let mut patterns = toml_string_array(section, "members");
     patterns.extend(
-        toml_string_array(&text, "exclude")
+        toml_string_array(section, "exclude")
             .into_iter()
             .map(|e| format!("!{e}")),
     );
     Some(expand_members(dir, &patterns))
+}
+
+/// The text of a `Cargo.toml`'s own `[workspace]` table, not `[workspace.package]` or
+/// anything else that starts the same way and not the `[package]` table above it.
+///
+/// A mixed manifest - `[package]` and `[workspace]` in the same file, which is how
+/// ripgrep's own root `Cargo.toml` is written - has an `exclude` key that belongs to
+/// `[package]` (what `cargo publish` leaves out) and means nothing about workspace
+/// membership at all. Searching the whole file for a key named `exclude` would read
+/// that one by accident; TOML tables run until the next `[...]` header, so slicing to
+/// the lines between `[workspace]` and whatever heading comes after it is what actually
+/// answers "is this key in this table".
+fn workspace_section(text: &str) -> Option<&str> {
+    let mut in_section = false;
+    let mut start = None;
+    let mut end = text.len();
+    let mut pos = 0;
+    for line in text.lines() {
+        let line_start = pos;
+        pos += line.len() + 1; // +1 for the newline this split consumed
+        let trimmed = line.trim();
+        if in_section {
+            if trimmed.starts_with('[') {
+                end = line_start;
+                break;
+            }
+            continue;
+        }
+        if trimmed == "[workspace]" {
+            in_section = true;
+            start = Some(pos);
+        }
+    }
+    Some(&text[start?..end])
 }
 
 /// A TOML array of strings written as `key = [...]`, on one line or several. Only what
@@ -1363,6 +1395,52 @@ mod tests {
             roots,
             &vec![dir.clone(), dir.join("crates/experimental")],
             "excluded from the workspace, so it is not absorbed - it is still its own crate"
+        );
+    }
+
+    #[test]
+    fn a_mixed_manifests_own_publish_exclude_is_not_workspace_exclude() {
+        // Modelled on ripgrep's own root `Cargo.toml`: `[package]` and `[workspace]` in
+        // the same file, and `[package]`'s own `exclude` is `cargo publish`'s list of
+        // what not to ship - nothing to do with workspace membership, and it happens to
+        // name a directory ("grep") that genuinely *is* a declared member here.
+        // Reading the whole file for a key named `exclude` without checking which table
+        // it is in would read this one by mistake and silently drop a real member.
+        //
+        // No leading `/` on the path, unlike ripgrep's own ("/crates/fuzz"): with one,
+        // `expand_members` would join it onto the repo root as an absolute path, find
+        // nothing there, and mask the bug by accident - the point here is the table, not
+        // that coincidence.
+        let mut files = vec![(
+            "Cargo.toml".to_string(),
+            "[package]\n\
+             name = \"ripgrep\"\n\
+             exclude = [\n  \"scripts/\",\n  \"crates/grep\",\n]\n\
+             \n\
+             [workspace]\n\
+             members = [\"crates/grep\", \"crates/fuzz\"]\n\
+             \n\
+             [workspace.package]\n\
+             edition = \"2021\"\n"
+                .to_string(),
+        )];
+        files.push((
+            "crates/fuzz/Cargo.toml".to_string(),
+            "[package]\n".to_string(),
+        ));
+        files.push((
+            "crates/grep/Cargo.toml".to_string(),
+            "[package]\n".to_string(),
+        ));
+        files.extend(many("crates/fuzz/src", "rs", 10));
+        files.extend(many("crates/grep/src", "rs", 10));
+        let dir = tree("mixed-manifest", &refs(&files));
+        let roots = &scan(&dir).unwrap().found[0].roots;
+        assert_eq!(
+            roots,
+            &vec![dir.clone()],
+            "crates/grep is a declared member - `[package] exclude` naming the same path \
+             for an unrelated reason (cargo publish) must not pull it back out"
         );
     }
 

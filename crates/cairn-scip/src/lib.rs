@@ -182,13 +182,19 @@ impl<'a> ParsedSymbol<'a> {
     }
 }
 
-/// Where a Rust trait-impl method's descriptor names the type, the trait, and the
-/// method's own descriptor with its suffix - `impl#[Square][Shape]area().` splits into
-/// (`"Square"`, `"Shape"`, `"area()."`). `None` for an inherent impl
-/// (`impl Square { fn new() {} }`), which rust-analyzer names `Square#new().` directly
-/// with no `impl#[..]` wrapper - there is no trait to disambiguate, so there is nothing
-/// to split.
-fn rust_impl_parts(descriptors: &str) -> Option<(usize, &str, &str, &str)> {
+/// Where a Rust impl method's descriptor names the type, the trait if there is one, and
+/// the method's own descriptor with its suffix.
+///
+/// Every method inside an `impl` block gets this `impl#[..]` wrapper - checked against
+/// ripgrep's real `Cargo.toml` workspace, not just a hand-written fixture: inherent
+/// methods (`impl Match { fn new() {} }`) are `impl#[Match]new().`, one bracket, same as
+/// `impl#[Square][Shape]area().` is a trait impl's, two. Only a method's own declaration
+/// inside the trait definition (`Matcher#find_at().`) skips the wrapper entirely - there
+/// is no impl block to disambiguate there.
+///
+/// `impl#[Square][Shape]area().` -> (`"Square"`, `Some("Shape")`, `"area()."`)
+/// `impl#[Match]new().` -> (`"Match"`, `None`, `"new()."`)
+fn rust_impl_parts(descriptors: &str) -> Option<(usize, &str, Option<&str>, &str)> {
     let marker = "impl#[";
     let start = descriptors.rfind(marker)?;
     let rest = &descriptors[start + marker.len()..];
@@ -196,26 +202,32 @@ fn rust_impl_parts(descriptors: &str) -> Option<(usize, &str, &str, &str)> {
     if type_name.is_empty() {
         return None;
     }
-    let rest = rest.strip_prefix('[')?;
-    let (trait_name, method_part) = rest.split_once(']')?;
-    if trait_name.is_empty() || method_part.is_empty() {
-        return None;
+    match rest.strip_prefix('[') {
+        Some(rest) => {
+            let (trait_name, method_part) = rest.split_once(']')?;
+            if trait_name.is_empty() || method_part.is_empty() {
+                return None;
+            }
+            Some((start, type_name, Some(trait_name), method_part))
+        }
+        None if !rest.is_empty() => Some((start, type_name, None, rest)),
+        None => None,
     }
-    Some((start, type_name, trait_name, method_part))
 }
 
-/// The trait method a Rust `impl` method symbol satisfies, derived from the symbol
-/// string itself rather than from a SCIP relationship.
+/// The trait method a Rust trait-impl method symbol satisfies, derived from the symbol
+/// string itself rather than from a SCIP relationship. `None` for an inherent impl -
+/// there is no trait for it to satisfy, so there is nothing to synthesise.
 ///
-/// `rust-analyzer scip` emits none: every `SymbolInformation.relationships` in its
-/// output is empty, trait impls included - checked against a `dyn Trait`-dispatched
-/// fixture on both the 1.82 stable release and the 2026-11-07 nightly, at the raw
-/// protobuf level, not just the JSON rendering. Go and Python get `EdgeKind::Implements`
-/// from a real relationship (`ingest.rs`); Rust has to get the same fact a different
-/// way, and the symbol string already carries it via `rust_impl_parts`. This turns that
-/// naming convention back into the same fact, so the one survey query that excludes
-/// dispatched methods from `unreached`/`outline` (`survey.rs`) needs no Rust-specific
-/// case at all.
+/// `rust-analyzer scip` emits no relationships at all: every `SymbolInformation.
+/// relationships` in its output is empty, trait impls included - checked against a
+/// `dyn Trait`-dispatched fixture on both the 1.82 stable release and the 2026-11-07
+/// nightly, at the raw protobuf level, not just the JSON rendering. Go and Python get
+/// `EdgeKind::Implements` from a real relationship (`ingest.rs`); Rust has to get the
+/// same fact a different way, and the symbol string already carries it via
+/// `rust_impl_parts`. This turns that naming convention back into the same fact, so the
+/// one survey query that excludes dispatched methods from `unreached`/`outline`
+/// (`survey.rs`) needs no Rust-specific case at all.
 ///
 /// `impl#[Square][Shape]area().` -> `Shape#area().`, in the same package and module.
 pub fn rust_trait_impl_target(symbol: &str) -> Option<String> {
@@ -225,6 +237,7 @@ pub fn rust_trait_impl_target(symbol: &str) -> Option<String> {
     }
     let d = parsed.descriptors;
     let (start, _type_name, trait_name, method_part) = rust_impl_parts(d)?;
+    let trait_name = trait_name?;
     let prefix = &d[..start];
     Some(format!(
         "{} {} {} {} {prefix}{trait_name}#{method_part}",
@@ -232,15 +245,17 @@ pub fn rust_trait_impl_target(symbol: &str) -> Option<String> {
     ))
 }
 
-/// The display name and container a Rust trait-impl method would have if it were named
+/// The display name and container a Rust impl method would have if it were named
 /// `Type#method().` directly, the way every other impl method here is - rather than the
-/// `impl#[Type][Trait]method().` form SCIP needs to disambiguate it internally.
+/// `impl#[Type]method().` or `impl#[Type][Trait]method().` form SCIP needs internally.
 ///
-/// Without this, `ParsedSymbol::display_name`/`container` read the wrapper literally and
-/// an outline printed `impl.[Terse][Reporter]report` where Go's equivalent prints
-/// `Terse.Report`. The trait is not lost by hiding it here - it is exactly what
-/// `rust_trait_impl_target` already turns into `EdgeKind::Implements` - this is
-/// purely cosmetic, one more reader of the same symbol string.
+/// Without this, `ParsedSymbol::display_name`/`container` read the wrapper literally:
+/// an inherent method outlined as `impl.[Match]new` and a trait impl as
+/// `impl.[Terse][Reporter]report`, where Go's equivalent of either prints `Type.method`.
+/// Applies to both shapes - an inherent method has no trait to hide, so nothing is lost
+/// by unwrapping it; a trait impl's trait is not lost either, it is exactly what
+/// `rust_trait_impl_target` already turns into `EdgeKind::Implements`. This is purely
+/// cosmetic, one more reader of the same symbol string.
 pub fn rust_impl_display(symbol: &str) -> Option<(String, String)> {
     let parsed = ParsedSymbol::parse(symbol)?;
     if parsed.is_local {
@@ -430,8 +445,13 @@ mod tests {
 
     #[test]
     fn an_inherent_impl_method_names_no_trait() {
+        // `impl#[Match]new().`, one bracket - captured from indexing ripgrep's own
+        // `grep-matcher` crate, not invented: an inherent `impl` method gets the same
+        // `impl#[..]` wrapper a trait impl does, just with no trait to name. An earlier
+        // version of this test asserted `Square#new().` with no wrapper at all, which
+        // was never checked against a real rust-analyzer run and was wrong.
         assert_eq!(
-            rust_trait_impl_target("rust-analyzer cargo spike 0.1.0 bin/spike/Square#new()."),
+            rust_trait_impl_target("rust-analyzer cargo grep-matcher 0.1.9 impl#[Match]new()."),
             None
         );
     }
@@ -457,9 +477,24 @@ mod tests {
     }
 
     #[test]
-    fn an_inherent_impl_has_no_display_override() {
+    fn an_inherent_impl_method_also_displays_as_type_dot_method() {
+        // Same real symbol as `an_inherent_impl_method_names_no_trait`: no trait to
+        // synthesise an edge from, but still wrapped for SCIP's own disambiguation, so
+        // display needs unwrapping just as much as a trait impl's does.
+        let (name, container) =
+            rust_impl_display("rust-analyzer cargo grep-matcher 0.1.9 impl#[Match]new().")
+                .expect("an inherent impl method displays as Type.method too");
+        assert_eq!(name, "new");
+        assert_eq!(container, "Match#");
+    }
+
+    #[test]
+    fn a_trait_methods_own_declaration_has_no_display_override() {
+        // `Matcher#find_at().` - the method's declaration inside the trait definition
+        // itself, not an impl of it. Already in the shape every other language's method
+        // is, so there is nothing for `rust_impl_display` to do here.
         assert_eq!(
-            rust_impl_display("rust-analyzer cargo spike 0.1.0 bin/spike/Square#new()."),
+            rust_impl_display("rust-analyzer cargo grep-pcre2 0.1.10 matcher/Matcher#find_at()."),
             None
         );
     }

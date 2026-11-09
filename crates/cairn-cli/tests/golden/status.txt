@@ -21,7 +21,7 @@ coverage   what each mechanism produced, against the tree it was built from
   cross-api      indexed       2 gRPC services, 6 serve, 12 call links
   go             indexed       227 symbols, ingested from SCIP with no tree walk to compare
   python         indexed       273 symbols, ingested from SCIP with no tree walk to compare
-  rs             indexed       27 symbols, ingested from SCIP with no tree walk to compare
+  rust           indexed       27 symbols, ingested from SCIP with no tree walk to compare
 daemon     not running
 stale: NOT TRACKED - the file watcher is still starting, so edits made since the index was built are not visible yet. `cairn verify --repo <dir>` is the one-off check
 suppressed: none
