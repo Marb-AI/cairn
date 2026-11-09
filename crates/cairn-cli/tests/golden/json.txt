@@ -22,7 +22,7 @@ exit 0
       "NOT TRACKED - the file watcher is still starting, so edits made since the index was built are not visible yet. `cairn verify --repo <dir>` is the one-off check"
     ]
   },
-  "body": "index      <db>\nfiles      19\nsymbols    527\noccurrence 1665\ngenerated  2 files\n\ncoverage   what each mechanism produced, against the tree it was built from\n           indexed -> verified -> verify stale -> verified. `indexed` is the pass\n           having run and matched the tree, which is counting; the rungs above\n           are judgements recorded by `cairn llm verify` and expire with the tree\n  entrypoints    indexed       4 entrypoints, 3 resolve to code, 1 idle\n  cross-api      indexed       2 gRPC services, 6 serve, 12 call links\n  go             indexed       227 symbols, ingested from SCIP with no tree walk to compare\n  python         indexed       273 symbols, ingested from SCIP with no tree walk to compare\n  rs             indexed       27 symbols, ingested from SCIP with no tree walk to compare\ndaemon     not running\n",
+  "body": "index      <db>\nfiles      19\nsymbols    527\noccurrence 1665\ngenerated  2 files\n\ncoverage   what each mechanism produced, against the tree it was built from\n           indexed -> verified -> verify stale -> verified. `indexed` is the pass\n           having run and matched the tree, which is counting; the rungs above\n           are judgements recorded by `cairn llm verify` and expire with the tree\n  entrypoints    indexed       4 entrypoints, 3 resolve to code, 1 idle\n  cross-api      indexed       2 gRPC services, 6 serve, 12 call links\n  go             indexed       227 symbols, ingested from SCIP with no tree walk to compare\n  python         indexed       273 symbols, ingested from SCIP with no tree walk to compare\n  rust           indexed       27 symbols, ingested from SCIP with no tree walk to compare\ndaemon     not running\n",
   "data": {
     "connectors": [
       {
@@ -57,7 +57,7 @@ exit 0
       },
       {
         "detail": "27 symbols, ingested from SCIP with no tree walk to compare",
-        "name": "rs",
+        "name": "rust",
         "state": "indexed"
       }
     ],

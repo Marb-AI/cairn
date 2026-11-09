@@ -134,6 +134,7 @@ fn normalise_lang(name: &str) -> String {
         "py" | "python" => "python".to_string(),
         "ts" | "typescript" => "typescript".to_string(),
         "js" | "javascript" => "javascript".to_string(),
+        "rs" | "rust" => "rust".to_string(),
         other => other.to_string(),
     }
 }
@@ -730,6 +731,12 @@ mod tests {
         assert_eq!(normalise_lang("TypeScript"), normalise_lang("ts"));
         assert_eq!(normalise_lang("go"), "go");
         assert_ne!(normalise_lang("python"), normalise_lang("go"));
+        // Caught on a real indexed repository (ripgrep), not a fixture: `rust` (the
+        // tree walk's name) and `rs` (Lang::tag's) never met, so `status`/`verify`
+        // printed Rust twice - "not indexed" under one spelling, "indexed, 8602
+        // symbols" under the other - which is exactly the false "mechanism did not
+        // run" this function exists to prevent.
+        assert_eq!(normalise_lang("rust"), normalise_lang("rs"));
     }
 
     #[test]
