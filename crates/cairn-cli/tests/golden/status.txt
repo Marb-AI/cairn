@@ -8,9 +8,9 @@
 $ cairn status
 exit 0
 index      <db>
-files      17
-symbols    500
-occurrence 1599
+files      19
+symbols    527
+occurrence 1665
 generated  2 files
 
 coverage   what each mechanism produced, against the tree it was built from
@@ -21,6 +21,7 @@ coverage   what each mechanism produced, against the tree it was built from
   cross-api      indexed       2 gRPC services, 6 serve, 12 call links
   go             indexed       227 symbols, ingested from SCIP with no tree walk to compare
   python         indexed       273 symbols, ingested from SCIP with no tree walk to compare
+  rs             indexed       27 symbols, ingested from SCIP with no tree walk to compare
 daemon     not running
 stale: NOT TRACKED - the file watcher is still starting, so edits made since the index was built are not visible yet. `cairn verify --repo <dir>` is the one-off check
 suppressed: none

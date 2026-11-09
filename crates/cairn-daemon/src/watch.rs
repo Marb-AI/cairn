@@ -594,7 +594,7 @@ fn coverage_of(indexed: &HashMap<String, [u8; 16]>, roots: &[String]) -> Coverag
 ///
 /// Only reachable with an empty index, where every question about staleness is moot. It
 /// exists so that case degrades to the old behaviour rather than to silence.
-const FALLBACK_EXTENSIONS: &[&str] = &["py", "pyi", "go", "ts", "tsx", "js", "jsx"];
+const FALLBACK_EXTENSIONS: &[&str] = &["py", "pyi", "go", "ts", "tsx", "js", "jsx", "rs"];
 
 /// Could the index have held this file at all?
 ///

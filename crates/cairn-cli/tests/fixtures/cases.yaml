@@ -76,6 +76,29 @@
   contains: ["ReportAll", "no callers"]
   max_seconds: 5
 
+# The same pair, in Rust, where the fix cannot lean on a real SCIP relationship at all:
+# `rust-analyzer scip` emits none, trait impls included (checked at the raw protobuf
+# level). `Terse`/`Verbose` satisfy `Reporter` the same way `Terse`/`Verbose` in format.go
+# satisfy `station.Reporter` - only `report_all`'s trait object ever calls `report()` by
+# name - so this is the same defect class caught from the symbol string instead:
+# `impl#[Type][Trait]method()` names the trait it implements on its own.
+- name: a Rust method that only runs through a trait it satisfies is not unused
+  args: [outline, srcrs/src]
+  contains: ["dispatched", "Terse.report", "Verbose.report"]
+  max_seconds: 5
+
+- name: a Rust method reached only through a trait object is not listed as unreached
+  args: [unreached, srcrs/src]
+  not_contains: ["Terse.report", "Verbose.report"]
+  max_seconds: 5
+
+# And the contrast case: a plain function with a genuinely absent caller is still
+# reported — the fix must not have made the whole crate quiet.
+- name: a genuinely uncalled Rust function next to a dispatched one is still reported
+  args: [unreached, srcrs/src]
+  contains: ["orphaned_summary", "no callers"]
+  max_seconds: 5
+
 - name: an outline separates production callers from test-only ones
   args: [outline, srcgo/internal/station]
   contains: ["Registry.Add", "test-only", "prod"]

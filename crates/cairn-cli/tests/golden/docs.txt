@@ -7,8 +7,8 @@
 
 $ cairn docs
 exit 0
-1 documents, 3 sections, ~492 words        [L0-M, exact]
-  README.md                                      492w  Fixture corpus
+1 documents, 3 sections, ~604 words        [L0-M, exact]
+  README.md                                      604w  Fixture corpus
                                                  What it is shaped to exercise · Regenerating the SCIP indexes
 suppressed: none
 unknown: headings and spans only, never the prose. This says which document and which lines; what they say is in the file
@@ -16,10 +16,10 @@ stale: none
 
 $ cairn docs README.md
 exit 0
-3 sections, ~492 words        [L0-M, exact]
-  Fixture corpus                                         283w  README.md:1-36
-    What it is shaped to exercise                        165w  README.md:10-28
-    Regenerating the SCIP indexes                         44w  README.md:29-36
+3 sections, ~604 words        [L0-M, exact]
+  Fixture corpus                                         339w  README.md:1-41
+    What it is shaped to exercise                        221w  README.md:10-33
+    Regenerating the SCIP indexes                         44w  README.md:34-41
 suppressed: none
 unknown: none
 stale: none

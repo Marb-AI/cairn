@@ -31,6 +31,7 @@ pub fn provider_for(lang: Lang) -> Provider {
         // but nothing here pretends to have one.
         Lang::Python => Provider::None("flow is not available for python"),
         Lang::TypeScript => Provider::None("flow is not available for typescript"),
+        Lang::Rust => Provider::None("flow is not available for rust"),
         Lang::Unknown => Provider::None("flow needs a language this index could not determine"),
     }
 }

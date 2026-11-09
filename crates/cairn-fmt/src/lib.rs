@@ -2276,6 +2276,9 @@ fn attribute_caveat(sym: &SymbolRow) -> Option<String> {
                 "values typed `any`, index signatures and objects built dynamically"
             }
             Lang::Go => "values reached through an interface or `any`",
+            Lang::Rust => {
+                "values reached through a trait object (`dyn Trait`) or a generic type parameter"
+            }
             _ => "ORM models, dicts-as-records and dynamically built objects",
         };
         format!(

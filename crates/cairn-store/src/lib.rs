@@ -98,6 +98,7 @@ pub enum Lang {
     Python = 1,
     Go = 2,
     TypeScript = 3,
+    Rust = 4,
 }
 
 impl Lang {
@@ -106,6 +107,7 @@ impl Lang {
             1 => Lang::Python,
             2 => Lang::Go,
             3 => Lang::TypeScript,
+            4 => Lang::Rust,
             _ => Lang::Unknown,
         }
     }
@@ -116,6 +118,7 @@ impl Lang {
             Lang::Python => "py",
             Lang::Go => "go",
             Lang::TypeScript => "ts",
+            Lang::Rust => "rs",
             Lang::Unknown => "??",
         }
     }
@@ -143,6 +146,7 @@ impl Lang {
             "py" | "pyi" => Lang::Python,
             "go" => Lang::Go,
             "ts" | "tsx" | "js" | "jsx" => Lang::TypeScript,
+            "rs" => Lang::Rust,
             _ => Lang::Unknown,
         }
     }
@@ -158,6 +162,9 @@ impl Lang {
             "scip-python" => Lang::Python,
             "scip-go" => Lang::Go,
             "scip-typescript" => Lang::TypeScript,
+            // rust-analyzer's own scheme, not a third-party tool named after SCIP: it is
+            // the language server itself, run with `rust-analyzer scip`.
+            "rust-analyzer" => Lang::Rust,
             _ => Lang::Unknown,
         }
     }
