@@ -15,8 +15,9 @@ log() { printf '\n\033[1m-- %s\033[0m\n' "$*"; }
 mkdir -p "$OUT"
 
 log "tool versions"
-printf '   scip-go      %s\n' "$(scip-go --version 2>&1 | head -1)"
-printf '   scip-python  %s\n' "$(scip-python --version 2>&1 | head -1)"
+printf '   scip-go       %s\n' "$(scip-go --version 2>&1 | head -1)"
+printf '   scip-python   %s\n' "$(scip-python --version 2>&1 | head -1)"
+printf '   rust-analyzer %s\n' "$(rust-analyzer --version 2>&1 | head -1)"
 
 # The corpus is mounted read-only so indexing cannot edit the tree it describes; both
 # indexers want to write next to the sources, so they work on a copy.
@@ -32,6 +33,9 @@ log "scip-python"
     --project-name telemetry-alerting \
     --project-version fixture \
     --output "$OUT/py.scip" 2>&1 | tail -5)
+
+log "rust-analyzer"
+(cd "$WORK/srcrs" && rust-analyzer scip . --output "$OUT/rs.scip" 2>&1 | tail -5)
 
 # The container runs as root; without this the committed files belong to root on the host.
 if [ -n "${HOST_UID:-}" ]; then

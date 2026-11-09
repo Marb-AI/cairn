@@ -182,6 +182,80 @@ impl<'a> ParsedSymbol<'a> {
     }
 }
 
+/// Where a Rust trait-impl method's descriptor names the type, the trait, and the
+/// method's own descriptor with its suffix - `impl#[Square][Shape]area().` splits into
+/// (`"Square"`, `"Shape"`, `"area()."`). `None` for an inherent impl
+/// (`impl Square { fn new() {} }`), which rust-analyzer names `Square#new().` directly
+/// with no `impl#[..]` wrapper - there is no trait to disambiguate, so there is nothing
+/// to split.
+fn rust_impl_parts(descriptors: &str) -> Option<(usize, &str, &str, &str)> {
+    let marker = "impl#[";
+    let start = descriptors.rfind(marker)?;
+    let rest = &descriptors[start + marker.len()..];
+    let (type_name, rest) = rest.split_once(']')?;
+    if type_name.is_empty() {
+        return None;
+    }
+    let rest = rest.strip_prefix('[')?;
+    let (trait_name, method_part) = rest.split_once(']')?;
+    if trait_name.is_empty() || method_part.is_empty() {
+        return None;
+    }
+    Some((start, type_name, trait_name, method_part))
+}
+
+/// The trait method a Rust `impl` method symbol satisfies, derived from the symbol
+/// string itself rather than from a SCIP relationship.
+///
+/// `rust-analyzer scip` emits none: every `SymbolInformation.relationships` in its
+/// output is empty, trait impls included - checked against a `dyn Trait`-dispatched
+/// fixture on both the 1.82 stable release and the 2026-11-07 nightly, at the raw
+/// protobuf level, not just the JSON rendering. Go and Python get `EdgeKind::Implements`
+/// from a real relationship (`ingest.rs`); Rust has to get the same fact a different
+/// way, and the symbol string already carries it via `rust_impl_parts`. This turns that
+/// naming convention back into the same fact, so the one survey query that excludes
+/// dispatched methods from `unreached`/`outline` (`survey.rs`) needs no Rust-specific
+/// case at all.
+///
+/// `impl#[Square][Shape]area().` -> `Shape#area().`, in the same package and module.
+pub fn rust_trait_impl_target(symbol: &str) -> Option<String> {
+    let parsed = ParsedSymbol::parse(symbol)?;
+    if parsed.is_local {
+        return None;
+    }
+    let d = parsed.descriptors;
+    let (start, _type_name, trait_name, method_part) = rust_impl_parts(d)?;
+    let prefix = &d[..start];
+    Some(format!(
+        "{} {} {} {} {prefix}{trait_name}#{method_part}",
+        parsed.scheme, parsed.manager, parsed.package, parsed.version,
+    ))
+}
+
+/// The display name and container a Rust trait-impl method would have if it were named
+/// `Type#method().` directly, the way every other impl method here is - rather than the
+/// `impl#[Type][Trait]method().` form SCIP needs to disambiguate it internally.
+///
+/// Without this, `ParsedSymbol::display_name`/`container` read the wrapper literally and
+/// an outline printed `impl.[Terse][Reporter]report` where Go's equivalent prints
+/// `Terse.Report`. The trait is not lost by hiding it here - it is exactly what
+/// `rust_trait_impl_target` already turns into `EdgeKind::Implements` - this is
+/// purely cosmetic, one more reader of the same symbol string.
+pub fn rust_impl_display(symbol: &str) -> Option<(String, String)> {
+    let parsed = ParsedSymbol::parse(symbol)?;
+    if parsed.is_local {
+        return None;
+    }
+    let d = parsed.descriptors;
+    let (start, type_name, _trait_name, method_part) = rust_impl_parts(d)?;
+    let prefix = &d[..start];
+    let kind = classify_suffix(method_part)?;
+    Some((
+        strip_suffix_and_quotes(method_part, kind).to_string(),
+        format!("{prefix}{type_name}#"),
+    ))
+}
+
 fn classify_suffix(d: &str) -> Option<SymbolKind> {
     let b = d.as_bytes();
     let last = *b.last()?;
@@ -326,5 +400,67 @@ mod tests {
         assert_eq!(s.kind(), SymbolKind::Namespace);
         assert_eq!(s.container(), None);
         assert_eq!(s.display_name(), "domains");
+    }
+
+    #[test]
+    fn rust_trait_impl_method_points_at_the_trait_method() {
+        // Captured from rust-analyzer 1.82.0 and confirmed unchanged on the
+        // 2026-11-07 nightly, for a `impl Shape for Square { fn area(&self) {..} }`.
+        let target = rust_trait_impl_target(
+            "rust-analyzer cargo spike 0.1.0 bin/spike/impl#[Square][Shape]area().",
+        )
+        .expect("a trait impl method names its trait");
+        assert_eq!(
+            target,
+            "rust-analyzer cargo spike 0.1.0 bin/spike/Shape#area()."
+        );
+    }
+
+    #[test]
+    fn rust_trait_impl_target_handles_a_second_implementor_the_same_way() {
+        let target = rust_trait_impl_target(
+            "rust-analyzer cargo spike 0.1.0 bin/spike/impl#[Circle][Shape]area().",
+        )
+        .expect("a trait impl method names its trait");
+        assert_eq!(
+            target,
+            "rust-analyzer cargo spike 0.1.0 bin/spike/Shape#area()."
+        );
+    }
+
+    #[test]
+    fn an_inherent_impl_method_names_no_trait() {
+        assert_eq!(
+            rust_trait_impl_target("rust-analyzer cargo spike 0.1.0 bin/spike/Square#new()."),
+            None
+        );
+    }
+
+    #[test]
+    fn a_non_rust_symbol_names_no_trait() {
+        assert_eq!(
+            rust_trait_impl_target(
+                "scip-go gomod github.com/example/x v0 `github.com/example/x`/Handle()."
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn rust_impl_display_reads_like_an_ordinary_method() {
+        let (name, container) = rust_impl_display(
+            "rust-analyzer cargo spike 0.1.0 bin/spike/impl#[Square][Shape]area().",
+        )
+        .expect("a trait impl method displays as Type.method");
+        assert_eq!(name, "area");
+        assert_eq!(container, "bin/spike/Square#");
+    }
+
+    #[test]
+    fn an_inherent_impl_has_no_display_override() {
+        assert_eq!(
+            rust_impl_display("rust-analyzer cargo spike 0.1.0 bin/spike/Square#new()."),
+            None
+        );
     }
 }

@@ -75,6 +75,19 @@ pub enum RootRule {
     /// workspace. Measured on a real monorepo: 33 Go modules, of which exactly one was
     /// indexed, and the other 32 were missing from every answer with nothing saying so.
     EveryModule,
+    /// One run per marker that is not a declared member of another marker's workspace.
+    ///
+    /// Cargo's own rule, and it is neither of the other two: a `Cargo.toml` with a
+    /// `[workspace]` table resolves every member it names in the *same* `cargo metadata`
+    /// pass, so indexing a member separately is not a second compilation the way a nested
+    /// Go module is - it is one project counted twice. But an unrelated `Cargo.toml` that
+    /// nobody's workspace claims - a standalone crate, or an example nested under one by
+    /// accident rather than by membership - is exactly the nested-and-silently-dropped
+    /// case `EveryModule` exists to avoid, so nesting alone cannot be the exclusion either
+    /// the way it is for `Outermost`. Membership, read from `[workspace] members` /
+    /// `exclude`, is the only signal that actually answers "does this one project cover
+    /// that directory already".
+    Workspace,
 }
 
 pub const LANGUAGES: &[Language] = &[
@@ -115,6 +128,19 @@ pub const LANGUAGES: &[Language] = &[
         // pnpm first, because a repository that has both means the pnpm one: npm's
         // `workspaces` key is often left behind in `package.json` after a move to pnpm.
         workspace_files: &["pnpm-workspace.yaml", "package.json"],
+    },
+    Language {
+        name: "rust",
+        extensions: &["rs"],
+        indexer: "rust-analyzer",
+        markers: &["Cargo.toml"],
+        // Not `workspace_files`: that mechanism looks for one fixed name directly at the
+        // repository root (`go.work`, `pnpm-workspace.yaml`), and Cargo's workspace root
+        // is just a `Cargo.toml` like any other, wherever one actually is. `RootRule::
+        // Workspace` reads the `[workspace]` table out of every `Cargo.toml` it already
+        // found instead.
+        roots: RootRule::Workspace,
+        workspace_files: &[],
     },
 ];
 
@@ -246,6 +272,72 @@ fn json_workspaces(text: &str) -> Vec<String> {
     .unwrap_or_default()
 }
 
+/// The directories a `Cargo.toml`'s `[workspace]` table claims, or `None` if it has no
+/// such table - a plain crate, standalone or itself a member some ancestor already
+/// claims. `members` and `exclude` are read the way `pnpm-workspace.yaml`'s negation is
+/// (`expand_members` applies both), because an excluded member is the workspace's own
+/// statement that a directory under it does not build, same lesson as there.
+fn cargo_workspace_members(dir: &Path) -> Option<Vec<PathBuf>> {
+    let text = std::fs::read_to_string(dir.join("Cargo.toml")).ok()?;
+    if !text.lines().any(|l| l.trim() == "[workspace]") {
+        return None;
+    }
+    let mut patterns = toml_string_array(&text, "members");
+    patterns.extend(
+        toml_string_array(&text, "exclude")
+            .into_iter()
+            .map(|e| format!("!{e}")),
+    );
+    Some(expand_members(dir, &patterns))
+}
+
+/// A TOML array of strings written as `key = [...]`, on one line or several. Only what
+/// `Cargo.toml`'s `members`/`exclude` need: quoted strings, comma-separated.
+fn toml_string_array(text: &str, key: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut in_array = false;
+    for raw in text.lines() {
+        let line = raw.split('#').next().unwrap_or("").trim();
+        if !in_array {
+            let Some(rest) = line.strip_prefix(key) else {
+                continue;
+            };
+            let Some(rest) = rest.trim_start().strip_prefix('=') else {
+                continue;
+            };
+            let Some(rest) = rest.trim_start().strip_prefix('[') else {
+                continue;
+            };
+            in_array = true;
+            match rest.split_once(']') {
+                Some((inside, _)) => {
+                    push_toml_strings(inside, &mut out);
+                    break;
+                }
+                None => push_toml_strings(rest, &mut out),
+            }
+            continue;
+        }
+        match line.split_once(']') {
+            Some((inside, _)) => {
+                push_toml_strings(inside, &mut out);
+                break;
+            }
+            None => push_toml_strings(line, &mut out),
+        }
+    }
+    out
+}
+
+fn push_toml_strings(s: &str, out: &mut Vec<String>) {
+    for part in s.split(',') {
+        let p = part.trim().trim_matches(['"', '\'']);
+        if !p.is_empty() {
+            out.push(p.to_string());
+        }
+    }
+}
+
 /// Turn workspace globs into the directories they actually name.
 ///
 /// Only the one wildcard shape these files use in practice - `apps/*`, `packages/*` - and
@@ -304,7 +396,6 @@ fn expand_members(repo: &Path, patterns: &[String]) -> Vec<PathBuf> {
 /// Extensions cairn cannot index, named so a warning can say which language was skipped
 /// rather than leaving someone to guess from a file count.
 const UNSUPPORTED: &[(&str, &str)] = &[
-    ("rs", "Rust"),
     ("java", "Java"),
     ("kt", "Kotlin"),
     ("rb", "Ruby"),
@@ -474,6 +565,20 @@ pub fn scan(repo: &Path) -> Result<Survey> {
                         .collect(),
                     // Every one of them, nesting included: see `RootRule::EveryModule`.
                     RootRule::EveryModule => all.clone(),
+                    // Every one of them that is not a member some other one already
+                    // claims: see `RootRule::Workspace`.
+                    RootRule::Workspace => {
+                        let mut claimed: Vec<PathBuf> = Vec::new();
+                        for dir in all {
+                            if let Some(members) = cargo_workspace_members(dir) {
+                                claimed.extend(members);
+                            }
+                        }
+                        all.iter()
+                            .filter(|p| !claimed.contains(p))
+                            .cloned()
+                            .collect()
+                    }
                 };
                 chosen.sort();
                 chosen.dedup();
@@ -861,6 +966,11 @@ pub fn run_indexer(found: &Found, root: &Path, tag: &str, repo: &Path, out_rel: 
             }
             vec!["scip-typescript", "index", "--output", &out]
         }
+        // Unlike the other three, this is rust-analyzer itself, not a wrapper built for
+        // SCIP: there is no separate indexer binary to install or version apart from the
+        // language server already in the image. `.` because the workdir the exec runs in
+        // is already the chosen root (see `docker::exec`'s `--workdir`).
+        "rust" => vec!["rust-analyzer", "scip", ".", "--output", &out],
         other => return Outcome::Failed(format!("no invocation known for {other}")),
     };
 
@@ -1020,17 +1130,17 @@ mod tests {
 
     #[test]
     fn a_language_we_cannot_read_is_named_rather_than_ignored() {
-        // Rust rather than TypeScript: this used to name TypeScript, which then became a
-        // language cairn indexes, and the test went from checking the warning to checking
-        // nothing. The property is about *any* unreadable language, so it needs an example
-        // that stays unreadable.
+        // Ruby rather than TypeScript or Rust: both of those used to be the example here
+        // and both then became languages cairn indexes, each time turning the test from
+        // checking the warning into checking nothing. The property is about *any*
+        // unreadable language, so it needs an example that stays unreadable.
         let mut files = many("srcgo", "go", 20);
-        files.extend(many("engine", "rs", 20));
+        files.extend(many("engine", "rb", 20));
         let dir = tree("unsupported", &refs(&files));
         let survey = scan(&dir).unwrap();
         assert_eq!(survey.found.len(), 1, "only Go can be indexed");
         assert_eq!(survey.unsupported.len(), 1);
-        assert_eq!(survey.unsupported[0].0, "Rust");
+        assert_eq!(survey.unsupported[0].0, "Ruby");
         assert_eq!(survey.unsupported[0].1, 20);
     }
 
@@ -1156,6 +1266,103 @@ mod tests {
             survey.found[0].roots,
             vec![dir.join("gen"), dir.join("src")],
             "the workspace's own list, minus what is not on disk"
+        );
+    }
+
+    #[test]
+    fn a_cargo_workspace_absorbs_its_own_members() {
+        // Unlike Go, a Cargo workspace resolves every member it names in the one
+        // `cargo metadata` pass the indexer makes from the workspace root - indexing a
+        // member separately would be the same project counted twice, not a second one.
+        let mut files = vec![
+            (
+                "Cargo.toml".to_string(),
+                "[workspace]\nmembers = [\"crates/*\"]\n".to_string(),
+            ),
+            ("crates/a/Cargo.toml".to_string(), "[package]\n".to_string()),
+            ("crates/b/Cargo.toml".to_string(), "[package]\n".to_string()),
+        ];
+        files.extend(many("crates/a/src", "rs", 10));
+        files.extend(many("crates/b/src", "rs", 10));
+        let dir = tree("cargo-workspace", &refs(&files));
+        let roots = &scan(&dir).unwrap().found[0].roots;
+        assert_eq!(
+            roots,
+            &vec![dir.clone()],
+            "one run at the workspace root, not one per member Cargo.toml too"
+        );
+    }
+
+    #[test]
+    fn a_cargo_crate_nobody_claims_is_its_own_root() {
+        // No workspace at all: two unrelated crates, each indexed on its own.
+        let mut files = vec![
+            (
+                "tools/cli/Cargo.toml".to_string(),
+                "[package]\n".to_string(),
+            ),
+            ("engine/Cargo.toml".to_string(), "[package]\n".to_string()),
+        ];
+        files.extend(many("tools/cli/src", "rs", 10));
+        files.extend(many("engine/src", "rs", 10));
+        let dir = tree("cargo-standalone", &refs(&files));
+        let roots = &scan(&dir).unwrap().found[0].roots;
+        assert_eq!(
+            roots,
+            &vec![dir.join("engine"), dir.join("tools/cli")],
+            "both, in a fixed order"
+        );
+    }
+
+    #[test]
+    fn a_crate_the_workspace_does_not_list_is_still_indexed() {
+        // The Go lesson (33 modules, one indexed) read onto Cargo: a crate nested under
+        // the workspace root that the workspace's own `members` does not name - an
+        // example checked in by hand, say - is not swallowed by the root just because it
+        // is inside it.
+        let mut files = vec![
+            (
+                "Cargo.toml".to_string(),
+                "[workspace]\nmembers = [\"crates/a\"]\n".to_string(),
+            ),
+            (
+                "crates/not-a-member/Cargo.toml".to_string(),
+                "[package]\n".to_string(),
+            ),
+        ];
+        files.extend(many("crates/a/src", "rs", 10));
+        files.extend(many("crates/not-a-member/src", "rs", 10));
+        let dir = tree("cargo-unclaimed", &refs(&files));
+        let roots = &scan(&dir).unwrap().found[0].roots;
+        assert_eq!(
+            roots,
+            &vec![dir.clone(), dir.join("crates/not-a-member")],
+            "the workspace root, and the crate it never claimed"
+        );
+    }
+
+    #[test]
+    fn cargo_exclude_drops_a_member_the_way_pnpm_does() {
+        let mut files = vec![
+            (
+                "Cargo.toml".to_string(),
+                "[workspace]\nmembers = [\"crates/*\"]\nexclude = [\"crates/experimental\"]\n"
+                    .to_string(),
+            ),
+            ("crates/a/Cargo.toml".to_string(), "[package]\n".to_string()),
+            (
+                "crates/experimental/Cargo.toml".to_string(),
+                "[package]\n".to_string(),
+            ),
+        ];
+        files.extend(many("crates/a/src", "rs", 10));
+        files.extend(many("crates/experimental/src", "rs", 10));
+        let dir = tree("cargo-exclude", &refs(&files));
+        let roots = &scan(&dir).unwrap().found[0].roots;
+        assert_eq!(
+            roots,
+            &vec![dir.clone(), dir.join("crates/experimental")],
+            "excluded from the workspace, so it is not absorbed - it is still its own crate"
         );
     }
 

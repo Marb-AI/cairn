@@ -245,6 +245,35 @@ pub fn ingest_scip(
                     )?;
                     stats.implements_edges += 1;
                 }
+                // rust-analyzer's `scip` emits no relationships at all - the loop above
+                // never fires for Rust. The same fact is in the symbol string instead:
+                // a trait impl method is named `impl#[Type][Trait]method().`, and
+                // `rust_trait_impl_target` turns that back into the trait method it
+                // satisfies, so this is the same edge the loop above builds from real
+                // relationship data for Go and Python, built from a different source.
+                if lang == Lang::Rust {
+                    if let Some(target) = cairn_scip::rust_trait_impl_target(&info.symbol) {
+                        let dst = intern_symbol(
+                            &target,
+                            lang,
+                            &mut interner,
+                            &mut insert_symbol,
+                            &mut symbol_ids,
+                            &mut stats,
+                        )?;
+                        edge_batch.push(
+                            &tx,
+                            vec![
+                                Value::from(src),
+                                Value::from(dst),
+                                Value::from(crate::EdgeKind::Implements as i64),
+                                Value::from(crate::EdgeSource::Scip as i64),
+                                Value::from(1.0f64),
+                            ],
+                        )?;
+                        stats.implements_edges += 1;
+                    }
+                }
             }
 
             for occ in &doc.occurrences {
@@ -384,6 +413,19 @@ fn intern_symbol(
         .map(|p| Lang::from_scip_scheme(p.scheme))
         .filter(|l| *l != Lang::Unknown)
         .unwrap_or(doc_lang);
+
+    // A Rust trait-impl method is named `impl#[Type][Trait]method().` so SCIP can
+    // disambiguate it internally; read literally that is `impl.[Type][Trait]method` in
+    // every outline, where Go's equivalent reads `Type.method`. The override is purely
+    // cosmetic - `rust_trait_impl_target` above already turned the same string into the
+    // `EdgeKind::Implements` edge that carries the trait where it actually matters.
+    let rust_display = (lang == Lang::Rust)
+        .then(|| cairn_scip::rust_impl_display(symbol))
+        .flatten();
+    let name: &str = rust_display.as_ref().map_or(name, |(n, _)| n.as_str());
+    let container: Option<&str> = rust_display
+        .as_ref()
+        .map_or(container, |(_, c)| Some(c.as_str()));
 
     let hash = crate::symbol_hash(symbol);
     let name_id = interner.intern(name)?;
@@ -637,6 +679,7 @@ fn detect_lang(doc: &cairn_scip::Document) -> Lang {
         "python" => Lang::Python,
         "go" => Lang::Go,
         "typescript" | "javascript" | "tsx" => Lang::TypeScript,
+        "rust" => Lang::Rust,
         _ => match Path::new(&doc.relative_path)
             .extension()
             .and_then(|e| e.to_str())

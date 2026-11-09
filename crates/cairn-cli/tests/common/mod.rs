@@ -28,11 +28,12 @@ pub fn build_fixture_index(root: &Path, bin: &Path, label: &str) -> Option<PathB
 /// the fixture corpus, where it would change what every other test sees.
 pub fn build_fixture_index_in(dir: &Path, root: &Path, bin: &Path) -> Option<PathBuf> {
     let fixtures = root.join("crates/cairn-cli/tests/fixtures");
-    let (go, py) = (
+    let (go, py, rs) = (
         fixtures.join("index/go.scip"),
         fixtures.join("index/py.scip"),
+        fixtures.join("index/rs.scip"),
     );
-    if !go.exists() || !py.exists() {
+    if !go.exists() || !py.exists() || !rs.exists() {
         return None;
     }
 
@@ -44,6 +45,7 @@ pub fn build_fixture_index_in(dir: &Path, root: &Path, bin: &Path) -> Option<Pat
         .arg("index")
         .arg(&go)
         .arg(&py)
+        .arg(&rs)
         .arg("--repo")
         .arg(fixtures.join("corpus"))
         // Without this every test run writes the agent guide into the fixture, which is a

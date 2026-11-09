@@ -37,6 +37,14 @@ RUN go install github.com/scip-code/scip-go/cmd/scip-go@v0.2.9
 COPY cairnflow /src/cairnflow
 RUN cd /src/cairnflow && go build -buildvcs=false -o /go/bin/cairnflow .
 
+# rust-analyzer builds its own SCIP index - `rust-analyzer scip` is a subcommand of the
+# language server itself, not a separate tool the way `scip-go`/`scip-python` are, so
+# there is nothing to install beyond the toolchain tag below naming a version. `rust-src`
+# is here too: without it rust-analyzer logs "can't load standard library, try installing
+# `rust-src`" and resolves nothing that touches `std`, which for Rust is almost everything.
+FROM rust:1.99.1-bookworm AS rustbuild
+RUN rustup component add rust-analyzer rust-src
+
 # Python is the base, not an afterthought: scip-python shells out to `pip` to enumerate the
 # environment and fails outright without one. Learned by building this the other way round
 # and watching it die with "Could not find valid pip command".
@@ -85,9 +93,19 @@ COPY --from=gobuild /go/bin/scip-go /usr/local/bin/scip-go
 COPY --from=goplsbuild /go/bin/gopls /usr/local/bin/gopls
 COPY --from=golang:1.26-bookworm /usr/local/go /usr/local/go
 
+# The whole toolchain directory, the way Go's is copied above, not just the rust-analyzer
+# binary: `cargo metadata` is what rust-analyzer actually shells out to, the same relation
+# scip-go has to `go list`, so `cargo` and `rustc` have to be here too. Copied from
+# rustup's own toolchain path rather than `/usr/local/cargo` (that one holds only thin
+# proxy binaries that read `RUSTUP_HOME` to find this directory) and put directly on
+# `PATH`, which is what skips needing `rustup` present at all - the same shape as Go's
+# `GOTOOLCHAIN=local`: this one version, nothing auto-fetched.
+COPY --from=rustbuild /usr/local/rustup/toolchains/1.99.1-x86_64-unknown-linux-gnu /opt/rust
+
 # Caches under /tmp because the container runs as the calling user, who owns nothing else
-# in here. Without this both toolchains fail trying to write to a home directory that is
-# not theirs.
+# in here. Without this every toolchain fails trying to write to a home directory that is
+# not theirs - cargo's registry cache included, which `HOME=/tmp` covers on its own
+# since cargo defaults it to `$HOME/.cargo` with no `CARGO_HOME` of its own to set.
 # No `GOFLAGS=-mod=mod`, and that is deliberate twice over.
 #
 # Go refuses it outright in workspace mode - "-mod may only be set to readonly or vendor
@@ -100,7 +118,7 @@ COPY --from=golang:1.26-bookworm /usr/local/go /usr/local/go
 # is a tool nobody can point at a checkout they care about. The default, `readonly`, is
 # the right posture: a repository whose module graph does not resolve fails to index and
 # says so, which is the same thing it would do to a build.
-ENV PATH="/usr/local/go/bin:${PATH}" \
+ENV PATH="/usr/local/go/bin:/opt/rust/bin:${PATH}" \
     GOTOOLCHAIN=local \
     GOCACHE=/tmp/go-build \
     GOMODCACHE=/tmp/go-mod \

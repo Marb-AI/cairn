@@ -7,7 +7,7 @@
 
 $ cairn for find severe --repo <repo>
 exit 0
-24 line(s) containing "severe" in 5 file(s), from 27 searched   [L0, the tree as it is now]
+24 line(s) containing "severe" in 5 file(s), from 30 searched   [L0, the tree as it is now]
 of these: 19 in hand-written code or prose (below), 5 in tests, 0 in generated code
 srcgo/internal/ingest/screen.go
      40 | 	corrected := s.correct(r.Celsius, site)
@@ -82,7 +82,7 @@ stale: none
 
 $ cairn for find severe --all --repo <repo>
 exit 0
-24 line(s) containing "severe" in 5 file(s), from 27 searched   [L0, the tree as it is now]
+24 line(s) containing "severe" in 5 file(s), from 30 searched   [L0, the tree as it is now]
 srcgo/internal/ingest/screen.go
      40 | 	corrected := s.correct(r.Celsius, site)
      41 | 	if corrected <= -25 {
@@ -183,7 +183,7 @@ stale: none
 
 $ cairn for find server --repo <repo>
 exit 0
-21 line(s) containing "server" in 4 file(s), from 27 searched   [L0, the tree as it is now]
+21 line(s) containing "server" in 4 file(s), from 30 searched   [L0, the tree as it is now]
 of these: 7 in hand-written code or prose (below), 0 in tests, 14 in generated code
 srcgo/cmd/collector/main.go
      23 | }
@@ -223,7 +223,8 @@ exit 2
 
 $ cairn for find Altitude --repo <repo>
 exit 0
-19 line(s) containing "Altitude" in 10 file(s), from 27 searched   [L0, the tree as it is now]
+22 line(s) containing "Altitude" in 12 file(s), from 30 searched   [L0, the tree as it is now]
+of these: 14 in hand-written code or prose (below), 4 in tests, 4 in generated code
 proto/telemetry.proto
      41 |   string station_id = 1;
      42 |   string label = 2;
@@ -238,21 +239,6 @@ srcgo/cmd/collector/main.go
      41 > _ = reg.Add(&station.Station{ID: "fjord-03", Label: "Fjord Head", Altitude: 340, Retired: true})  <- in seedRegistry [3s]
      42 | 	return reg
      43 | }
-srcgo/gen/telemetry/telemetry.pb.go   [generated]
-     54 | 	StationId string
-     55 | 	Label     string
-     56 > Altitude  int64  <- in Altitude [ri]
-     57 | 	Retired   bool
-     58 | }
-    158 | }
-    159 | 
-    160 > func (x *StationInfo) GetAltitude() int64 {  <- in GetAltitude [8x]
-    161 | 	if x == nil {
-    162 | 		return 0
-    163 | 	}
-    164 > return x.Altitude  <- in GetAltitude [8x]
-    165 | }
-    166 | 
 srcgo/internal/ingest/screen.go
      53 | 		return celsius
      54 | 	}
@@ -264,18 +250,6 @@ srcgo/internal/ingest/service.go
      67 > Altitude:  found.Altitude,  <- in DescribeStation [i8]
      68 | 		Retired:   found.Retired,
      69 | 	}, nil
-srcgo/internal/ingest/service_test.go   [test]
-     23 | 	t.Helper()
-     24 | 	reg := station.NewRegistry(0)
-     25 > if err := reg.Add(&station.Station{ID: "alp-01", Label: "Alp Ridge", Altitude: 1200}); err != nil {  <- in newFixture [zb]
-     26 | 		t.Fatalf("seeding the registry: %v", err)
-     27 | 	}
-     87 | 		t.Fatalf("describe: %v", err)
-     88 | 	}
-     89 > if info.Altitude != 1200 {  <- in TestDescribeStationReportsTheRegistry [q4]
-     90 > t.Errorf("got altitude %d", info.Altitude)  <- in TestDescribeStationReportsTheRegistry [q4]
-     91 | 	}
-     92 | }
 srcgo/internal/station/format.go
      14 | func (t Terse) Report() string { return t.ID }
      15 | 
@@ -301,25 +275,30 @@ srcgo/internal/station/registry.go
      25 > return s.Altitude >= 800  <- in Elevated [9b]
      26 | }
      27 | 
-srcgo/internal/station/registry_test.go   [test]
-      5 | func TestAddAndLookup(t *testing.T) {
-      6 | 	r := NewRegistry(0)
-      7 > if err := r.Add(&Station{ID: "alp-01", Label: "Alp Ridge", Altitude: 1200}); err != nil {  <- in TestAddAndLookup [u8]
-      8 | 		t.Fatalf("add: %v", err)
-      9 | 	}
-srcpy/schema/telemetry/__init__.py   [generated]
-     54 |     station_id: str = ""
-     55 |     label: str = ""
-     56 > altitude: int = 0  <- in StationInfo [kdm]
-     57 |     retired: bool = False
-     58 | 
-suppressed: none
+srcrs/src/main.rs
+     10 |         Box::new(Verbose {
+     11 |             id: "WX-2".to_string(),
+     12 > altitude: 900,  <- in main [vsqq]
+     13 |         }),
+     14 |     ];
+srcrs/src/station.rs
+     27 | pub struct Verbose {
+     28 |     pub id: String,
+     29 > pub altitude: i64,  <- in altitude [kh]
+     30 | }
+     31 | 
+     32 | impl Reporter for Verbose {
+     33 |     fn report(&self) -> String {
+     34 > if self.altitude >= 800 {  <- in report [wy]
+     35 |             format!("{} (elevated)", self.id)
+     36 |         } else {
+suppressed: 8 line(s) in test or generated files, counted in the header but not listed - `cairn for find "Altitude" --all` lists every hit
 unknown: substring, case-insensitive, over the working tree - so it is never stale, and it is not a regex. Symbol context is attached only where the file is indexed (Python and Go); section context only for markdown
 stale: none
 
 $ cairn for find Error --repo <repo>
 exit 0
-40 line(s) containing "Error" in 8 file(s), from 27 searched   [L0, the tree as it is now]
+40 line(s) containing "Error" in 8 file(s), from 30 searched   [L0, the tree as it is now]
 of these: 14 in hand-written code or prose (below), 12 in tests, 14 in generated code
 srcgo/cmd/collector/main.go
      21 > func (loopbackConn) Invoke(ctx context.Context, method string, in any, out any) error {  <- in Invoke [xj]

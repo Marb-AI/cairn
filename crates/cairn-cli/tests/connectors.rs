@@ -66,6 +66,7 @@ fn index_with_connector(label: &str, mode: &str, timeout_s: u64) -> Option<(Path
         .arg("index")
         .arg(fixtures.join("index/go.scip"))
         .arg(fixtures.join("index/py.scip"))
+        .arg(fixtures.join("index/rs.scip"))
         .arg("--repo")
         .arg(fixtures.join("corpus"))
         .arg("--without-skill")

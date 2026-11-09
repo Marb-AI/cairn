@@ -23,6 +23,11 @@ contain the things those commands are about:
 * **Dispatched calls.** `srcpy/alerting/dispatch.py` reaches its handlers through a
   registry, so they are called by nothing a call graph can see. Reporting them as dead
   code is the defect this guards.
+* **Dispatch through a language construct, in two languages.** `srcgo/internal/station`
+  has two `Reporter` implementations called only through the interface;
+  `srcrs/src/station.rs` has the same shape through a Rust trait object, where the fix
+  cannot lean on a real SCIP relationship at all - `rust-analyzer scip` emits none, so
+  the fact comes from the `impl#[Type][Trait]method()` symbol string instead.
 * **Tests, separable from production code.** `_test.go` files and `srcpy/tests/`, so
   `--exclude-tests` has something to exclude.
 

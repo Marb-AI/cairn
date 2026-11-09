@@ -94,9 +94,9 @@ Anything cairn cannot read is counted too, and named:
 ```
   go             41 files  (59%)
   python         19 files  (28%)
-  typescript      9 files  (13%)  not indexed
+  ruby            9 files  (13%)  not indexed
 
-WARNING: TypeScript is in this repository and is not in the index. Answers will be
+WARNING: Ruby is in this repository and is not in the index. Answers will be
          incomplete rather than empty - nothing here can see that code.
 ```
 
